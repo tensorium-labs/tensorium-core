@@ -22,6 +22,8 @@ const DEFAULT_NONCE_LIMIT: u64 = 10_000_000;
 const DEFAULT_RPC_BIND: &str = "127.0.0.1:23332";
 const DEFAULT_P2P_BIND: &str = "127.0.0.1:23333";
 const P2P_PROTOCOL_VERSION: u32 = 1;
+/// Maximum blocks returned per GetBlocks response.
+const SYNC_BATCH_SIZE: usize = 50;
 
 fn main() {
     if let Err(err) = run() {
@@ -70,6 +72,17 @@ fn run() -> Result<(), String> {
                 .get(2)
                 .ok_or_else(|| "usage: tensorium-node p2p-connect <host:port>".to_owned())?;
             connect_peer(peer, &state_path)?;
+        }
+        "sync" => {
+            let peers = configured_peers();
+            let peer = args
+                .get(2)
+                .map(|s| s.as_str())
+                .or_else(|| peers.first().map(|s| s.as_str()))
+                .ok_or_else(|| {
+                    "usage: tensorium-node sync <peer>  (or set TENSORIUM_PEERS)".to_owned()
+                })?;
+            sync_from_peer(peer, &state_path)?;
         }
         "peers" => print_manual_peers(),
         _ => print_help(),
@@ -167,6 +180,7 @@ fn print_help() {
     println!("  rpc [bind]           start localhost HTTP RPC server");
     println!("  p2p-listen [bind]    listen for peer connections and messages");
     println!("  p2p-connect <peer>   connect to a peer for diagnostics");
+    println!("  sync [peer]          pull missing blocks from a peer");
     println!("  peers                print manual peers from TENSORIUM_PEERS");
     println!();
     println!("rpc endpoints:");
@@ -212,6 +226,11 @@ enum P2pMsg {
     NewTx { tx: Box<Transaction> },
     TxAck { txid: Hash256 },
     TxReject { txid: Hash256, reason: String },
+    // --- chain sync ---
+    /// Request up to SYNC_BATCH_SIZE blocks starting at `from_height`.
+    GetBlocks { from_height: u64 },
+    /// Response to GetBlocks; empty vec means "no more blocks".
+    Blocks { blocks: Vec<Block> },
 }
 
 /// Read one newline-terminated line from `stream` byte-by-byte.
@@ -367,10 +386,32 @@ fn handle_p2p_connection(stream: &mut TcpStream, state_path: &Path) -> Result<()
                     }
                 }
             }
+            P2pMsg::GetBlocks { from_height } => {
+                let batch = match load_state(state_path) {
+                    Ok(state) => state
+                        .blocks
+                        .iter()
+                        .filter(|b| b.header.height >= from_height)
+                        .take(SYNC_BATCH_SIZE)
+                        .cloned()
+                        .collect::<Vec<_>>(),
+                    Err(err) => {
+                        eprintln!("getblocks: load state error: {err}");
+                        vec![]
+                    }
+                };
+                let count = batch.len();
+                let _ = write_p2p_line(stream, &P2pMsg::Blocks { blocks: batch });
+                println!(
+                    "p2p getblocks from={from_height} sent={count} to {}",
+                    remote.node_id
+                );
+            }
             P2pMsg::Ack { .. }
             | P2pMsg::Reject { .. }
             | P2pMsg::TxAck { .. }
-            | P2pMsg::TxReject { .. } => {
+            | P2pMsg::TxReject { .. }
+            | P2pMsg::Blocks { .. } => {
                 eprintln!(
                     "p2p unexpected response-type message from {}",
                     remote.node_id
@@ -540,6 +581,87 @@ fn print_manual_peers() {
     for peer in &peers {
         println!("{peer}");
     }
+}
+
+/// Download all blocks that `peer` has but we do not.
+///
+/// Prerequisites:
+/// - `init` must have been run first so we share the same genesis.
+/// - `peer` must be running `p2p-listen`.
+///
+/// Blocks are fetched in batches of SYNC_BATCH_SIZE, validated against our
+/// local chain, and persisted after each successful batch.
+fn sync_from_peer(peer: &str, state_path: &Path) -> Result<(), String> {
+    let mut state = load_state(state_path)?;
+    let our_height = state.height().unwrap_or(0);
+
+    // --- handshake ---
+    let mut stream = TcpStream::connect(peer)
+        .map_err(|err| format!("failed to connect to {peer}: {err}"))?;
+
+    write_p2p_line(&mut stream, &local_hello(&state))?;
+    let line = read_p2p_line(&mut stream)?;
+    let remote: P2pHello = serde_json::from_str(&line)
+        .map_err(|err| format!("parse hello from {peer}: {err}"))?;
+    validate_hello(&remote)?;
+
+    if remote.height <= our_height {
+        println!(
+            "already up to date: our_height={our_height} peer_height={}",
+            remote.height
+        );
+        return Ok(());
+    }
+
+    println!(
+        "sync start: peer={peer} peer_height={} our_height={our_height}",
+        remote.height
+    );
+
+    let mut synced: usize = 0;
+    let mut current_height = our_height;
+
+    // --- fetch loop ---
+    loop {
+        let from = current_height + 1;
+        write_p2p_line(&mut stream, &P2pMsg::GetBlocks { from_height: from })?;
+
+        let line = read_p2p_line(&mut stream)?;
+        let response: P2pMsg = serde_json::from_str(&line)
+            .map_err(|err| format!("parse sync response from {peer}: {err}"))?;
+
+        let P2pMsg::Blocks { blocks } = response else {
+            return Err(format!("unexpected message during sync (expected Blocks)"));
+        };
+
+        if blocks.is_empty() {
+            break;
+        }
+
+        let batch_count = blocks.len();
+        for block in blocks {
+            let height = block.header.height;
+            state
+                .submit_block(&TESTNET, block, now_seconds())
+                .map_err(|err| format!("sync failed at height {height}: {err}"))?;
+            current_height = height;
+        }
+
+        save_state(state_path, &state)?;
+        synced += batch_count;
+        println!(
+            "  synced +{batch_count} blocks  height={current_height}  total_synced={synced}"
+        );
+
+        if current_height >= remote.height {
+            break;
+        }
+    }
+
+    println!(
+        "sync complete: tip={current_height} synced={synced} blocks from {peer}"
+    );
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
