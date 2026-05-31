@@ -372,7 +372,7 @@ Chrome extension wallet stack: TypeScript + React, separate repo `tensorium-wall
 | Docs: MC node guide | DONE | Added `mainnet-candidate rpc/p2p-listen/sync` commands and MC genesis metadata |
 | Docs: Chrome extension guide | TODO | After wallet extension built |
 | Risk disclosure on website | DONE | Root site and docs link to `RISK_DISCLOSURE.md` |
-| Announce mainnet-candidate launch | TODO | Only after 8A stable + 8D docs published |
+| Announce mainnet-candidate launch | TODO | LAST STEP only: after 8A infrastructure, 8E license/security, soak test, monitoring, and final checks pass |
 
 ### 8E — Security & Legal
 
