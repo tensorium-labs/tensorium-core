@@ -340,19 +340,19 @@ fn candidate_block(
 
 #[cfg(test)]
 mod tests {
-    use crate::{chain::TESTNET, pow::mine_header};
+    use crate::{chain::{TESTNET, TEST_PARAMS}, pow::mine_header};
 
     use super::*;
 
     #[test]
     fn initializes_genesis_then_mines_next_block() {
         let mut state = ChainState::new();
-        state.init_genesis(&TESTNET, 1_700_000_000, 1_000_000).unwrap();
+        state.init_genesis(&TEST_PARAMS, 1_700_000_000, 1_000_000).unwrap();
         assert_eq!(state.height(), Some(0));
         assert_eq!(state.block_map.len(), 1);
 
         state
-            .mine_next_block(&TESTNET, 1_700_000_060, "test-miner", 1_000_000)
+            .mine_next_block(&TEST_PARAMS, 1_700_000_060, "test-miner", 1_000_000)
             .unwrap();
         assert_eq!(state.height(), Some(1));
         assert_eq!(state.blocks[1].header.previous_hash, state.blocks[0].hash());
@@ -362,16 +362,16 @@ mod tests {
     #[test]
     fn builds_candidate_then_accepts_mined_submit() {
         let mut state = ChainState::new();
-        state.init_genesis(&TESTNET, 1_700_000_000, 1_000_000).unwrap();
+        state.init_genesis(&TEST_PARAMS, 1_700_000_000, 1_000_000).unwrap();
 
         let candidate = state
-            .candidate_block(&TESTNET, 1_700_000_060, "template-miner")
+            .candidate_block(&TEST_PARAMS, 1_700_000_060, "template-miner")
             .unwrap();
         let mined_header = mine_header(candidate.header.clone(), 1_000_000).unwrap();
         let mined_block = Block::new(mined_header, candidate.transactions);
 
         state
-            .submit_block(&TESTNET, mined_block, 1_700_000_060)
+            .submit_block(&TEST_PARAMS, mined_block, 1_700_000_060)
             .unwrap();
         assert_eq!(state.height(), Some(1));
     }
@@ -379,17 +379,17 @@ mod tests {
     #[test]
     fn submit_block_rejects_already_known() {
         let mut state = ChainState::new();
-        state.init_genesis(&TESTNET, 1_700_000_000, 1_000_000).unwrap();
+        state.init_genesis(&TEST_PARAMS, 1_700_000_000, 1_000_000).unwrap();
 
         let candidate = state
-            .candidate_block(&TESTNET, 1_700_000_060, "miner")
+            .candidate_block(&TEST_PARAMS, 1_700_000_060, "miner")
             .unwrap();
         let mined_header = mine_header(candidate.header.clone(), 1_000_000).unwrap();
         let block = Block::new(mined_header, candidate.transactions);
 
-        state.submit_block(&TESTNET, block.clone(), 1_700_000_060).unwrap();
+        state.submit_block(&TEST_PARAMS, block.clone(), 1_700_000_060).unwrap();
         assert_eq!(
-            state.submit_block(&TESTNET, block, 1_700_000_060),
+            state.submit_block(&TEST_PARAMS, block, 1_700_000_060),
             Err(StateError::AlreadyKnown)
         );
     }
@@ -397,15 +397,15 @@ mod tests {
     #[test]
     fn submit_block_rejects_unknown_parent() {
         let mut state = ChainState::new();
-        state.init_genesis(&TESTNET, 1_700_000_000, 1_000_000).unwrap();
+        state.init_genesis(&TEST_PARAMS, 1_700_000_000, 1_000_000).unwrap();
 
         // Build a block whose previous_hash points to an unknown block.
-        let mut orphan = candidate_block(&TESTNET, None, 1_700_000_060, "miner", vec![]);
+        let mut orphan = candidate_block(&TEST_PARAMS, None, 1_700_000_060, "miner", vec![]);
         orphan.header.previous_hash = Hash256([0xff; 32]); // unknown parent
         orphan.header.height = 1;
 
         assert_eq!(
-            state.submit_block(&TESTNET, orphan, 1_700_000_060),
+            state.submit_block(&TEST_PARAMS, orphan, 1_700_000_060),
             Err(StateError::UnknownParent)
         );
     }
@@ -418,30 +418,30 @@ mod tests {
     #[test]
     fn fork_choice_keeps_first_seen_on_equal_work() {
         let mut state = ChainState::new();
-        state.init_genesis(&TESTNET, 1_700_000_000, 1_000_000).unwrap();
+        state.init_genesis(&TEST_PARAMS, 1_700_000_000, 1_000_000).unwrap();
 
         // Mine two competing blocks at height 1.
         let c1 = state
-            .candidate_block(&TESTNET, 1_700_000_060, "miner-a")
+            .candidate_block(&TEST_PARAMS, 1_700_000_060, "miner-a")
             .unwrap();
         let h1 = mine_header(c1.header.clone(), 10_000_000).unwrap();
         let block_a = Block::new(h1, c1.transactions.clone());
 
         let c2 = state
-            .candidate_block(&TESTNET, 1_700_000_061, "miner-b")
+            .candidate_block(&TEST_PARAMS, 1_700_000_061, "miner-b")
             .unwrap();
         let h2 = mine_header(c2.header.clone(), 10_000_000).unwrap();
         let block_b = Block::new(h2, c2.transactions.clone());
 
         // Accept block_a first — it becomes canonical tip.
         state
-            .submit_block(&TESTNET, block_a.clone(), 1_700_000_060)
+            .submit_block(&TEST_PARAMS, block_a.clone(), 1_700_000_060)
             .unwrap();
         assert_eq!(state.tip().unwrap().hash(), block_a.hash());
 
         // block_b has equal work — first-seen (block_a) stays canonical.
         state
-            .submit_block(&TESTNET, block_b.clone(), 1_700_000_061)
+            .submit_block(&TEST_PARAMS, block_b.clone(), 1_700_000_061)
             .unwrap();
         assert_eq!(state.tip().unwrap().hash(), block_a.hash(), "first-seen stays canonical on equal work");
 
@@ -455,7 +455,7 @@ mod tests {
     fn ensure_block_map_migrates_old_state() {
         // Simulate a state file loaded without block_map (default empty).
         let mut state = ChainState::new();
-        state.init_genesis(&TESTNET, 1_700_000_000, 1_000_000).unwrap();
+        state.init_genesis(&TEST_PARAMS, 1_700_000_000, 1_000_000).unwrap();
         // Manually clear block_map to simulate old state file.
         state.block_map.clear();
         assert!(state.block_map.is_empty());

@@ -135,7 +135,7 @@ impl UtxoSet {
 mod tests {
     use crate::{
         block::{merkle_root, BlockHeader, Transaction, TxInput, TxOutput},
-        chain::TESTNET,
+        chain::{TESTNET, TEST_PARAMS},
         hash::Hash256,
         state::ChainState,
         wallet::WalletKeypair,
@@ -148,17 +148,17 @@ mod tests {
         let mut state = ChainState::new();
         let mut utxos = UtxoSet::new();
 
-        let genesis = state.init_genesis(&TESTNET, 1_700_000_000, 1_000_000).unwrap();
-        utxos.apply_block(&TESTNET, genesis).unwrap();
-        assert_eq!(utxos.total_atoms(), reward_at_height(&TESTNET, 0));
+        let genesis = state.init_genesis(&TEST_PARAMS, 1_700_000_000, 1_000_000).unwrap();
+        utxos.apply_block(&TEST_PARAMS, genesis).unwrap();
+        assert_eq!(utxos.total_atoms(), reward_at_height(&TEST_PARAMS, 0));
 
         let next = state
-            .mine_next_block(&TESTNET, 1_700_000_060, "test-miner", 1_000_000)
+            .mine_next_block(&TEST_PARAMS, 1_700_000_060, "test-miner", 1_000_000)
             .unwrap();
-        utxos.apply_block(&TESTNET, next).unwrap();
+        utxos.apply_block(&TEST_PARAMS, next).unwrap();
         assert_eq!(
             utxos.total_atoms(),
-            reward_at_height(&TESTNET, 0) + reward_at_height(&TESTNET, 1)
+            reward_at_height(&TEST_PARAMS, 0) + reward_at_height(&TEST_PARAMS, 1)
         );
     }
 
@@ -168,7 +168,7 @@ mod tests {
         let mut utxos = UtxoSet::new();
         let coinbase = Transaction::coinbase(1, 100, keypair.address.as_str());
         let coinbase_block = test_block(1, vec![coinbase.clone()]);
-        utxos.apply_block(&TESTNET, &coinbase_block).unwrap();
+        utxos.apply_block(&TEST_PARAMS, &coinbase_block).unwrap();
 
         let mut spend = Transaction::payment(
             vec![TxInput {
@@ -187,7 +187,7 @@ mod tests {
         let block = test_block(2, vec![Transaction::coinbase(2, 100, "miner"), spend]);
 
         assert_eq!(
-            utxos.apply_block(&TESTNET, &block),
+            utxos.apply_block(&TEST_PARAMS, &block),
             Err(UtxoError::ImmatureCoinbaseSpend)
         );
     }
@@ -197,12 +197,12 @@ mod tests {
         Block::new(
             BlockHeader {
                 version: 1,
-                chain_id: TESTNET.chain_id.to_owned(),
+                chain_id: TEST_PARAMS.chain_id.to_owned(),
                 height,
                 previous_hash: Hash256::ZERO,
                 merkle_root,
                 timestamp_seconds: 1_700_000_000 + height,
-                leading_zero_bits: TESTNET.initial_leading_zero_bits,
+                leading_zero_bits: TEST_PARAMS.initial_leading_zero_bits,
                 nonce: 0,
             },
             transactions,

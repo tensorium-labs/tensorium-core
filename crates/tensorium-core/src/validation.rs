@@ -88,17 +88,17 @@ fn validate_coinbase(params: &ConsensusParams, block: &Block) -> Result<(), Vali
 
 #[cfg(test)]
 mod tests {
-    use crate::{chain::TESTNET, state::ChainState};
+    use crate::{chain::{TESTNET, TEST_PARAMS}, state::ChainState};
 
     use super::*;
 
     #[test]
     fn accepts_mined_genesis_block() {
         let mut state = ChainState::new();
-        let block = state.init_genesis(&TESTNET, 1_700_000_000, 1_000_000).unwrap();
+        let block = state.init_genesis(&TEST_PARAMS, 1_700_000_000, 1_000_000).unwrap();
 
         assert_eq!(
-            validate_block(&TESTNET, None, block, 1_700_000_000),
+            validate_block(&TEST_PARAMS, None, block, 1_700_000_000),
             Ok(())
         );
     }
@@ -107,13 +107,13 @@ mod tests {
     fn rejects_tampered_merkle_root() {
         let mut state = ChainState::new();
         let mut block = state
-            .init_genesis(&TESTNET, 1_700_000_000, 1_000_000)
+            .init_genesis(&TEST_PARAMS, 1_700_000_000, 1_000_000)
             .unwrap()
             .clone();
         block.transactions.clear();
 
         assert_eq!(
-            validate_block(&TESTNET, None, &block, 1_700_000_000),
+            validate_block(&TEST_PARAMS, None, &block, 1_700_000_000),
             Err(ValidationError::InvalidMerkleRoot)
         );
     }

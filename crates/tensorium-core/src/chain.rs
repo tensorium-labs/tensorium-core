@@ -51,9 +51,9 @@ impl ConsensusParams {
             founder_allocation_atoms: FOUNDER_ALLOCATION_ATOMS,
             mining_allocation_atoms: MINING_ALLOCATION_ATOMS,
             initial_reward_atoms: 1_523_557_865,
-            initial_leading_zero_bits: 12,
-            min_leading_zero_bits: 8,
-            max_leading_zero_bits: 28,
+            initial_leading_zero_bits: 26,
+            min_leading_zero_bits: 20,
+            max_leading_zero_bits: 40,
             difficulty_adjustment_window: 60,
             coinbase_maturity_blocks: 100,
             max_future_block_time_seconds: 2 * 60 * 60,
@@ -72,9 +72,9 @@ impl ConsensusParams {
             founder_allocation_atoms: FOUNDER_ALLOCATION_ATOMS,
             mining_allocation_atoms: MINING_ALLOCATION_ATOMS,
             initial_reward_atoms: 1_523_557_865,
-            initial_leading_zero_bits: 22,
-            min_leading_zero_bits: 18,
-            max_leading_zero_bits: 48,
+            initial_leading_zero_bits: 36,
+            min_leading_zero_bits: 28,
+            max_leading_zero_bits: 56,
             difficulty_adjustment_window: 120,
             coinbase_maturity_blocks: 100,
             max_future_block_time_seconds: 2 * 60 * 60,
@@ -85,6 +85,16 @@ impl ConsensusParams {
 
 pub const TESTNET: ConsensusParams = ConsensusParams::testnet();
 pub const MAINNET_CANDIDATE: ConsensusParams = ConsensusParams::mainnet_candidate();
+
+/// Low-difficulty params for unit tests — mines instantly (difficulty 8 = 256 hashes avg).
+pub const TEST_PARAMS: ConsensusParams = ConsensusParams {
+    network: ChainNetwork::Testnet,
+    chain_id: "tensorium-testnet-0",
+    initial_leading_zero_bits: 8,
+    min_leading_zero_bits: 4,
+    max_leading_zero_bits: 16,
+    ..ConsensusParams::testnet()
+};
 
 #[cfg(test)]
 mod tests {

@@ -19,7 +19,7 @@ use tensorium_core::{
 const DEFAULT_STATE_PATH: &str = "tensorium-testnet-state.json";
 const DEFAULT_MEMPOOL_PATH: &str = "tensorium-testnet-mempool.json";
 const DEFAULT_BAN_PATH: &str = "tensorium-testnet-banlist.json";
-const DEFAULT_NONCE_LIMIT: u64 = 10_000_000;
+const DEFAULT_NONCE_LIMIT: u64 = u64::MAX;
 const DEFAULT_RPC_BIND: &str = "127.0.0.1:23332";
 const DEFAULT_P2P_BIND: &str = "127.0.0.1:23333";
 const P2P_PROTOCOL_VERSION: u32 = 1;
