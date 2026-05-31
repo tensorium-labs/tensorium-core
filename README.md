@@ -28,6 +28,8 @@ curl http://127.0.0.1:23332/getblock/0
 curl http://127.0.0.1:23332/getblocktemplate/local-dev-miner
 curl -X POST --data-binary @mined-block.json http://127.0.0.1:23332/submitblock
 cargo run -p txmminer -- 127.0.0.1:23332 local-dev-miner
+cargo run -p txmwallet -- create
+cargo run -p txmwallet -- getnewaddress
 ```
 
 The RPC server binds to `127.0.0.1:23332` by default. Keep it localhost-only until authentication, rate limits, and public-node hardening are implemented.

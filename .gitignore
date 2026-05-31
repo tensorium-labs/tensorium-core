@@ -1,5 +1,6 @@
 /target
 tensorium-testnet-state.json
+tensorium-wallet.json
 **/*.rs.bk
 .env
 .env.*
