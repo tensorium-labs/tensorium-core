@@ -3,14 +3,22 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use argon2::{Algorithm, Argon2, Params, Version};
+use chacha20poly1305::{
+    aead::{Aead, KeyInit},
+    XChaCha20Poly1305,
+    XNonce,
+};
 use rand_core::{OsRng, RngCore};
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 use tensorium_core::{chain::TESTNET, ChainState, UtxoSet, WalletKeypair};
 
 const DEFAULT_WALLET_PATH: &str = "tensorium-wallet.json";
 const DEFAULT_STATE_PATH: &str = "tensorium-testnet-state.json";
 const COINBASE_MATURITY_BLOCKS: u64 = 100;
+const ARGON2_MEMORY_KIB: u32 = 19 * 1024;
+const ARGON2_ITERATIONS: u32 = 3;
+const ARGON2_PARALLELISM: u32 = 1;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct WalletFile {
@@ -23,11 +31,13 @@ struct WalletFile {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct EncryptedPrivateKey {
     kdf: String,
+    kdf_memory_kib: u32,
+    kdf_iterations: u32,
+    kdf_parallelism: u32,
     cipher: String,
     salt_hex: String,
     nonce_hex: String,
     ciphertext_hex: String,
-    checksum_hex: String,
 }
 
 fn main() {
@@ -49,7 +59,7 @@ fn run() -> Result<(), String> {
             }
             let passphrase = passphrase_from_env()?;
             let keypair = WalletKeypair::generate();
-            let wallet = WalletFile::encrypt(keypair, &passphrase);
+            let wallet = WalletFile::encrypt(keypair, &passphrase)?;
             save_wallet(&wallet_path, &wallet)?;
             print_wallet_summary(&wallet);
         }
@@ -181,46 +191,75 @@ fn print_help() {
 }
 
 impl WalletFile {
-    fn encrypt(keypair: WalletKeypair, passphrase: &str) -> Self {
+    fn encrypt(keypair: WalletKeypair, passphrase: &str) -> Result<Self, String> {
         let mut salt = [0u8; 16];
-        let mut nonce = [0u8; 16];
+        let mut nonce = [0u8; 24];
         OsRng.fill_bytes(&mut salt);
         OsRng.fill_bytes(&mut nonce);
 
         let private_key = keypair.private_key_hex.as_bytes();
-        let key = derive_key(passphrase, &salt);
-        let ciphertext = xor_keystream(private_key, &key, &nonce);
-        let checksum = checksum(&key, private_key);
+        let key = derive_key(
+            passphrase,
+            &salt,
+            ARGON2_MEMORY_KIB,
+            ARGON2_ITERATIONS,
+            ARGON2_PARALLELISM,
+        )?;
+        let cipher = XChaCha20Poly1305::new_from_slice(&key)
+            .map_err(|err| format!("wallet cipher init failed: {err}"))?;
+        let ciphertext = cipher
+            .encrypt(XNonce::from_slice(&nonce), private_key)
+            .map_err(|err| format!("wallet encryption failed: {err}"))?;
 
-        Self {
+        Ok(Self {
             version: 2,
             address: keypair.address.as_str().to_owned(),
             public_key_hex: keypair.public_key_hex,
             encrypted_private_key: EncryptedPrivateKey {
-                kdf: "sha256-100k".to_owned(),
-                cipher: "sha256-stream-xor-dev".to_owned(),
+                kdf: "argon2id".to_owned(),
+                kdf_memory_kib: ARGON2_MEMORY_KIB,
+                kdf_iterations: ARGON2_ITERATIONS,
+                kdf_parallelism: ARGON2_PARALLELISM,
+                cipher: "xchacha20poly1305".to_owned(),
                 salt_hex: hex::encode(salt),
                 nonce_hex: hex::encode(nonce),
                 ciphertext_hex: hex::encode(ciphertext),
-                checksum_hex: hex::encode(checksum),
             },
-        }
+        })
     }
 
     fn decrypt(&self, passphrase: &str) -> Result<WalletKeypair, String> {
+        if self.encrypted_private_key.kdf != "argon2id" {
+            return Err(format!(
+                "unsupported wallet KDF: {}",
+                self.encrypted_private_key.kdf
+            ));
+        }
+        if self.encrypted_private_key.cipher != "xchacha20poly1305" {
+            return Err(format!(
+                "unsupported wallet cipher: {}",
+                self.encrypted_private_key.cipher
+            ));
+        }
+
         let salt = hex::decode(&self.encrypted_private_key.salt_hex)
             .map_err(|err| format!("invalid wallet salt: {err}"))?;
         let nonce = hex::decode(&self.encrypted_private_key.nonce_hex)
             .map_err(|err| format!("invalid wallet nonce: {err}"))?;
         let ciphertext = hex::decode(&self.encrypted_private_key.ciphertext_hex)
             .map_err(|err| format!("invalid wallet ciphertext: {err}"))?;
-        let expected_checksum = hex::decode(&self.encrypted_private_key.checksum_hex)
-            .map_err(|err| format!("invalid wallet checksum: {err}"))?;
-        let key = derive_key(passphrase, &salt);
-        let plaintext = xor_keystream(&ciphertext, &key, &nonce);
-        if checksum(&key, &plaintext) != expected_checksum.as_slice() {
-            return Err("wallet passphrase is incorrect".to_owned());
-        }
+        let key = derive_key(
+            passphrase,
+            &salt,
+            self.encrypted_private_key.kdf_memory_kib,
+            self.encrypted_private_key.kdf_iterations,
+            self.encrypted_private_key.kdf_parallelism,
+        )?;
+        let cipher = XChaCha20Poly1305::new_from_slice(&key)
+            .map_err(|err| format!("wallet cipher init failed: {err}"))?;
+        let plaintext = cipher
+            .decrypt(XNonce::from_slice(&nonce), ciphertext.as_ref())
+            .map_err(|_| "wallet passphrase is incorrect or wallet is corrupted".to_owned())?;
 
         let private_key_hex = String::from_utf8(plaintext)
             .map_err(|err| format!("wallet plaintext is invalid UTF-8: {err}"))?;
@@ -233,43 +272,19 @@ impl WalletFile {
     }
 }
 
-fn derive_key(passphrase: &str, salt: &[u8]) -> [u8; 32] {
-    let mut digest = Sha256::new();
-    digest.update(salt);
-    digest.update(passphrase.as_bytes());
-    let mut key: [u8; 32] = digest.finalize().into();
-
-    for _ in 0..100_000 {
-        let mut digest = Sha256::new();
-        digest.update(key);
-        digest.update(salt);
-        digest.update(passphrase.as_bytes());
-        key = digest.finalize().into();
-    }
-
-    key
-}
-
-fn xor_keystream(input: &[u8], key: &[u8; 32], nonce: &[u8]) -> Vec<u8> {
-    let mut output = Vec::with_capacity(input.len());
-    let mut counter = 0u64;
-    for chunk in input.chunks(32) {
-        let mut digest = Sha256::new();
-        digest.update(key);
-        digest.update(nonce);
-        digest.update(counter.to_le_bytes());
-        let stream: [u8; 32] = digest.finalize().into();
-        for (index, byte) in chunk.iter().enumerate() {
-            output.push(byte ^ stream[index]);
-        }
-        counter = counter.saturating_add(1);
-    }
-    output
-}
-
-fn checksum(key: &[u8; 32], plaintext: &[u8]) -> [u8; 32] {
-    let mut digest = Sha256::new();
-    digest.update(key);
-    digest.update(plaintext);
-    digest.finalize().into()
+fn derive_key(
+    passphrase: &str,
+    salt: &[u8],
+    memory_kib: u32,
+    iterations: u32,
+    parallelism: u32,
+) -> Result<[u8; 32], String> {
+    let params = Params::new(memory_kib, iterations, parallelism, Some(32))
+        .map_err(|err| format!("invalid Argon2 params: {err}"))?;
+    let argon2 = Argon2::new(Algorithm::Argon2id, Version::V0x13, params);
+    let mut key = [0u8; 32];
+    argon2
+        .hash_password_into(passphrase.as_bytes(), salt, &mut key)
+        .map_err(|err| format!("Argon2 key derivation failed: {err}"))?;
+    Ok(key)
 }

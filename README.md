@@ -36,7 +36,7 @@ cargo run -p txmwallet -- balance
 
 The RPC server binds to `127.0.0.1:23332` by default. Keep it localhost-only until authentication, rate limits, and public-node hardening are implemented.
 
-`txmwallet create` and `txmwallet unlock-check` require `TENSORIUM_WALLET_PASSPHRASE`. The wallet file stores the private key encrypted and keeps the public address readable for balance checks.
+`txmwallet create` and `txmwallet unlock-check` require `TENSORIUM_WALLET_PASSPHRASE`. The wallet file encrypts the private key with Argon2id plus XChaCha20-Poly1305 and keeps the public address readable for balance checks.
 
 ## Current Consensus Defaults
 
