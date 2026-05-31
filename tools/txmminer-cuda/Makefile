@@ -44,8 +44,8 @@ CFLAGS    := -O3 -Wall
 
 all: $(TARGET)
 
-$(TARGET): main.c mining_kernel.cu sha256d.cuh
-	$(NVCC) $(NVCCFLAGS) -o $@ main.c mining_kernel.cu
+$(TARGET): main.cu mining_kernel.cu sha256d.cuh
+	$(NVCC) $(NVCCFLAGS) -o $@ main.cu mining_kernel.cu
 	@echo ""
 	@echo "Built: $(TARGET) for $(ARCH)"
 	@echo "Run:   ./$(TARGET) 127.0.0.1:23332 txm1youraddress"

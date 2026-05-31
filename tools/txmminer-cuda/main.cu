@@ -1,4 +1,4 @@
-// main.c — Tensorium CUDA miner
+// main.cu — Tensorium CUDA miner
 // Connects to node RPC, mines blocks using GPU, submits results.
 //
 // Usage: txmminer-cuda <rpc_host:port> <miner_address> [device_id] [blocks] [threads]
@@ -7,6 +7,7 @@
 //   txmminer-cuda 127.0.0.1:23332 txm1youraddress
 //   txmminer-cuda 127.0.0.1:23332 txm1youraddress 0 1024 256
 
+#include <cuda_runtime.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -29,8 +30,8 @@
   #define SOCK_INVALID (-1)
 #endif
 
-// Provided by mining_kernel.cu
-extern int launch_mining_kernel(
+// Provided by mining_kernel.cu (extern "C" to match C linkage in mining_kernel.cu)
+extern "C" int launch_mining_kernel(
     const uint8_t  header112[112],
     uint8_t        difficulty_bits,
     uint64_t       start_nonce,
@@ -75,28 +76,7 @@ static int json_get_str(const char *json, const char *key, char *out, int out_le
     return 1;
 }
 
-// ── Hex helpers ───────────────────────────────────────────────────────────────
-
-static uint8_t hex_nibble(char c) {
-    if (c >= '0' && c <= '9') return c - '0';
-    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
-    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
-    return 0;
-}
-
-static void hex_to_bytes(const char *hex, uint8_t *out, int n) {
-    for (int i = 0; i < n; i++)
-        out[i] = (hex_nibble(hex[i*2]) << 4) | hex_nibble(hex[i*2+1]);
-}
-
-static void bytes_to_hex(const uint8_t *in, char *hex, int n) {
-    const char *h = "0123456789abcdef";
-    for (int i = 0; i < n; i++) {
-        hex[i*2]     = h[(in[i] >> 4) & 0xf];
-        hex[i*2 + 1] = h[in[i] & 0xf];
-    }
-    hex[n*2] = '\0';
-}
+// ── Write helpers ─────────────────────────────────────────────────────────────
 
 static void write_le64(uint8_t *buf, uint64_t v) {
     for (int i = 0; i < 8; i++) { buf[i] = (uint8_t)(v & 0xff); v >>= 8; }
@@ -248,9 +228,8 @@ static int get_block_template(const char *host, const char *port,
     extract_byte_array(header_start, "previous_hash", tmpl->previous_hash, 32);
     extract_byte_array(header_start, "merkle_root",   tmpl->merkle_root,   32);
 
-    // Keep full template JSON for submitblock
-    strncpy(tmpl->template_json, buf + (strstr(buf, "{\"template\"") - buf),
-            RPC_RECV_BUF - 1);
+    // Keep full RPC response for submitblock
+    strncpy(tmpl->template_json, buf, RPC_RECV_BUF - 1);
 
     return 1;
 }
@@ -309,27 +288,29 @@ static int submit_block(const char *host, const char *port,
     memcpy(new_json + before_len + strlen(nonce_str), nonce_end, after_len + 1);
     free(json);
 
-    // Extract "template" object
-    const char *tmpl_start = strstr(new_json, "\"template\"");
-    char *body = NULL;
-    if (tmpl_start) {
-        tmpl_start = strchr(tmpl_start, ':');
-        if (tmpl_start) {
-            tmpl_start++;
-            while (*tmpl_start == ' ') tmpl_start++;
-            // tmpl_start now points to the template object
-            body = strdup(tmpl_start);
-            // trim trailing } from outer wrapper
-            int blen = (int)strlen(body);
-            while (blen > 0 && (body[blen-1] == '}' || body[blen-1] == '\n' ||
-                                  body[blen-1] == ' ')) {
-                if (body[blen-1] == '}') { body[--blen] = '\0'; break; }
-                body[--blen] = '\0';
-            }
-        }
+    // Extract "template" value — find "template": then grab the object
+    // new_json has form {"leading_zero_bits":N,...,"template":{...block_json...}}
+    // We need to extract just the block JSON object for /submitblock
+    const char *tmpl_key = strstr(new_json, "\"template\"");
+    if (!tmpl_key) { free(new_json); fprintf(stderr, "no template key\n"); return 0; }
+    const char *tmpl_val = strchr(tmpl_key + 10, ':');
+    if (!tmpl_val) { free(new_json); return 0; }
+    tmpl_val++;
+    while (*tmpl_val == ' ') tmpl_val++;
+    // tmpl_val points to the opening { of the block JSON
+    // Count matching braces to find end of block object
+    int depth = 0;
+    const char *p = tmpl_val;
+    while (*p) {
+        if (*p == '{') depth++;
+        else if (*p == '}') { if (--depth == 0) { p++; break; } }
+        p++;
     }
-
+    int body_len = (int)(p - tmpl_val);
+    char *body = (char *)malloc(body_len + 1);
     if (!body) { free(new_json); return 0; }
+    memcpy(body, tmpl_val, body_len);
+    body[body_len] = '\0';
 
     static char resp_buf[4096];
     int ok = http_post(host, port, "/submitblock", body, resp_buf, sizeof(resp_buf));
@@ -390,8 +371,9 @@ int main(int argc, char *argv[]) {
     printf("Nonces per launch: %llu\n\n", (unsigned long long)total_nonces_per_launch);
 
     uint64_t start_nonce = 0;
-    BlockTemplate tmpl;
-    BlockTemplate last_tmpl;
+    // static to avoid stack overflow (template_json is 1MB per struct)
+    static BlockTemplate tmpl;
+    static BlockTemplate last_tmpl;
     memset(&last_tmpl, 0, sizeof(last_tmpl));
 
     while (g_running) {
