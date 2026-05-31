@@ -1,9 +1,25 @@
 # Tensorium Core
 
-Experimental Rust implementation of the Tensorium proof-of-work blockchain.
+A Proof-of-Work blockchain built in Rust — open testnet, CPU mining, GPU-first mainnet direction.
 
-> **Status:** Private testnet development — do not use for mainnet, real funds, or public mining yet.
+> **Status:** Public testnet — coins have no monetary value, bugs welcome via Issues.
 > Chain: `tensorium-testnet-0` | Ticker: `TXM` | P2P port: `23333` | RPC port: `23332`
+
+## Install (Linux x86_64)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/rygroup-dev/tensorium-core/main/install.sh | bash
+```
+
+The installer downloads binaries, creates a wallet, syncs from the seed node, and optionally sets up systemd services.
+
+| Binary | Role |
+| --- | --- |
+| `tensorium-node` | Full node (RPC + P2P) |
+| `txmminer` | CPU miner |
+| `txmwallet` | Wallet CLI |
+
+Or download directly from [Releases](https://github.com/rygroup-dev/tensorium-core/releases).
 
 ---
 
