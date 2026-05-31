@@ -77,6 +77,29 @@ impl ChainState {
 
         Ok(self.tip().expect("block was just pushed"))
     }
+
+    pub fn candidate_block(
+        &self,
+        params: &ConsensusParams,
+        timestamp_seconds: u64,
+        miner: &str,
+    ) -> Result<Block, StateError> {
+        let parent = self.tip().ok_or(StateError::MissingGenesis)?;
+        Ok(candidate_block(params, Some(parent), timestamp_seconds, miner))
+    }
+
+    pub fn submit_block(
+        &mut self,
+        params: &ConsensusParams,
+        block: Block,
+        now_seconds: u64,
+    ) -> Result<&Block, StateError> {
+        let parent = self.tip().ok_or(StateError::MissingGenesis)?.clone();
+        validate_block(params, Some(&parent), &block, now_seconds)?;
+        self.blocks.push(block);
+
+        Ok(self.tip().expect("block was just pushed"))
+    }
 }
 
 fn mine_candidate_block(
@@ -86,6 +109,18 @@ fn mine_candidate_block(
     miner: &str,
     max_nonce: u64,
 ) -> Result<Block, StateError> {
+    let block = candidate_block(params, parent, timestamp_seconds, miner);
+    let header = block.header;
+    let mined_header = mine_header(header, max_nonce).ok_or(StateError::MiningFailed)?;
+    Ok(Block::new(mined_header, block.transactions))
+}
+
+fn candidate_block(
+    params: &ConsensusParams,
+    parent: Option<&Block>,
+    timestamp_seconds: u64,
+    miner: &str,
+) -> Block {
     let height = parent.map_or(0, |block| block.header.height + 1);
     let previous_hash = parent.map_or(Hash256::ZERO, Block::hash);
     let reward = reward_at_height(params, height);
@@ -101,8 +136,7 @@ fn mine_candidate_block(
         nonce: 0,
     };
 
-    let mined_header = mine_header(header, max_nonce).ok_or(StateError::MiningFailed)?;
-    Ok(Block::new(mined_header, vec![tx]))
+    Block::new(header, vec![tx])
 }
 
 #[cfg(test)]
@@ -122,5 +156,22 @@ mod tests {
             .unwrap();
         assert_eq!(state.height(), Some(1));
         assert_eq!(state.blocks[1].header.previous_hash, state.blocks[0].hash());
+    }
+
+    #[test]
+    fn builds_candidate_then_accepts_mined_submit() {
+        let mut state = ChainState::new();
+        state.init_genesis(&TESTNET, 1_700_000_000, 1_000_000).unwrap();
+
+        let candidate = state
+            .candidate_block(&TESTNET, 1_700_000_060, "template-miner")
+            .unwrap();
+        let mined_header = mine_header(candidate.header.clone(), 1_000_000).unwrap();
+        let mined_block = Block::new(mined_header, candidate.transactions);
+
+        state
+            .submit_block(&TESTNET, mined_block, 1_700_000_060)
+            .unwrap();
+        assert_eq!(state.height(), Some(1));
     }
 }

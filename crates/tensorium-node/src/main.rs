@@ -9,7 +9,7 @@ use std::{
 
 use serde::Serialize;
 use serde_json::json;
-use tensorium_core::{chain::TESTNET, ChainState};
+use tensorium_core::{chain::TESTNET, Block, ChainState};
 
 const DEFAULT_STATE_PATH: &str = "tensorium-testnet-state.json";
 const DEFAULT_NONCE_LIMIT: u64 = 10_000_000;
@@ -113,6 +113,8 @@ fn print_help() {
     println!("  GET /getblockcount");
     println!("  GET /getdifficulty");
     println!("  GET /getblock/<height>");
+    println!("  GET /getblocktemplate/<miner>");
+    println!("  POST /submitblock");
     println!("  GET /health");
     println!();
     println!("env:");
@@ -141,16 +143,16 @@ fn serve_rpc(bind: &str, state_path: PathBuf) -> Result<(), String> {
 }
 
 fn handle_rpc_stream(stream: &mut TcpStream, state_path: &Path) -> Result<(), String> {
-    let mut buffer = [0u8; 4096];
+    let mut buffer = [0u8; 65_536];
     let bytes_read = stream
         .read(&mut buffer)
         .map_err(|err| format!("failed to read request: {err}"))?;
     let request = String::from_utf8_lossy(&buffer[..bytes_read]);
-    let path = parse_http_path(&request).ok_or_else(|| "invalid HTTP request".to_owned())?;
+    let parsed = parse_http_request(&request).ok_or_else(|| "invalid HTTP request".to_owned())?;
 
-    match path.as_str() {
-        "/health" => write_json_response(stream, 200, &json!({ "ok": true })),
-        "/getblockcount" => {
+    match (parsed.method.as_str(), parsed.path.as_str()) {
+        ("GET", "/health") => write_json_response(stream, 200, &json!({ "ok": true })),
+        ("GET", "/getblockcount") => {
             let state = load_state(state_path)?;
             write_json_response(
                 stream,
@@ -162,7 +164,7 @@ fn handle_rpc_stream(stream: &mut TcpStream, state_path: &Path) -> Result<(), St
                 }),
             )
         }
-        "/getdifficulty" => {
+        ("GET", "/getdifficulty") => {
             let state = load_state(state_path)?;
             let Some(tip) = state.tip() else {
                 return write_json_response(stream, 404, &RpcError::new("chain state is empty"));
@@ -177,7 +179,7 @@ fn handle_rpc_stream(stream: &mut TcpStream, state_path: &Path) -> Result<(), St
                 }),
             )
         }
-        path if path.starts_with("/getblock/") => {
+        ("GET", path) if path.starts_with("/getblock/") => {
             let height = path
                 .trim_start_matches("/getblock/")
                 .parse::<u64>()
@@ -195,17 +197,64 @@ fn handle_rpc_stream(stream: &mut TcpStream, state_path: &Path) -> Result<(), St
                 }),
             )
         }
+        ("GET", path) if path.starts_with("/getblocktemplate/") => {
+            let miner = path.trim_start_matches("/getblocktemplate/");
+            if miner.is_empty() {
+                return write_json_response(stream, 404, &RpcError::new("missing miner address"));
+            }
+            let state = load_state(state_path)?;
+            let block = state
+                .candidate_block(&TESTNET, now_seconds(), miner)
+                .map_err(|err| err.to_string())?;
+            write_json_response(
+                stream,
+                200,
+                &json!({
+                    "chain_id": TESTNET.chain_id,
+                    "height": block.header.height,
+                    "previous_hash": block.header.previous_hash,
+                    "leading_zero_bits": block.header.leading_zero_bits,
+                    "template": block,
+                }),
+            )
+        }
+        ("POST", "/submitblock") => {
+            let block: Block = serde_json::from_str(parsed.body)
+                .map_err(|err| format!("failed to parse submitted block: {err}"))?;
+            let mut state = load_state(state_path)?;
+            let accepted = state
+                .submit_block(&TESTNET, block, now_seconds())
+                .map_err(|err| err.to_string())?;
+            let height = accepted.header.height;
+            let hash = accepted.hash();
+            save_state(state_path, &state)?;
+            write_json_response(
+                stream,
+                200,
+                &json!({
+                    "accepted": true,
+                    "height": height,
+                    "hash": hash,
+                }),
+            )
+        }
         _ => write_json_response(stream, 404, &RpcError::new("unknown RPC endpoint")),
     }
 }
 
-fn parse_http_path(request: &str) -> Option<String> {
+struct ParsedHttpRequest<'a> {
+    method: String,
+    path: String,
+    body: &'a str,
+}
+
+fn parse_http_request(request: &str) -> Option<ParsedHttpRequest<'_>> {
     let request_line = request.lines().next()?;
     let mut parts = request_line.split_whitespace();
-    match (parts.next(), parts.next()) {
-        (Some("GET"), Some(path)) => Some(path.to_owned()),
-        _ => None,
-    }
+    let method = parts.next()?.to_owned();
+    let path = parts.next()?.to_owned();
+    let body = request.split_once("\r\n\r\n").map_or("", |(_, body)| body);
+    Some(ParsedHttpRequest { method, path, body })
 }
 
 fn write_json_response<T: Serialize>(
