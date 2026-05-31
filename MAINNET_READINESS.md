@@ -328,7 +328,7 @@ Tensorium v0.3.0-mainnet-candidate is released. Phase 7 (7A–7E) is complete.
 
 **Mainnet launch is NOT yet approved.** Remaining items before launch:
 
-1. **Full MC RPC/P2P daemon** — node binary currently still uses TESTNET params in RPC/P2P handlers. Needs refactor to accept ConsensusParams at runtime.
+1. **Full MC RPC/P2P daemon** — DONE (commit 9286304). `tensorium-node mainnet-candidate rpc/p2p-listen/sync` all work with MAINNET_CANDIDATE params.
 2. **DNS seed** (`seed.tensoriumlabs.com` → seed IP) — deferred to mainnet launch prep.
 3. **Storage migration** (JSON → binary/DB) — deferred, acceptable for candidate scale.
 4. **Whitepaper and docs update** — add pool fee guide, RISK_DISCLOSURE summary, MC genesis details.
