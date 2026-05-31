@@ -459,7 +459,7 @@ TXM needs a way to be bought and sold. Three options by complexity:
 - [ ] Mobile wallet (Phase 10)
 
 **Mining Ecosystem — Phase 8-9:**
-- [ ] Pool website (pooltxm.tensoriumlabs.com)
+- [x] Pool website (pooltxm.tensoriumlabs.com)
 - [ ] Testnet faucet
 - [x] Mining guide, pool reference implementation
 
