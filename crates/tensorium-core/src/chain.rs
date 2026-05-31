@@ -92,10 +92,11 @@ impl ConsensusParams {
 pub const TESTNET: ConsensusParams = ConsensusParams::testnet();
 
 // MAINNET_CANDIDATE parameters are FROZEN as of Phase 7E (2026-05-31).
-// chain_id: tensorium-mainnet-candidate-0
-// Initial difficulty: 40 bits (requires RTX 3060+ or equivalent GPU).
-// Genesis timestamp: 1_780_272_000 (2026-06-01 00:00:00 UTC) — TBD until launch.
-// Genesis nonce: TBD — must be GPU-mined before mainnet-candidate chain launch.
+// chain_id:      tensorium-mainnet-candidate-0
+// Initial diff:  40 bits (requires RTX 3060+ or equivalent GPU)
+// Genesis ts:    1_780_272_000 (2026-06-01 00:00:00 UTC)
+// Genesis nonce: 56_167_663_277 (mined via CUDA on RTX 5090, 2.28 GH/s, 24.6s, 2026-05-31)
+// Genesis hash:  0000000000d61e99b9e2530609632b399d0f0b538c2d54daa1dddbfe28ea08dc
 // Do NOT change these fields without bumping chain_id and issuing a breaking notice.
 pub const MAINNET_CANDIDATE: ConsensusParams = ConsensusParams::mainnet_candidate();
 
