@@ -1,19 +1,21 @@
 use std::{
     env,
     fs,
-    io::{Read, Write},
+    io::{BufRead, BufReader, Read, Write},
     net::{TcpListener, TcpStream},
     path::{Path, PathBuf},
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
-use tensorium_core::{chain::TESTNET, Block, ChainState};
+use tensorium_core::{chain::TESTNET, Block, ChainState, Hash256};
 
 const DEFAULT_STATE_PATH: &str = "tensorium-testnet-state.json";
 const DEFAULT_NONCE_LIMIT: u64 = 10_000_000;
 const DEFAULT_RPC_BIND: &str = "127.0.0.1:23332";
+const DEFAULT_P2P_BIND: &str = "127.0.0.1:23333";
+const P2P_PROTOCOL_VERSION: u32 = 1;
 
 fn main() {
     if let Err(err) = run() {
@@ -53,6 +55,17 @@ fn run() -> Result<(), String> {
             let bind = args.get(2).map(String::as_str).unwrap_or(DEFAULT_RPC_BIND);
             serve_rpc(bind, state_path)?;
         }
+        "p2p-listen" => {
+            let bind = args.get(2).map(String::as_str).unwrap_or(DEFAULT_P2P_BIND);
+            serve_p2p(bind, state_path)?;
+        }
+        "p2p-connect" => {
+            let peer = args
+                .get(2)
+                .ok_or_else(|| "usage: tensorium-node p2p-connect <host:port>".to_owned())?;
+            connect_peer(peer, state_path)?;
+        }
+        "peers" => print_manual_peers(),
         _ => print_help(),
     }
 
@@ -108,6 +121,9 @@ fn print_help() {
     println!("  status               show local chain status");
     println!("  mine-once [miner]    mine one block and persist it");
     println!("  rpc [bind]           start localhost HTTP RPC server");
+    println!("  p2p-listen [bind]    listen for manual peer handshakes");
+    println!("  p2p-connect <peer>   connect to a peer and handshake");
+    println!("  peers                print manual peers from TENSORIUM_PEERS");
     println!();
     println!("rpc endpoints:");
     println!("  GET /getblockcount");
@@ -119,6 +135,113 @@ fn print_help() {
     println!();
     println!("env:");
     println!("  TENSORIUM_STATE      state file path, default {DEFAULT_STATE_PATH}");
+    println!("  TENSORIUM_PEERS      comma-separated manual peers");
+}
+
+fn serve_p2p(bind: &str, state_path: PathBuf) -> Result<(), String> {
+    let listener = TcpListener::bind(bind).map_err(|err| format!("failed to bind {bind}: {err}"))?;
+    println!("tensorium P2P listening on {bind}");
+
+    for stream in listener.incoming() {
+        match stream {
+            Ok(mut stream) => {
+                if let Err(err) = handle_p2p_stream(&mut stream, &state_path) {
+                    eprintln!("p2p handshake error: {err}");
+                }
+            }
+            Err(err) => eprintln!("p2p connection error: {err}"),
+        }
+    }
+
+    Ok(())
+}
+
+fn connect_peer(peer: &str, state_path: PathBuf) -> Result<(), String> {
+    let state = load_state(&state_path)?;
+    let hello = local_hello(&state);
+    let mut stream =
+        TcpStream::connect(peer).map_err(|err| format!("failed to connect to {peer}: {err}"))?;
+    write_p2p_hello(&mut stream, &hello)?;
+
+    let remote = read_p2p_hello(&mut stream)?;
+    validate_remote_hello(&remote)?;
+    println!(
+        "connected peer={} chain_id={} height={} tip={}",
+        peer, remote.chain_id, remote.height, remote.tip_hash
+    );
+    Ok(())
+}
+
+fn handle_p2p_stream(stream: &mut TcpStream, state_path: &Path) -> Result<(), String> {
+    let remote = read_p2p_hello(stream)?;
+    validate_remote_hello(&remote)?;
+    let state = load_state(state_path)?;
+    let local = local_hello(&state);
+    write_p2p_hello(stream, &local)?;
+    println!(
+        "accepted peer={} chain_id={} height={} tip={}",
+        remote.node_id, remote.chain_id, remote.height, remote.tip_hash
+    );
+    Ok(())
+}
+
+fn local_hello(state: &ChainState) -> P2pHello {
+    let node_id = env::var("TENSORIUM_NODE_ID").unwrap_or_else(|_| format!("node-{}", now_seconds()));
+    let (height, tip_hash) = state
+        .tip()
+        .map(|tip| (tip.header.height, tip.hash()))
+        .unwrap_or((0, Hash256::ZERO));
+    P2pHello {
+        protocol: "tensorium-p2p".to_owned(),
+        version: P2P_PROTOCOL_VERSION,
+        chain_id: TESTNET.chain_id.to_owned(),
+        node_id,
+        height,
+        tip_hash,
+    }
+}
+
+fn validate_remote_hello(hello: &P2pHello) -> Result<(), String> {
+    if hello.protocol != "tensorium-p2p" {
+        return Err(format!("unsupported P2P protocol: {}", hello.protocol));
+    }
+    if hello.version != P2P_PROTOCOL_VERSION {
+        return Err(format!("unsupported P2P version: {}", hello.version));
+    }
+    if hello.chain_id != TESTNET.chain_id {
+        return Err(format!("wrong chain id: {}", hello.chain_id));
+    }
+    Ok(())
+}
+
+fn write_p2p_hello(stream: &mut TcpStream, hello: &P2pHello) -> Result<(), String> {
+    let mut raw =
+        serde_json::to_vec(hello).map_err(|err| format!("failed to encode p2p hello: {err}"))?;
+    raw.push(b'\n');
+    stream
+        .write_all(&raw)
+        .map_err(|err| format!("failed to write p2p hello: {err}"))
+}
+
+fn read_p2p_hello(stream: &mut TcpStream) -> Result<P2pHello, String> {
+    let mut reader = BufReader::new(stream);
+    let mut raw = String::new();
+    reader
+        .read_line(&mut raw)
+        .map_err(|err| format!("failed to read p2p hello: {err}"))?;
+    serde_json::from_str(&raw).map_err(|err| format!("failed to parse p2p hello: {err}"))
+}
+
+fn print_manual_peers() {
+    let peers = env::var("TENSORIUM_PEERS").unwrap_or_default();
+    if peers.trim().is_empty() {
+        println!("manual_peers=[]");
+        return;
+    }
+
+    for peer in peers.split(',').map(str::trim).filter(|peer| !peer.is_empty()) {
+        println!("{peer}");
+    }
 }
 
 fn serve_rpc(bind: &str, state_path: PathBuf) -> Result<(), String> {
@@ -281,6 +404,16 @@ fn write_json_response<T: Serialize>(
 #[derive(Serialize)]
 struct RpcError {
     error: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct P2pHello {
+    protocol: String,
+    version: u32,
+    chain_id: String,
+    node_id: String,
+    height: u64,
+    tip_hash: Hash256,
 }
 
 impl RpcError {
