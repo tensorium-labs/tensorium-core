@@ -57,8 +57,9 @@ fn run() -> Result<(), String> {
     match command {
         "init" => {
             let mut state = ChainState::new();
+            // Fixed timestamp so all nodes produce the identical genesis block.
             state
-                .init_genesis(&TESTNET, now_seconds(), DEFAULT_NONCE_LIMIT)
+                .init_genesis(&TESTNET, 1_748_649_600, DEFAULT_NONCE_LIMIT)
                 .map_err(|err| err.to_string())?;
             save_state(&state_path, &state)?;
             print_status(&state);
