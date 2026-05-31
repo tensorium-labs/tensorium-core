@@ -359,7 +359,7 @@ Chrome extension wallet stack: TypeScript + React, separate repo `tensorium-wall
 
 | Item | Status | Notes |
 |---|---|---|
-| Pool website | DONE | `tensorium-pool-website` — Next.js + TypeScript frontend for `tensorium-pool`: stats, miner lookup, payout history, connect guide |
+| Pool website | DONE | `https://pooltxm.tensoriumlabs.com` deployed on testnet VPS — Next.js + TypeScript frontend for `tensorium-pool`: stats, miner lookup, payout history, connect guide |
 | Pool fee disclosure | DONE | Shows 5% fee, treasury address, gross reward, pool fee, and net payout before miners connect |
 | Testnet faucet | TODO | `faucet.tensoriumlabs.com` — 1x per address per 24h, send small testnet TXM for testing |
 
