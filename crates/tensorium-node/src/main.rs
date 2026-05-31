@@ -18,12 +18,29 @@ use tensorium_core::{
 
 const DEFAULT_STATE_PATH: &str = "tensorium-testnet-state.json";
 const DEFAULT_MEMPOOL_PATH: &str = "tensorium-testnet-mempool.json";
+const DEFAULT_BAN_PATH: &str = "tensorium-testnet-banlist.json";
 const DEFAULT_NONCE_LIMIT: u64 = 10_000_000;
 const DEFAULT_RPC_BIND: &str = "127.0.0.1:23332";
 const DEFAULT_P2P_BIND: &str = "127.0.0.1:23333";
 const P2P_PROTOCOL_VERSION: u32 = 1;
 /// Maximum blocks returned per GetBlocks response.
 const SYNC_BATCH_SIZE: usize = 50;
+
+// ---------------------------------------------------------------------------
+// Peer ban constants
+// ---------------------------------------------------------------------------
+/// Total score at which a peer becomes banned.
+const BAN_THRESHOLD: u32 = 100;
+/// How long a ban lasts in seconds (1 hour).
+const BAN_DURATION_SECS: u64 = 3_600;
+/// Score added per invalid / tampered block.
+const SCORE_INVALID_BLOCK: u32 = 20;
+/// Score added per invalid transaction (signature failure etc.).
+const SCORE_INVALID_TX: u32 = 10;
+/// Score added per unparseable P2P message.
+const SCORE_INVALID_MSG: u32 = 2;
+/// Score added for a bad handshake (wrong chain_id / protocol / version).
+const SCORE_BAD_HANDSHAKE: u32 = 100;
 
 fn main() {
     if let Err(err) = run() {
@@ -85,6 +102,13 @@ fn run() -> Result<(), String> {
             sync_from_peer(peer, &state_path)?;
         }
         "peers" => print_manual_peers(),
+        "banlist" => print_banlist(),
+        "unban" => {
+            let ip = args
+                .get(2)
+                .ok_or_else(|| "usage: tensorium-node unban <ip>".to_owned())?;
+            unban_ip(ip)?;
+        }
         _ => print_help(),
     }
 
@@ -105,6 +129,12 @@ fn mempool_path_from_env() -> PathBuf {
     env::var("TENSORIUM_MEMPOOL")
         .map(PathBuf::from)
         .unwrap_or_else(|_| PathBuf::from(DEFAULT_MEMPOOL_PATH))
+}
+
+fn ban_path_from_env() -> PathBuf {
+    env::var("TENSORIUM_BANS")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| PathBuf::from(DEFAULT_BAN_PATH))
 }
 
 fn now_seconds() -> u64 {
@@ -160,6 +190,133 @@ fn build_utxo_set(state: &ChainState) -> Result<UtxoSet, String> {
     Ok(utxos)
 }
 
+// ---------------------------------------------------------------------------
+// Ban list — persistent peer reputation tracking
+// ---------------------------------------------------------------------------
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+struct BanEntry {
+    /// Accumulated violation score.
+    score: u32,
+    /// Unix timestamp after which the ban expires; `None` means not yet banned.
+    banned_until: Option<u64>,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+struct BanList {
+    entries: std::collections::HashMap<String, BanEntry>,
+}
+
+impl BanList {
+    fn is_banned(&self, ip: &str, now: u64) -> bool {
+        self.entries
+            .get(ip)
+            .and_then(|e| e.banned_until)
+            .map_or(false, |until| until > now)
+    }
+
+    /// Add `score` to `ip`'s tally.  Returns `true` when a new ban is imposed.
+    fn record(&mut self, ip: &str, score: u32, now: u64) -> bool {
+        let entry = self.entries.entry(ip.to_owned()).or_default();
+        entry.score = entry.score.saturating_add(score);
+        let already_banned = entry.banned_until.map_or(false, |u| u > now);
+        if !already_banned && entry.score >= BAN_THRESHOLD {
+            entry.banned_until = Some(now + BAN_DURATION_SECS);
+            return true;
+        }
+        false
+    }
+
+    fn unban(&mut self, ip: &str) {
+        self.entries.remove(ip);
+    }
+
+    fn prune_expired(&mut self, now: u64) {
+        self.entries
+            .retain(|_, e| e.banned_until.map_or(false, |u| u > now));
+    }
+}
+
+fn load_banlist(path: &Path) -> BanList {
+    let Ok(raw) = fs::read_to_string(path) else {
+        return BanList::default();
+    };
+    serde_json::from_str(&raw).unwrap_or_default()
+}
+
+fn save_banlist(path: &Path, banlist: &BanList) {
+    if let Ok(raw) = serde_json::to_string_pretty(banlist) {
+        let _ = fs::write(path, raw);
+    }
+}
+
+/// Record a violation for `ip` and persist.  Returns `true` if a ban was
+/// just imposed so the caller can close the connection.
+fn record_violation(ban_path: &Path, ip: &str, score: u32) -> bool {
+    let mut banlist = load_banlist(ban_path);
+    let banned = banlist.record(ip, score, now_seconds());
+    if banned {
+        eprintln!(
+            "p2p ban imposed on {ip} \
+             (score>={BAN_THRESHOLD} threshold, duration={BAN_DURATION_SECS}s)"
+        );
+    }
+    save_banlist(ban_path, &banlist);
+    banned
+}
+
+/// Extract just the IP (no port) from a connected stream.
+fn peer_ip(stream: &TcpStream) -> String {
+    stream
+        .peer_addr()
+        .map(|a| a.ip().to_string())
+        .unwrap_or_else(|_| "unknown".to_owned())
+}
+
+/// Returns `true` when a block rejection reason is worth penalising.
+/// `AlreadyKnown` and `UnknownParent` are not the peer's fault.
+fn is_bannable_block_error(reason: &str) -> bool {
+    !reason.contains("already known") && !reason.contains("parent")
+}
+
+/// Returns `true` when a tx rejection reason is worth penalising.
+fn is_bannable_tx_error(reason: &str) -> bool {
+    reason.contains("signature") || reason.contains("invalid")
+}
+
+fn print_banlist() {
+    let banlist = load_banlist(&ban_path_from_env());
+    let now = now_seconds();
+    if banlist.entries.is_empty() {
+        println!("no peers in ban list");
+        return;
+    }
+    for (ip, entry) in &banlist.entries {
+        let status = match entry.banned_until {
+            Some(until) if until > now => {
+                let secs_left = until - now;
+                format!("BANNED (expires in {secs_left}s)")
+            }
+            Some(_) => "expired".to_owned(),
+            None => format!("score={} (not banned yet)", entry.score),
+        };
+        println!("{ip}: {status}  score={}", entry.score);
+    }
+}
+
+fn unban_ip(ip: &str) -> Result<(), String> {
+    let ban_path = ban_path_from_env();
+    let mut banlist = load_banlist(&ban_path);
+    if banlist.entries.contains_key(ip) {
+        banlist.unban(ip);
+        save_banlist(&ban_path, &banlist);
+        println!("unbanned {ip}");
+    } else {
+        println!("{ip} was not in the ban list");
+    }
+    Ok(())
+}
+
 fn print_status(state: &ChainState) {
     let Some(tip) = state.tip() else {
         println!("chain_id={} height=empty", TESTNET.chain_id);
@@ -187,6 +344,8 @@ fn print_help() {
     println!("  p2p-connect <peer>   connect to a peer for diagnostics");
     println!("  sync [peer]          pull missing blocks from a peer");
     println!("  peers                print manual peers from TENSORIUM_PEERS");
+    println!("  banlist              show peer ban list");
+    println!("  unban <ip>           remove a peer from the ban list");
     println!();
     println!("rpc endpoints:");
     println!("  GET  /health");
@@ -197,10 +356,13 @@ fn print_help() {
     println!("  POST /submitblock                 (broadcasts to peers, cleans mempool)");
     println!("  POST /sendrawtransaction          (validates, pools, broadcasts to peers)");
     println!("  GET  /getmempoolinfo");
+    println!("  GET  /getbanlist");
+    println!("  GET  /unban/<ip>                  (remove ban)");
     println!();
     println!("env:");
     println!("  TENSORIUM_STATE      state file path, default {DEFAULT_STATE_PATH}");
     println!("  TENSORIUM_MEMPOOL    mempool file path, default {DEFAULT_MEMPOOL_PATH}");
+    println!("  TENSORIUM_BANS       ban list file path, default {DEFAULT_BAN_PATH}");
     println!("  TENSORIUM_PEERS      comma-separated peers to broadcast to");
     println!("  TENSORIUM_NODE_ID    node identity string");
 }
@@ -307,14 +469,26 @@ fn serve_p2p(bind: &str, state_path: PathBuf) -> Result<(), String> {
     let listener =
         TcpListener::bind(bind).map_err(|err| format!("failed to bind {bind}: {err}"))?;
     println!("tensorium P2P listening on {bind}");
+    let ban_path = ban_path_from_env();
 
     for stream in listener.incoming() {
         match stream {
             Ok(mut stream) => {
+                let remote_ip = peer_ip(&stream);
+
+                // Reject connections from banned peers before spawning a thread.
+                let banlist = load_banlist(&ban_path);
+                if banlist.is_banned(&remote_ip, now_seconds()) {
+                    eprintln!("p2p refused banned peer ip={remote_ip}");
+                    let _ = stream.shutdown(std::net::Shutdown::Both);
+                    continue;
+                }
+
                 let path = state_path.clone();
+                let bans = ban_path.clone();
                 thread::spawn(move || {
-                    if let Err(err) = handle_p2p_connection(&mut stream, &path) {
-                        eprintln!("p2p connection error: {err}");
+                    if let Err(err) = handle_p2p_connection(&mut stream, &path, &bans) {
+                        eprintln!("p2p connection error from {remote_ip}: {err}");
                     }
                 });
             }
@@ -324,22 +498,55 @@ fn serve_p2p(bind: &str, state_path: PathBuf) -> Result<(), String> {
     Ok(())
 }
 
-/// Full lifecycle of a single inbound P2P connection:
-/// handshake, then a message loop handling blocks and transactions.
-fn handle_p2p_connection(stream: &mut TcpStream, state_path: &Path) -> Result<(), String> {
+/// Full lifecycle of a single inbound P2P connection.
+///
+/// Enforces the peer ban policy:
+/// - Wrong handshake (chain_id / protocol / version) → SCORE_BAD_HANDSHAKE (instant ban)
+/// - Unparseable message → SCORE_INVALID_MSG
+/// - Invalid block (bad PoW / tampered) → SCORE_INVALID_BLOCK
+/// - Invalid transaction (bad signature etc.) → SCORE_INVALID_TX
+///
+/// The connection is closed as soon as a ban is imposed.
+fn handle_p2p_connection(
+    stream: &mut TcpStream,
+    state_path: &Path,
+    ban_path: &Path,
+) -> Result<(), String> {
+    let remote_ip = peer_ip(stream);
     let mempool_path = mempool_path_from_env();
 
     // --- handshake ---
-    let line = read_p2p_line(stream)?;
-    let remote: P2pHello =
-        serde_json::from_str(&line).map_err(|err| format!("parse hello: {err}"))?;
-    validate_hello(&remote)?;
+    let line = match read_p2p_line(stream) {
+        Ok(l) => l,
+        Err(err) => {
+            record_violation(ban_path, &remote_ip, SCORE_INVALID_MSG);
+            return Err(format!("read hello from {remote_ip}: {err}"));
+        }
+    };
+
+    let remote: P2pHello = match serde_json::from_str(&line) {
+        Ok(h) => h,
+        Err(err) => {
+            record_violation(ban_path, &remote_ip, SCORE_INVALID_MSG);
+            return Err(format!("parse hello from {remote_ip}: {err}"));
+        }
+    };
+
+    if let Err(err) = validate_hello(&remote) {
+        // Wrong chain_id, version, or protocol — potentially an attacker or
+        // a node on the wrong network.  Instant ban.
+        record_violation(ban_path, &remote_ip, SCORE_BAD_HANDSHAKE);
+        return Err(format!(
+            "handshake rejected from {remote_ip} ({}): {err}",
+            remote.node_id
+        ));
+    }
 
     let state = load_state(state_path)?;
     write_p2p_line(stream, &local_hello(&state))?;
 
     println!(
-        "p2p accepted peer={} chain_id={} height={} tip={}",
+        "p2p accepted peer={} ip={remote_ip} chain_id={} height={} tip={}",
         remote.node_id, remote.chain_id, remote.height, remote.tip_hash
     );
 
@@ -353,7 +560,10 @@ fn handle_p2p_connection(stream: &mut TcpStream, state_path: &Path) -> Result<()
         let msg: P2pMsg = match serde_json::from_str(&line) {
             Ok(msg) => msg,
             Err(err) => {
-                eprintln!("p2p invalid message from {}: {err}", remote.node_id);
+                eprintln!("p2p invalid message from {} (ip={remote_ip}): {err}", remote.node_id);
+                if record_violation(ban_path, &remote_ip, SCORE_INVALID_MSG) {
+                    break; // newly banned — close connection
+                }
                 continue;
             }
         };
@@ -368,9 +578,25 @@ fn handle_p2p_connection(stream: &mut TcpStream, state_path: &Path) -> Result<()
                         );
                         let _ = write_p2p_line(stream, &P2pMsg::Ack { height, hash });
                     }
+                    Err(ref reason) if !is_bannable_block_error(reason) => {
+                        // AlreadyKnown / UnknownParent — not the peer's fault.
+                        let _ = write_p2p_line(
+                            stream,
+                            &P2pMsg::Reject { reason: reason.clone() },
+                        );
+                    }
                     Err(reason) => {
-                        eprintln!("p2p rejected block from {}: {reason}", remote.node_id);
-                        let _ = write_p2p_line(stream, &P2pMsg::Reject { reason });
+                        eprintln!(
+                            "p2p rejected block from {} (ip={remote_ip}): {reason}",
+                            remote.node_id
+                        );
+                        let _ = write_p2p_line(
+                            stream,
+                            &P2pMsg::Reject { reason: reason.clone() },
+                        );
+                        if record_violation(ban_path, &remote_ip, SCORE_INVALID_BLOCK) {
+                            break; // newly banned
+                        }
                     }
                 }
             }
@@ -384,10 +610,25 @@ fn handle_p2p_connection(stream: &mut TcpStream, state_path: &Path) -> Result<()
                         );
                         let _ = write_p2p_line(stream, &P2pMsg::TxAck { txid });
                     }
+                    Err(ref reason) if !is_bannable_tx_error(reason) => {
+                        // AlreadyKnown / missing UTXO — not necessarily hostile.
+                        let _ = write_p2p_line(
+                            stream,
+                            &P2pMsg::TxReject { txid, reason: reason.clone() },
+                        );
+                    }
                     Err(reason) => {
-                        eprintln!("p2p rejected tx from {}: {reason}", remote.node_id);
-                        let _ =
-                            write_p2p_line(stream, &P2pMsg::TxReject { txid, reason });
+                        eprintln!(
+                            "p2p rejected tx from {} (ip={remote_ip}): {reason}",
+                            remote.node_id
+                        );
+                        let _ = write_p2p_line(
+                            stream,
+                            &P2pMsg::TxReject { txid, reason: reason.clone() },
+                        );
+                        if record_violation(ban_path, &remote_ip, SCORE_INVALID_TX) {
+                            break; // newly banned
+                        }
                     }
                 }
             }
@@ -417,15 +658,19 @@ fn handle_p2p_connection(stream: &mut TcpStream, state_path: &Path) -> Result<()
             | P2pMsg::TxAck { .. }
             | P2pMsg::TxReject { .. }
             | P2pMsg::Blocks { .. } => {
+                // Response-type messages should never be sent to a listener.
                 eprintln!(
-                    "p2p unexpected response-type message from {}",
+                    "p2p unexpected response-type message from {} (ip={remote_ip})",
                     remote.node_id
                 );
+                if record_violation(ban_path, &remote_ip, SCORE_INVALID_MSG) {
+                    break;
+                }
             }
         }
     }
 
-    println!("p2p disconnected peer={}", remote.node_id);
+    println!("p2p disconnected peer={} ip={remote_ip}", remote.node_id);
     Ok(())
 }
 
@@ -868,6 +1113,47 @@ fn handle_rpc_stream(stream: &mut TcpStream, state_path: &Path) -> Result<(), St
                     "count": mempool.len(),
                     "txids": txids,
                 }),
+            )
+        }
+
+        ("GET", "/getbanlist") => {
+            let ban_path = ban_path_from_env();
+            let banlist = load_banlist(&ban_path);
+            let now = now_seconds();
+            let entries: Vec<_> = banlist
+                .entries
+                .iter()
+                .map(|(ip, e)| {
+                    let banned = e.banned_until.map_or(false, |u| u > now);
+                    let secs_left = e
+                        .banned_until
+                        .filter(|&u| u > now)
+                        .map(|u| u - now);
+                    json!({
+                        "ip": ip,
+                        "score": e.score,
+                        "banned": banned,
+                        "secs_remaining": secs_left,
+                    })
+                })
+                .collect();
+            write_json_response(stream, 200, &json!({ "count": entries.len(), "entries": entries }))
+        }
+
+        ("GET", path) if path.starts_with("/unban/") => {
+            let ip = path.trim_start_matches("/unban/");
+            if ip.is_empty() {
+                return write_json_response(stream, 404, &RpcError::new("missing ip"));
+            }
+            let ban_path = ban_path_from_env();
+            let mut banlist = load_banlist(&ban_path);
+            let was_present = banlist.entries.contains_key(ip);
+            banlist.unban(ip);
+            save_banlist(&ban_path, &banlist);
+            write_json_response(
+                stream,
+                200,
+                &json!({ "unbanned": ip, "was_present": was_present }),
             )
         }
 
