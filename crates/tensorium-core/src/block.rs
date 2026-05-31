@@ -57,6 +57,33 @@ impl Transaction {
             .iter()
             .fold(0u64, |sum, output| sum.saturating_add(output.value_atoms))
     }
+
+    pub fn payment(inputs: Vec<TxInput>, outputs: Vec<TxOutput>) -> Self {
+        let payload = b"payment:v1".to_vec();
+        let id = transaction_id(&inputs, &outputs, &payload);
+        Self {
+            id,
+            inputs,
+            outputs,
+            payload,
+        }
+    }
+
+    pub fn refresh_id(&mut self) {
+        self.id = transaction_id(&self.inputs, &self.outputs, &self.payload);
+    }
+
+    pub fn signature_hash(&self) -> Hash256 {
+        let unsigned_inputs: Vec<TxInput> = self
+            .inputs
+            .iter()
+            .map(|input| TxInput {
+                previous_output: input.previous_output,
+                signature_script: Vec::new(),
+            })
+            .collect();
+        transaction_id(&unsigned_inputs, &self.outputs, &self.payload)
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]

@@ -11,11 +11,15 @@ use chacha20poly1305::{
 };
 use rand_core::{OsRng, RngCore};
 use serde::{Deserialize, Serialize};
-use tensorium_core::{chain::TESTNET, ChainState, UtxoSet, WalletKeypair};
+use tensorium_core::{
+    block::{Transaction, TxInput, TxOutput},
+    chain::TESTNET,
+    ChainState, UtxoSet, WalletKeypair,
+};
 
 const DEFAULT_WALLET_PATH: &str = "tensorium-wallet.json";
 const DEFAULT_STATE_PATH: &str = "tensorium-testnet-state.json";
-const COINBASE_MATURITY_BLOCKS: u64 = 100;
+const DEFAULT_SIGNED_TX_PATH: &str = "tensorium-signed-tx.json";
 const ARGON2_MEMORY_KIB: u32 = 19 * 1024;
 const ARGON2_ITERATIONS: u32 = 3;
 const ARGON2_PARALLELISM: u32 = 1;
@@ -75,6 +79,33 @@ fn run() -> Result<(), String> {
             let wallet = load_wallet(&wallet_path)?;
             let state = load_state(&state_path_from_env())?;
             print_balance(&wallet, &state)?;
+        }
+        "send" => {
+            let to_address = args
+                .get(2)
+                .ok_or_else(|| "usage: txmwallet send <to_address> <amount_atoms> [tx_file]".to_owned())?;
+            let amount_atoms = args
+                .get(3)
+                .ok_or_else(|| "usage: txmwallet send <to_address> <amount_atoms> [tx_file]".to_owned())?
+                .parse::<u64>()
+                .map_err(|err| format!("invalid amount_atoms: {err}"))?;
+            let tx_path = args
+                .get(4)
+                .map(PathBuf::from)
+                .unwrap_or_else(|| PathBuf::from(DEFAULT_SIGNED_TX_PATH));
+            let passphrase = passphrase_from_env()?;
+            let wallet = load_wallet(&wallet_path)?;
+            let keypair = wallet.decrypt(&passphrase)?;
+            let state = load_state(&state_path_from_env())?;
+            let tx = build_signed_payment(&wallet, &keypair, &state, to_address, amount_atoms)?;
+            let raw = serde_json::to_string_pretty(&tx)
+                .map_err(|err| format!("failed to serialize signed tx: {err}"))?;
+            fs::write(&tx_path, raw)
+                .map_err(|err| format!("failed to write {}: {err}", tx_path.display()))?;
+            println!("txid={}", tx.id);
+            println!("inputs={}", tx.inputs.len());
+            println!("outputs={}", tx.outputs.len());
+            println!("written={}", tx_path.display());
         }
         "unlock-check" => {
             let wallet = load_wallet(&wallet_path)?;
@@ -152,7 +183,7 @@ fn print_balance(wallet: &WalletFile, state: &ChainState) -> Result<(), String> 
         }
 
         let is_immature_coinbase = entry.coinbase
-            && tip_height < entry.created_height.saturating_add(COINBASE_MATURITY_BLOCKS);
+            && tip_height < entry.created_height.saturating_add(TESTNET.coinbase_maturity_blocks);
         if is_immature_coinbase {
             immature_atoms = immature_atoms.saturating_add(entry.output.value_atoms);
         } else {
@@ -168,6 +199,76 @@ fn print_balance(wallet: &WalletFile, state: &ChainState) -> Result<(), String> 
     Ok(())
 }
 
+fn build_signed_payment(
+    wallet: &WalletFile,
+    keypair: &WalletKeypair,
+    state: &ChainState,
+    to_address: &str,
+    amount_atoms: u64,
+) -> Result<Transaction, String> {
+    if amount_atoms == 0 {
+        return Err("amount_atoms must be greater than zero".to_owned());
+    }
+
+    let mut utxos = UtxoSet::new();
+    for block in &state.blocks {
+        utxos
+            .apply_block(&TESTNET, block)
+            .map_err(|err| err.to_string())?;
+    }
+
+    let tip_height = state.height().unwrap_or(0);
+    let mut selected = Vec::new();
+    let mut selected_atoms = 0u64;
+    for (outpoint, entry) in &utxos.entries {
+        if entry.output.address != wallet.address {
+            continue;
+        }
+        let immature = entry.coinbase
+            && tip_height < entry.created_height.saturating_add(TESTNET.coinbase_maturity_blocks);
+        if immature {
+            continue;
+        }
+
+        selected.push((*outpoint, entry.output.clone()));
+        selected_atoms = selected_atoms.saturating_add(entry.output.value_atoms);
+        if selected_atoms >= amount_atoms {
+            break;
+        }
+    }
+
+    if selected_atoms < amount_atoms {
+        return Err(format!(
+            "insufficient mature balance: have {selected_atoms}, need {amount_atoms}"
+        ));
+    }
+
+    let inputs: Vec<TxInput> = selected
+        .iter()
+        .map(|(outpoint, _)| TxInput {
+            previous_output: *outpoint,
+            signature_script: Vec::new(),
+        })
+        .collect();
+    let mut outputs = vec![TxOutput {
+        value_atoms: amount_atoms,
+        address: to_address.to_owned(),
+    }];
+    let change = selected_atoms - amount_atoms;
+    if change > 0 {
+        outputs.push(TxOutput {
+            value_atoms: change,
+            address: wallet.address.clone(),
+        });
+    }
+
+    let mut tx = Transaction::payment(inputs, outputs);
+    keypair
+        .sign_transaction(&mut tx)
+        .map_err(|err| err.to_string())?;
+    Ok(tx)
+}
+
 fn format_atoms(atoms: u64) -> String {
     let whole = atoms / 100_000_000;
     let frac = atoms % 100_000_000;
@@ -181,6 +282,7 @@ fn print_help() {
     println!("  create          create a local wallet file");
     println!("  getnewaddress   print wallet address");
     println!("  balance         scan local chain state for wallet balance");
+    println!("  send            create a signed local transaction file");
     println!("  show            print wallet public summary");
     println!("  unlock-check    verify passphrase can decrypt wallet");
     println!();

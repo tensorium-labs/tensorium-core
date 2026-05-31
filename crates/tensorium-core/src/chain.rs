@@ -30,6 +30,7 @@ pub struct ConsensusParams {
     pub min_leading_zero_bits: u8,
     pub max_leading_zero_bits: u8,
     pub difficulty_adjustment_window: u64,
+    pub coinbase_maturity_blocks: u64,
     pub max_future_block_time_seconds: u64,
     pub max_block_bytes: u64,
 }
@@ -54,6 +55,7 @@ impl ConsensusParams {
             min_leading_zero_bits: 8,
             max_leading_zero_bits: 28,
             difficulty_adjustment_window: 60,
+            coinbase_maturity_blocks: 100,
             max_future_block_time_seconds: 2 * 60 * 60,
             max_block_bytes: 1_000_000,
         }
@@ -74,6 +76,7 @@ impl ConsensusParams {
             min_leading_zero_bits: 18,
             max_leading_zero_bits: 48,
             difficulty_adjustment_window: 120,
+            coinbase_maturity_blocks: 100,
             max_future_block_time_seconds: 2 * 60 * 60,
             max_block_bytes: 1_000_000,
         }

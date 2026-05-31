@@ -32,6 +32,7 @@ cargo run -p txmwallet -- create
 cargo run -p txmwallet -- getnewaddress
 cargo run -p txmwallet -- unlock-check
 cargo run -p txmwallet -- balance
+cargo run -p txmwallet -- send txm1receiver... 100000000
 ```
 
 The RPC server binds to `127.0.0.1:23332` by default. Keep it localhost-only until authentication, rate limits, and public-node hardening are implemented.
