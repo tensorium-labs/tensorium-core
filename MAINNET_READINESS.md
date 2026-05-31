@@ -367,11 +367,11 @@ Chrome extension wallet stack: TypeScript + React, separate repo `tensorium-wall
 
 | Item | Status | Notes |
 |---|---|---|
-| Whitepaper update | TODO | Add pool fee, founder lock, MC genesis, Phase 8-9 roadmap |
-| Docs: pool guide | TODO | How to run `tensorium-pool`, connect miners, view payout |
-| Docs: MC node guide | TODO | How to run `mainnet-candidate rpc/p2p-listen`, connect to MC chain |
+| Whitepaper update | DONE | Added pool fee, founder lock, MC genesis, Phase 8 roadmap |
+| Docs: pool guide | DONE | Added official pool endpoint, fee disclosure, miner commands, payout lookup |
+| Docs: MC node guide | DONE | Added `mainnet-candidate rpc/p2p-listen/sync` commands and MC genesis metadata |
 | Docs: Chrome extension guide | TODO | After wallet extension built |
-| Risk disclosure on website | TODO | Link `RISK_DISCLOSURE.md` from website footer |
+| Risk disclosure on website | DONE | Root site and docs link to `RISK_DISCLOSURE.md` |
 | Announce mainnet-candidate launch | TODO | Only after 8A stable + 8D docs published |
 
 ### 8E — Security & Legal
