@@ -371,7 +371,7 @@ Chrome extension wallet stack: TypeScript + React, separate repo `tensorium-wall
 | Docs: pool guide | DONE | Added official pool endpoint, fee disclosure, miner commands, payout lookup |
 | Docs: MC node guide | DONE | Added `mainnet-candidate rpc/p2p-listen/sync` commands and MC genesis metadata |
 | Project identity email | DONE | `dev@tensoriumlabs.com` mailbox created on VPS with Postfix/Dovecot TLS; DNS MX/SPF/DMARC verified publicly |
-| DKIM email signing | PARTIAL | OpenDKIM installed and Postfix signing verified locally with selector `txm20260531`; DNS TXT still needs publication/verification |
+| DKIM email signing | DONE | OpenDKIM installed, Postfix signing verified locally, and public DNS selector `txm20260531` verified with `opendkim-testkey` |
 | GitHub organization identity | TODO | Create Tensorium-owned GitHub org/account before license/final public launch; migrate links from `rygroup-dev` after ready |
 | Docs: Chrome extension guide | TODO | After wallet extension built |
 | Risk disclosure on website | DONE | Root site and docs link to `RISK_DISCLOSURE.md` |
