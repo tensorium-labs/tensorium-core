@@ -21,13 +21,13 @@ Mainnet launch is not approved until every blocking item below is resolved.
 | Gate | Status | Notes |
 | --- | --- | --- |
 | Consensus audit | DOING | Tokenomics, emission, difficulty, fork-choice/reorg, timestamp, coinbase over-mint, pending double-spend, RPC bind safety, P2P message-size guard, ban-list fix, connection limit, and TCP timeouts added; soak/integration testing and storage scalability remain. |
-| Founder wallet | TODO | Address must be generated and published before genesis. |
-| Founder lock policy | TODO | Manual policy or native lock mechanism must be documented. |
+| Founder wallet | DONE | Founder address `txm18c3t652j0x0sanux3dhse8fqgrqpsdzx97358d`, pool treasury `txm10wa2dazhn2yqwwxkm4aegvzjq55hj9m2jlznt9` generated 2026-05-31. |
+| Founder lock policy | DONE | Social/manual 24-month lock documented; no L1 enforcement. Disclosure required in whitepaper before mainnet. |
 | Mainnet genesis | TODO | Must be generated after final params and founder address are frozen. |
 | Storage migration decision | TODO | Current JSON state is acceptable for testnet, not long-term mainnet scale. |
 | Peer discovery | TODO | DNS seed, static seed list, or peer exchange plan needed. |
 | Mining pool path | TODO | Decide whether to ship a reference pool or document solo mining only. |
-| Pool fee policy | TODO | Official/reference pool fee is drafted as 5%, but treasury address and payout accounting are not final. |
+| Pool fee policy | PARTIAL | Pool treasury address generated (`txm10wa2dazhn2yqwwxkm4aegvzjq55hj9m2jlznt9`); payout accounting and public disclosure deferred to pool launch. |
 | Node/pool role boundaries | TODO | Testnet can colocate services with isolation; mainnet candidate should add more nodes and split roles as needed. |
 | Monitoring | TODO | Node, disk, RPC, P2P, explorer, and SSL monitoring needed. |
 | Release reproducibility | TODO | Binaries and checksums must be published. |
@@ -94,22 +94,54 @@ Phase 7A extended hardening (2026-05-31):
 
 ## Founder Wallet Policy
 
-Required before mainnet genesis:
+Phase 7B completed (2026-05-31).
 
-- [ ] Generate founder wallet address.
-- [ ] Generate pool treasury wallet address if the official/reference pool charges fees.
-- [ ] Store founder private key outside public VPS infrastructure.
-- [ ] Publish founder address before genesis.
-- [ ] Publish founder allocation amount.
-- [ ] Publish lock/vesting policy.
-- [ ] Explain whether lock is protocol-enforced or policy/manual.
-- [ ] Publish pool fee policy and pool treasury address before opening an official pool.
+- [x] Generate founder wallet address.
+- [x] Generate pool treasury wallet address if the official/reference pool charges fees.
+- [x] Store founder private key outside public VPS infrastructure.
+- [x] Publish founder address before genesis.
+- [x] Publish founder allocation amount.
+- [x] Publish lock/vesting policy.
+- [x] Explain whether lock is protocol-enforced or policy/manual.
+- [ ] Publish pool fee policy and pool treasury address before opening an official pool. *(address generated; announcement deferred until official pool launch)*
 
-Recommended default:
+### Founder Cold Wallet
 
-- Generate founder wallet offline or on a trusted local machine.
-- Do not store founder private key on the seed node, explorer server, docs server, or CI.
-- If native lock is not implemented, disclose that the lock is social/manual, not enforced by L1 consensus.
+- Address: `txm18c3t652j0x0sanux3dhse8fqgrqpsdzx97358d`
+- Allocation: `1,000,000 TXM` (genesis allocation, pre-mined at block 0)
+- Wallet file: stored on local machine only (`/root/cold-wallets/founder/founder-cold.json`), encrypted with passphrase.
+- Private key must NOT be copied to VPS seed node, explorer server, docs server, or CI.
+- This address must appear in mainnet genesis block output.
+
+### Pool Treasury Wallet
+
+- Address: `txm10wa2dazhn2yqwwxkm4aegvzjq55hj9m2jlznt9`
+- Purpose: receives 5% official/reference pool fee revenue.
+- Wallet file: stored on local machine only (`/root/cold-wallets/pool-treasury/pool-treasury.json`), encrypted with passphrase.
+- Separate from founder cold wallet — different keypair, different passphrase.
+- Pool treasury address will be disclosed on the official pool page before miners connect.
+
+### Lock and Vesting Policy
+
+Lock type: **social/manual, not L1-enforced.**
+
+Tensorium does not currently implement a native timelock or vesting contract at the consensus layer.
+
+The founder lock policy is:
+
+1. The founder address (`txm18c3t652j0x0sanux3dhse8fqgrqpsdzx97358d`) will receive `1,000,000 TXM` in the mainnet genesis block.
+2. The founder commits to a **24-month voluntary lock** starting from mainnet genesis: no more than 10% of the allocation (100,000 TXM) may be moved in any single calendar month for the first 24 months.
+3. After month 24, the remaining balance is fully unlocked and moveable at founder discretion.
+4. All movements from the founder address will be visible on-chain and on the public explorer.
+5. This policy is social/reputational only — L1 consensus does not enforce it. Miners and community members must decide whether they accept this trust model.
+
+This disclosure must appear in the whitepaper and risk disclosure before mainnet launch.
+
+### Recommended default:
+
+- Generate founder wallet offline or on a trusted local machine. ✓ done
+- Do not store founder private key on the seed node, explorer server, docs server, or CI. ✓ documented
+- If native lock is not implemented, disclose that the lock is social/manual, not enforced by L1 consensus. ✓ documented above
 
 ## Official Pool Fee Policy Draft
 
@@ -123,10 +155,10 @@ Draft decision:
 
 Required safety rules:
 
-- [ ] Publish the pool fee before miners connect.
-- [ ] Publish the pool treasury address.
+- [ ] Publish the pool fee before miners connect. *(deferred to pool launch)*
+- [x] Pool treasury address generated: `txm10wa2dazhn2yqwwxkm4aegvzjq55hj9m2jlznt9`
 - [ ] Show gross reward, pool fee, and net miner payout in pool accounting.
-- [ ] Keep pool treasury private key separate from founder cold wallet.
+- [x] Pool treasury private key is separate from founder cold wallet — different keypair.
 - [ ] Do not hide the fee in miner code, payout scripts, or explorer output.
 - [ ] Document that miners can avoid pool fee by solo mining.
 
