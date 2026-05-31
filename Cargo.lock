@@ -432,8 +432,11 @@ dependencies = [
 name = "txmwallet"
 version = "0.1.0"
 dependencies = [
+ "hex",
+ "rand_core",
  "serde",
  "serde_json",
+ "sha2",
  "tensorium-core",
 ]
 

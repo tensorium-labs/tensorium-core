@@ -30,9 +30,13 @@ curl -X POST --data-binary @mined-block.json http://127.0.0.1:23332/submitblock
 cargo run -p txmminer -- 127.0.0.1:23332 local-dev-miner
 cargo run -p txmwallet -- create
 cargo run -p txmwallet -- getnewaddress
+cargo run -p txmwallet -- unlock-check
+cargo run -p txmwallet -- balance
 ```
 
 The RPC server binds to `127.0.0.1:23332` by default. Keep it localhost-only until authentication, rate limits, and public-node hardening are implemented.
+
+`txmwallet create` and `txmwallet unlock-check` require `TENSORIUM_WALLET_PASSPHRASE`. The wallet file stores the private key encrypted and keeps the public address readable for balance checks.
 
 ## Current Consensus Defaults
 
