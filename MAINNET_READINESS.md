@@ -1,26 +1,27 @@
 # Mainnet Readiness
 
-Status: Phase 7E — Mainnet-candidate release v0.3.0-mainnet-candidate published. Mainnet NOT yet launched (genesis nonce pending GPU mining).
+Status: **Phase 7 COMPLETE** — v0.3.1-mainnet-candidate released. MC daemon operational. Mainnet-candidate chain NOT yet publicly launched — pre-launch checklist (Phase 8) in progress.
 Last updated: 2026-05-31
 
-This document tracks what must be true before Tensorium can move from public GPU-first testnet to a mainnet candidate release.
+This document tracks what must be true before Tensorium mainnet-candidate chain launches publicly.
 
 ## Current Position
 
-- Phase 6 GPU-first testnet is complete.
-- Public testnet release: `v0.2.0-testnet`.
-- Testnet chain ID: `tensorium-testnet-0`.
-- Testnet difficulty: 36 leading zero bits.
-- CUDA miner: `txmminer-cuda`.
-- Public services: website, docs, whitepaper, explorer, seed/test node.
+**Phase 7 DONE.** All Phase 7 sprints (7A–7E) completed 2026-05-31.
 
-Mainnet launch is not approved until every blocking item below is resolved.
+- Active public testnet: `tensorium-testnet-0`, diff 36 bits, release `v0.2.0-testnet`
+- Mainnet-candidate code: `v0.3.1-mainnet-candidate` — genesis hardcoded, MC daemon complete
+- MC genesis: nonce `56_167_663_277`, hash `0000000000d61e99b9e2530609632b399d0f0b538c2d54daa1dddbfe28ea08dc`
+- MC commands: `tensorium-node mainnet-candidate rpc/p2p-listen/sync/init`
+- Public services: website, docs, whitepaper, explorer, testnet seed node
+
+**Mainnet-candidate chain launch requires completing Phase 8 (Pre-Launch) checklist below.**
 
 ## Blocking Gates
 
 | Gate | Status | Notes |
 | --- | --- | --- |
-| Consensus audit | DOING | Tokenomics, emission, difficulty, fork-choice/reorg, timestamp, coinbase over-mint, pending double-spend, RPC bind safety, P2P message-size guard, ban-list fix, connection limit, and TCP timeouts added; soak/integration testing and storage scalability remain. |
+| Consensus audit | DONE | Tokenomics, emission, difficulty, fork-choice/reorg, timestamp, coinbase, double-spend, RPC bind safety, P2P cap, ban-list fix, connection limit, TCP timeouts — 54 unit tests passing. Soak/integration test: Phase 8 item. |
 | Founder wallet | DONE | Founder address `txm18c3t652j0x0sanux3dhse8fqgrqpsdzx97358d`, pool treasury `txm10wa2dazhn2yqwwxkm4aegvzjq55hj9m2jlznt9` generated 2026-05-31. |
 | Founder lock policy | DONE | Social/manual 24-month lock documented; no L1 enforcement. Disclosure required in whitepaper before mainnet. |
 | Mainnet genesis | DONE | Nonce `56_167_663_277` mined RTX 5090 (2.28 GH/s, 24.6s, 2026-05-31). Hash: `0000000000d61e99b9e2530609632b399d0f0b538c2d54daa1dddbfe28ea08dc`. Hardcoded in binary. |
@@ -326,21 +327,102 @@ Solo mining (fee-free): miners point `txmminer` directly at `tensorium-node` RPC
 
 Tensorium v0.3.0-mainnet-candidate is released. Phase 7 (7A–7E) is complete.
 
-**Mainnet launch is NOT yet approved.** Remaining items before launch:
+## Phase 8 — Pre-Launch Checklist
 
-1. **Full MC RPC/P2P daemon** — DONE (commit 9286304). `tensorium-node mainnet-candidate rpc/p2p-listen/sync` all work with MAINNET_CANDIDATE params.
-2. **DNS seed** (`seed.tensoriumlabs.com` → seed IP) — deferred to mainnet launch prep.
-3. **Storage migration** (JSON → binary/DB) — deferred, acceptable for candidate scale.
-4. **Whitepaper and docs update** — add pool fee guide, RISK_DISCLOSURE summary, MC genesis details.
+Phase 7 is complete. Phase 8 covers everything required before the mainnet-candidate chain goes live and TXM has real economic value.
 
-### Mainnet-Candidate Genesis (DONE)
+### 8A — Infrastructure
+
+| Item | Status | Notes |
+|---|---|---|
+| MC RPC/P2P daemon | DONE | `mainnet-candidate rpc/p2p-listen/sync` operational (commit 9286304) |
+| Mainnet-candidate seed VPS | TODO | Current testnet VPS (157.230.44.162) must NOT be reused as mainnet seed. Need dedicated VPS: minimum 4 vCPU, 8 GB RAM, 100 GB NVMe SSD. |
+| MC seed node deployed | TODO | Deploy `tensorium-node mainnet-candidate init` + `rpc` + `p2p-listen` on new VPS |
+| DNS seed | TODO | `seed.tensoriumlabs.com` A record → MC seed VPS IP; implement DNS seed support in node or document static seed list update |
+| MC P2P sync test | TODO | Run 2+ independent MC nodes and verify they sync to same chain tip |
+| Backup seed node | TODO | At least one additional MC seed node (different provider/region) |
+| Firewall + SSL on MC VPS | TODO | UFW: SSH, 80, 443, P2P 33333; certbot for any web endpoint on new VPS |
+| Monitor for MC node | TODO | Extend `tensorium-monitor.sh` to also check MC RPC (127.0.0.1:33332) and P2P (33333) |
+
+### 8B — Wallet & UX
+
+| Item | Status | Notes |
+|---|---|---|
+| CLI wallet works on MC chain | DONE | `txmwallet` unchanged; works with any address format |
+| Chrome extension wallet | TODO | Browser wallet for Tensorium — enables web-based UX, DeFi integrations, community onboarding |
+| Mobile wallet (future) | DEFERRED | iOS/Android app — planned post-launch |
+| Web wallet (future) | DEFERRED | In-browser wallet without extension — planned |
+
+#### Chrome Extension Wallet — Scope
+
+A Tensorium Chrome extension wallet is a significant but high-impact deliverable before mainnet launch. It dramatically lowers the barrier for community participation.
+
+Minimum viable scope:
+- Create/import wallet via mnemonic or private key
+- Display TXM balance (via node RPC)
+- Send TXM (sign + broadcast via node RPC)
+- Display transaction history (via explorer API)
+- Network selector: testnet / mainnet-candidate
+- Connect to user-specified node RPC endpoint
+
+Tech stack recommendation:
+- TypeScript + React (standard for Chrome extensions)
+- Separate repo: `tensorium-wallet-extension`
+- Reuse wallet crypto logic from `txmwallet` (port the secp256k1 + SHA256d key derivation to JS/TS or call via WASM)
+- Store encrypted private key in `chrome.storage.local`
+
+### 8C — Docs & Community
+
+| Item | Status | Notes |
+|---|---|---|
+| Whitepaper update | TODO | Add pool fee section, founder lock policy, MC genesis info, Phase 8 roadmap |
+| Docs: pool guide | TODO | How to run `tensorium-pool`, connect miners, view payout |
+| Docs: MC node guide | TODO | How to run `mainnet-candidate rpc` + `p2p-listen`, connect to MC chain |
+| Docs: Chrome extension guide | TODO | After wallet extension is built |
+| Risk disclosure on website | TODO | Link `RISK_DISCLOSURE.md` from main website footer |
+| Pool fee disclosure on pool page | TODO | Show 5% fee, treasury address, gross/net payout before miners connect |
+| Announce mainnet-candidate launch | TODO | Only after 8A infra is confirmed stable and 8C docs are published |
+
+### 8D — Security & Legal
+
+| Item | Status | Notes |
+|---|---|---|
+| Source code license | TODO | Currently UNLICENSED. Choose license before mainnet: MIT, Apache 2.0, or custom. |
+| Security audit | DEFERRED | Formal external audit recommended before mainnet with real economic value. Can defer to post-launch for initial MC phase. |
+| Soak test (2+ weeks MC chain) | TODO | Run MC chain for at least 2 weeks with multiple nodes before announcing to public. |
+
+---
+
+### Mainnet-Candidate Genesis (Reference)
 
 - **Nonce:** `56_167_663_277`
 - **Hash:** `0000000000d61e99b9e2530609632b399d0f0b538c2d54daa1dddbfe28ea08dc`
 - **Timestamp:** `1_780_272_000` (2026-06-01 00:00:00 UTC)
 - **Mined:** RTX 5090, CUDA, 2.28 GH/s, 24.6 seconds (2026-05-31)
-- **Verified:** `tensorium-node mainnet-candidate init` on two independent machines (GPU server + VPS) → identical hash
-- **Hardcoded:** `MC_GENESIS_NONCE` in `tensorium-node/src/main.rs`
-- **To initialize:** `tensorium-node mainnet-candidate init` (no args needed)
+- **Verified:** GPU server (142.188.39.36) + VPS (157.230.44.162) → identical hash
+- **Command:** `tensorium-node mainnet-candidate init` (no args needed)
 
-Once MC RPC/P2P daemon is complete and nodes can sync on the MC chain, tag v1.0.0-mainnet-candidate-launch.
+### VPS Recommendation for Mainnet-Candidate Seed Node
+
+Current testnet VPS (157.230.44.162) should stay as testnet-only. A dedicated MC seed node VPS should be:
+
+| Spec | Minimum | Recommended |
+|---|---|---|
+| CPU | 2 cores | 4 cores |
+| RAM | 4 GB | 8 GB |
+| Disk | 50 GB SSD | 100 GB NVMe |
+| Network | 100 Mbps | 1 Gbps |
+| Provider | Any | Hetzner / DigitalOcean / Vultr |
+| Cost | ~$10–15/mo | ~$20–48/mo |
+
+Ports to open: SSH (22), HTTP (80), HTTPS (443), MC P2P (33333). RPC stays on localhost.
+
+### Priority Order for Phase 8
+
+1. **New VPS + MC node** (8A) — cannot launch without a stable seed node
+2. **DNS seed** (8A) — enables auto-discovery for new nodes
+3. **MC P2P sync test** (8A) — confirm chain works before public
+4. **Docs update** (8C) — whitepaper + pool guide + MC node guide
+5. **Chrome extension wallet** (8B) — high impact for community onboarding
+6. **License** (8D) — must be decided before public launch
+7. **Soak test** (8D) — 2+ weeks MC chain running before announcement
