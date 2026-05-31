@@ -349,47 +349,140 @@ Phase 7 is complete. Phase 8 covers everything required before the mainnet-candi
 | Item | Status | Notes |
 |---|---|---|
 | CLI wallet works on MC chain | DONE | `txmwallet` unchanged; works with any address format |
-| Chrome extension wallet | TODO | Browser wallet for Tensorium — enables web-based UX, DeFi integrations, community onboarding |
-| Mobile wallet (future) | DEFERRED | iOS/Android app — planned post-launch |
-| Web wallet (future) | DEFERRED | In-browser wallet without extension — planned |
+| Chrome extension wallet | TODO | Browser wallet — TypeScript+React, `chrome.storage.local`, connect to node RPC, network selector |
+| Mobile wallet | DEFERRED | iOS/Android — post-launch |
+| Web wallet | DEFERRED | In-browser without extension — post-launch |
 
-#### Chrome Extension Wallet — Scope
+Chrome extension wallet stack: TypeScript + React, separate repo `tensorium-wallet-extension`, store encrypted key in `chrome.storage.local`, reuse secp256k1+SHA256d from txmwallet (port to JS or WASM).
 
-A Tensorium Chrome extension wallet is a significant but high-impact deliverable before mainnet launch. It dramatically lowers the barrier for community participation.
-
-Minimum viable scope:
-- Create/import wallet via mnemonic or private key
-- Display TXM balance (via node RPC)
-- Send TXM (sign + broadcast via node RPC)
-- Display transaction history (via explorer API)
-- Network selector: testnet / mainnet-candidate
-- Connect to user-specified node RPC endpoint
-
-Tech stack recommendation:
-- TypeScript + React (standard for Chrome extensions)
-- Separate repo: `tensorium-wallet-extension`
-- Reuse wallet crypto logic from `txmwallet` (port the secp256k1 + SHA256d key derivation to JS/TS or call via WASM)
-- Store encrypted private key in `chrome.storage.local`
-
-### 8C — Docs & Community
+### 8C — Pool Website & Faucet
 
 | Item | Status | Notes |
 |---|---|---|
-| Whitepaper update | TODO | Add pool fee section, founder lock policy, MC genesis info, Phase 8 roadmap |
+| Pool website | TODO | `pool.tensoriumlabs.com` — frontend for `tensorium-pool` backend: stats, miner lookup, payout history, connect guide |
+| Pool fee disclosure | TODO | Show 5% fee, treasury address, gross/net payout on pool page before miners connect |
+| Testnet faucet | TODO | `faucet.tensoriumlabs.com` — 1x per address per 24h, send small testnet TXM for testing |
+
+### 8D — Docs & Community
+
+| Item | Status | Notes |
+|---|---|---|
+| Whitepaper update | TODO | Add pool fee, founder lock, MC genesis, Phase 8-9 roadmap |
 | Docs: pool guide | TODO | How to run `tensorium-pool`, connect miners, view payout |
-| Docs: MC node guide | TODO | How to run `mainnet-candidate rpc` + `p2p-listen`, connect to MC chain |
-| Docs: Chrome extension guide | TODO | After wallet extension is built |
-| Risk disclosure on website | TODO | Link `RISK_DISCLOSURE.md` from main website footer |
-| Pool fee disclosure on pool page | TODO | Show 5% fee, treasury address, gross/net payout before miners connect |
-| Announce mainnet-candidate launch | TODO | Only after 8A infra is confirmed stable and 8C docs are published |
+| Docs: MC node guide | TODO | How to run `mainnet-candidate rpc/p2p-listen`, connect to MC chain |
+| Docs: Chrome extension guide | TODO | After wallet extension built |
+| Risk disclosure on website | TODO | Link `RISK_DISCLOSURE.md` from website footer |
+| Announce mainnet-candidate launch | TODO | Only after 8A stable + 8D docs published |
 
-### 8D — Security & Legal
+### 8E — Security & Legal
 
 | Item | Status | Notes |
 |---|---|---|
-| Source code license | TODO | Currently UNLICENSED. Choose license before mainnet: MIT, Apache 2.0, or custom. |
-| Security audit | DEFERRED | Formal external audit recommended before mainnet with real economic value. Can defer to post-launch for initial MC phase. |
-| Soak test (2+ weeks MC chain) | TODO | Run MC chain for at least 2 weeks with multiple nodes before announcing to public. |
+| Source code license | TODO | Currently UNLICENSED. Choose MIT or Apache 2.0 before launch. |
+| Soak test (2+ weeks MC chain) | TODO | Run MC chain with 2+ nodes for 2+ weeks before public announcement. |
+| Security audit | DEFERRED | External audit recommended before economic value. Can defer to post-launch. |
+
+---
+
+## Phase 9 — Ecosystem (Post-Launch)
+
+Starts after MC chain is live and stable (minimum 2 weeks soak test). Builds the ecosystem on top of the chain.
+
+### 9A — DEX / Swap Platform
+
+TXM needs a way to be bought and sold. Three options by complexity:
+
+| Option | Complexity | Timeline |
+|---|---|---|
+| OTC/P2P trading board (`swap.tensoriumlabs.com`) | Low | 1-2 weeks |
+| Bridge to BSC + PancakeSwap listing (wTXM) | High | 2-3 months |
+| Native atomic swap (HTLC) | Very high | Requires Phase 10B |
+
+**Recommended sequence:**
+1. OTC trading board first (fast, P2P listing, no smart contracts)
+2. Bridge to BSC → wTXM → PancakeSwap (wide exposure)
+3. Native atomic swap after scripting layer (Phase 10)
+
+### 9B — Explorer Improvements
+
+| Feature | Priority |
+|---|---|
+| Address page (`/address/<addr>`) — balance + TX history | High |
+| TX detail page (`/tx/<txid>`) — inputs, outputs, confirmations | High |
+| Global search (block / txid / address) | High |
+| Network stats (hashrate, supply minted, difficulty chart) | Medium |
+| Mempool viewer | Medium |
+| Public REST API (`/api/v1/address/<addr>`, `/api/v1/stats`) | Medium |
+
+### 9C — SDK & Developer Tools
+
+- `tensorium-sdk-js` — npm package: query balance, sign+broadcast TX, Node.js + browser
+- `tensorium-sdk-py` — pip package: same as JS, for scripting/automation
+- RPC API reference docs at `docs.tensoriumlabs.com/api`
+- Example dApp using SDK
+
+### 9D — Listing & Community
+
+- CEX outreach (whitepaper, tokenomics, source code ready)
+- Open Telegram to public (currently private invite)
+- Discord server (mining support, dev, governance channels)
+- Twitter/X: announce milestones, mining stats
+- Mining event / competition for hashrate bootstrap
+
+---
+
+## Phase 10 — Advanced Protocol (Long-term)
+
+- **Bridge EVM formal**: multi-sig relayer, audited smart contract, `bridge.tensoriumlabs.com`
+- **Scripting layer**: OP codes (multisig, timelock, HTLC) → enables native atomic swap + DEX
+- **Governance**: TIP process (Tensorium Improvement Proposal), on-chain or off-chain signaling
+- **Storage migration**: JSON state → RocksDB/LMDB for scalability at millions of TXs
+- **Mobile wallet**: iOS + Android (React Native or Flutter)
+
+---
+
+## Ecosystem Checklist (Full)
+
+**Protocol — DONE:**
+- [x] tensorium-node, txmwallet, txmminer, txmminer-cuda, tensorium-pool
+- [x] Genesis block mined, MC params frozen, MC daemon complete
+
+**Infrastructure — Phase 8:**
+- [ ] MC seed VPS (new, dedicated)
+- [ ] DNS seed
+- [ ] MC P2P sync test
+- [ ] Backup seed node
+- [x] Block explorer, monitoring, backup
+
+**Wallet & UX — Phase 8-9:**
+- [ ] Chrome extension wallet
+- [ ] Mobile wallet (Phase 10)
+
+**Mining Ecosystem — Phase 8-9:**
+- [ ] Pool website (pool.tensoriumlabs.com)
+- [ ] Testnet faucet
+- [x] Mining guide, pool reference implementation
+
+**Trading & Liquidity — Phase 9:**
+- [ ] OTC trading board
+- [ ] Bridge to BSC + wTXM
+- [ ] DEX listing (PancakeSwap)
+- [ ] CEX listing
+
+**Developer — Phase 9:**
+- [ ] SDK JS/Python
+- [ ] Public REST API docs
+- [ ] Developer onboarding guide
+
+**Advanced Protocol — Phase 10:**
+- [ ] Scripting layer (OP codes, HTLC, atomic swap)
+- [ ] Governance mechanism
+- [ ] Storage migration (RocksDB)
+
+**Community & Legal:**
+- [ ] Open source license (MIT/Apache 2.0)
+- [ ] Telegram public, Discord, Twitter/X
+- [ ] Security audit external
 
 ---
 
