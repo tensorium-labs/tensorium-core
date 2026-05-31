@@ -14,8 +14,9 @@ use std::{
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tensorium_core::{
-    block::{BlockHeader, Transaction},
+    block::{merkle_root as compute_merkle_root, BlockHeader, Transaction},
     chain::{MAINNET_CANDIDATE, TESTNET},
+    emission::reward_at_height,
     pow::header_meets_work,
     Block, ChainState, Hash256, Mempool, StateError, UtxoSet,
 };
@@ -229,20 +230,31 @@ fn mc_state_path_from_env() -> PathBuf {
 fn mine_genesis_multithreaded(threads: usize) -> Result<u64, String> {
     use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
-    // Build a template genesis header (nonce = 0; we'll search the space).
+    // Build the actual genesis block header with the real merkle root.
+    // The merkle root depends on the coinbase transaction (miner="genesis", height=0).
+    // This must match exactly what init_genesis_nonce constructs, otherwise the
+    // found nonce will fail PoW validation when the state is initialized.
     let header_template = {
         let params = &MAINNET_CANDIDATE;
+        let reward = reward_at_height(params, 0);
+        let coinbase = Transaction::coinbase(0, reward, "genesis");
+        let real_merkle = compute_merkle_root(&[coinbase]);
         BlockHeader {
             version: 1,
             chain_id: params.chain_id.to_owned(),
             height: 0,
             previous_hash: Hash256::ZERO,
-            merkle_root: Hash256::ZERO, // not used for PoW check
+            merkle_root: real_merkle,
             timestamp_seconds: MC_GENESIS_TIMESTAMP,
             leading_zero_bits: params.initial_leading_zero_bits,
             nonce: 0,
         }
     };
+    println!("genesis template: chain_id={} height=0 diff={} merkle_root={}",
+        MAINNET_CANDIDATE.chain_id,
+        MAINNET_CANDIDATE.initial_leading_zero_bits,
+        header_template.merkle_root,
+    );
 
     let done = Arc::new(AtomicBool::new(false));
     let winner = Arc::new(AtomicU64::new(u64::MAX));
