@@ -91,9 +91,12 @@ impl ConsensusParams {
 // These parameters are locked for the GPU-first testnet phase.
 pub const TESTNET: ConsensusParams = ConsensusParams::testnet();
 
-// MAINNET_CANDIDATE parameters are a planning placeholder — NOT FINAL.
-// Will be locked only after Phase 6 (GPU testnet) is stable and a security
-// audit is complete. Do not deploy mainnet from this constant.
+// MAINNET_CANDIDATE parameters are FROZEN as of Phase 7E (2026-05-31).
+// chain_id: tensorium-mainnet-candidate-0
+// Initial difficulty: 40 bits (requires RTX 3060+ or equivalent GPU).
+// Genesis timestamp: 1_780_272_000 (2026-06-01 00:00:00 UTC) — TBD until launch.
+// Genesis nonce: TBD — must be GPU-mined before mainnet-candidate chain launch.
+// Do NOT change these fields without bumping chain_id and issuing a breaking notice.
 pub const MAINNET_CANDIDATE: ConsensusParams = ConsensusParams::mainnet_candidate();
 
 /// Low-difficulty params for unit tests — mines instantly (difficulty 8 = 256 hashes avg).

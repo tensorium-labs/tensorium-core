@@ -14,7 +14,10 @@ use std::{
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tensorium_core::{
-    block::Transaction, chain::TESTNET, Block, ChainState, Hash256, Mempool, StateError, UtxoSet,
+    block::{BlockHeader, Transaction},
+    chain::{MAINNET_CANDIDATE, TESTNET},
+    pow::header_meets_work,
+    Block, ChainState, Hash256, Mempool, StateError, UtxoSet,
 };
 
 const DEFAULT_STATE_PATH: &str = "tensorium-testnet-state.json";
@@ -23,6 +26,16 @@ const DEFAULT_BAN_PATH: &str = "tensorium-testnet-banlist.json";
 const DEFAULT_NONCE_LIMIT: u64 = u64::MAX;
 const DEFAULT_RPC_BIND: &str = "127.0.0.1:23332";
 const DEFAULT_P2P_BIND: &str = "127.0.0.1:23333";
+
+// Mainnet-candidate defaults (different ports so testnet and mc can coexist)
+const DEFAULT_MC_STATE_PATH: &str = "tensorium-mc-state.json";
+const DEFAULT_MC_MEMPOOL_PATH: &str = "tensorium-mc-mempool.json";
+const DEFAULT_MC_BAN_PATH: &str = "tensorium-mc-banlist.json";
+const DEFAULT_MC_RPC_BIND: &str = "127.0.0.1:33332";
+const DEFAULT_MC_P2P_BIND: &str = "0.0.0.0:33333";
+/// Genesis timestamp for the mainnet-candidate chain (2026-06-01 00:00:00 UTC).
+/// All nodes MUST use this exact value to share the same genesis block.
+const MC_GENESIS_TIMESTAMP: u64 = 1_780_272_000;
 const P2P_PROTOCOL_VERSION: u32 = 1;
 /// Maximum blocks returned per GetBlocks response.
 const SYNC_BATCH_SIZE: usize = 50;
@@ -126,6 +139,59 @@ fn run() -> Result<(), String> {
                 .ok_or_else(|| "usage: tensorium-node unban <ip>".to_owned())?;
             unban_ip(ip)?;
         }
+        "mainnet-candidate" | "mc" => {
+            let subcmd = args.get(2).map(String::as_str).unwrap_or("help");
+            match subcmd {
+                "init" => {
+                    let nonce_str = args.get(3).ok_or_else(|| {
+                        "usage: tensorium-node mainnet-candidate init <genesis_nonce>".to_owned()
+                    })?;
+                    let nonce: u64 = nonce_str
+                        .parse()
+                        .map_err(|_| format!("invalid nonce: {nonce_str}"))?;
+                    let mc_state = mc_state_path_from_env();
+                    let mut state = ChainState::new();
+                    state
+                        .init_genesis_nonce(&MAINNET_CANDIDATE, MC_GENESIS_TIMESTAMP, nonce)
+                        .map_err(|err| err.to_string())?;
+                    save_state(&mc_state, &state)?;
+                    println!("mainnet-candidate genesis initialized");
+                    print_status(&state);
+                }
+                "mine-genesis" => {
+                    let threads = args
+                        .get(3)
+                        .and_then(|s| s.parse::<usize>().ok())
+                        .unwrap_or_else(|| {
+                            thread::available_parallelism()
+                                .map(|n| n.get())
+                                .unwrap_or(4)
+                        });
+                    println!(
+                        "Mining mainnet-candidate genesis: diff={} bits, threads={}, timestamp={}",
+                        MAINNET_CANDIDATE.initial_leading_zero_bits,
+                        threads,
+                        MC_GENESIS_TIMESTAMP
+                    );
+                    println!("This may take hours on CPU — use txmminer-cuda for GPU acceleration.");
+                    let nonce = mine_genesis_multithreaded(threads)?;
+                    let mut state = ChainState::new();
+                    state
+                        .init_genesis_nonce(&MAINNET_CANDIDATE, MC_GENESIS_TIMESTAMP, nonce)
+                        .map_err(|err| err.to_string())?;
+                    let mc_state = mc_state_path_from_env();
+                    save_state(&mc_state, &state)?;
+                    println!("GENESIS NONCE: {nonce}  (hardcode this in node binary for v1 release)");
+                    print_status(&state);
+                }
+                "status" => {
+                    let mc_state = mc_state_path_from_env();
+                    let state = load_state(&mc_state)?;
+                    print_status(&state);
+                }
+                _ => print_help_mc(),
+            }
+        }
         _ => print_help(),
     }
 
@@ -152,6 +218,105 @@ fn ban_path_from_env() -> PathBuf {
     env::var("TENSORIUM_BANS")
         .map(PathBuf::from)
         .unwrap_or_else(|_| PathBuf::from(DEFAULT_BAN_PATH))
+}
+
+fn mc_state_path_from_env() -> PathBuf {
+    env::var("TENSORIUM_MC_STATE")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| PathBuf::from(DEFAULT_MC_STATE_PATH))
+}
+
+/// Multi-threaded CPU nonce search for the mainnet-candidate genesis block.
+/// Returns the first nonce that satisfies MAINNET_CANDIDATE difficulty.
+fn mine_genesis_multithreaded(threads: usize) -> Result<u64, String> {
+    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+
+    // Build a template genesis header (nonce = 0; we'll search the space).
+    let header_template = {
+        let params = &MAINNET_CANDIDATE;
+        BlockHeader {
+            version: 1,
+            chain_id: params.chain_id.to_owned(),
+            height: 0,
+            previous_hash: Hash256::ZERO,
+            merkle_root: Hash256::ZERO, // not used for PoW check
+            timestamp_seconds: MC_GENESIS_TIMESTAMP,
+            leading_zero_bits: params.initial_leading_zero_bits,
+            nonce: 0,
+        }
+    };
+
+    let done = Arc::new(AtomicBool::new(false));
+    let winner = Arc::new(AtomicU64::new(u64::MAX));
+    let total = Arc::new(AtomicU64::new(0));
+    let stride = threads as u64;
+    let started = std::time::Instant::now();
+
+    let handles: Vec<_> = (0..threads)
+        .map(|t| {
+            let mut h = header_template.clone();
+            let done = done.clone();
+            let winner = winner.clone();
+            let total = total.clone();
+            let start = t as u64;
+
+            thread::spawn(move || {
+                let mut nonce = start;
+                let mut local = 0u64;
+                const FLUSH: u64 = 1_000_000;
+
+                loop {
+                    if done.load(Ordering::Relaxed) {
+                        break;
+                    }
+                    h.nonce = nonce;
+                    local += 1;
+                    if header_meets_work(&h) {
+                        done.store(true, Ordering::SeqCst);
+                        total.fetch_add(local, Ordering::Relaxed);
+                        winner.store(nonce, Ordering::SeqCst);
+                        return;
+                    }
+                    if local == FLUSH {
+                        total.fetch_add(FLUSH, Ordering::Relaxed);
+                        local = 0;
+                        // Print progress every ~10M hashes per thread
+                        let t_hashes = total.load(Ordering::Relaxed);
+                        if t_hashes % (10_000_000 * threads as u64) < FLUSH {
+                            let elapsed = started.elapsed().as_secs_f64().max(0.001);
+                            let mhs = t_hashes as f64 / elapsed / 1e6;
+                            eprint!("\r{:.0}M hashes, {:.2} MH/s …", t_hashes / 1_000_000, mhs);
+                        }
+                    }
+                    nonce = match nonce.checked_add(stride) {
+                        Some(n) => n,
+                        None => {
+                            total.fetch_add(local, Ordering::Relaxed);
+                            break;
+                        }
+                    };
+                }
+            })
+        })
+        .collect();
+
+    for h in handles {
+        h.join().ok();
+    }
+
+    let nonce = winner.load(Ordering::SeqCst);
+    if nonce == u64::MAX {
+        return Err("nonce space exhausted without finding genesis — impossible at diff < 64".to_owned());
+    }
+    let elapsed = started.elapsed();
+    let hashes = total.load(Ordering::Relaxed);
+    println!(
+        "\nGenesis found!  nonce={}  hashes={}  time={:.1}s",
+        nonce,
+        hashes,
+        elapsed.as_secs_f64()
+    );
+    Ok(nonce)
 }
 
 fn now_seconds() -> u64 {
@@ -390,6 +555,29 @@ fn print_help() {
     println!("  TENSORIUM_NO_DEFAULT_SEEDS=1  disable built-in seed list");
     println!("  TENSORIUM_NODE_ID    node identity string");
     println!("  TENSORIUM_RPC_ALLOW_PUBLIC=1  allow non-loopback RPC bind");
+}
+
+fn print_help_mc() {
+    println!("tensorium-node mainnet-candidate <subcommand>\n");
+    println!("subcommands:");
+    println!("  init <genesis_nonce>    initialize mc state with a pre-mined genesis nonce");
+    println!("  mine-genesis [threads]  CPU-mine the mc genesis nonce (may take hours; use GPU)");
+    println!("  status                  show mc chain status");
+    println!();
+    println!("mainnet-candidate params:");
+    println!("  chain_id       = {}", MAINNET_CANDIDATE.chain_id);
+    println!("  initial_diff   = {} bits (2^{} hashes/block expected)", MAINNET_CANDIDATE.initial_leading_zero_bits, MAINNET_CANDIDATE.initial_leading_zero_bits);
+    println!("  target_block   = {}s ({}min)", MAINNET_CANDIDATE.target_block_seconds, MAINNET_CANDIDATE.target_block_seconds / 60);
+    println!("  halving        = every {} blocks (~{} years)", MAINNET_CANDIDATE.halving_interval_blocks, MAINNET_CANDIDATE.halving_interval_blocks / 525_600);
+    println!("  genesis_ts     = {MC_GENESIS_TIMESTAMP}  (2026-06-01 00:00:00 UTC)");
+    println!("  rpc_default    = {DEFAULT_MC_RPC_BIND}");
+    println!("  p2p_default    = {DEFAULT_MC_P2P_BIND}");
+    println!();
+    println!("env:");
+    println!("  TENSORIUM_MC_STATE    mc state file path, default {DEFAULT_MC_STATE_PATH}");
+    println!();
+    println!("NOTE: Full mainnet-candidate RPC/P2P daemon support is planned.");
+    println!("      Genesis nonce must be GPU-mined before mainnet-candidate chain launch.");
 }
 
 // ---------------------------------------------------------------------------
