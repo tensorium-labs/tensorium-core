@@ -8,6 +8,7 @@ A Proof-of-Work blockchain built in Rust — open testnet, CPU mining, GPU-first
 [![Telegram](https://img.shields.io/badge/Telegram-Community-blue?logo=telegram)](https://t.me/+QOsnpSdhDGZkZGQ1)
 [![Docs](https://img.shields.io/badge/Docs-docs.tensoriumlabs.com-7c3aed)](https://docs.tensoriumlabs.com)
 [![Explorer](https://img.shields.io/badge/Explorer-Live-green)](https://explorer.tensoriumlabs.com)
+[![Release](https://img.shields.io/badge/Release-v0.2.0--testnet-orange)](https://github.com/rygroup-dev/tensorium-core/releases/tag/v0.2.0-testnet)
 
 ## Install (Linux x86_64)
 
@@ -15,15 +16,38 @@ A Proof-of-Work blockchain built in Rust — open testnet, CPU mining, GPU-first
 curl -fsSL https://raw.githubusercontent.com/rygroup-dev/tensorium-core/main/install.sh | bash
 ```
 
-The installer downloads binaries, creates a wallet, syncs from the seed node, and optionally sets up systemd services.
+The installer downloads binaries, creates a wallet, inits the chain (instant — no CPU mining), syncs from the seed node, and optionally sets up systemd services.
 
 | Binary | Role |
 | --- | --- |
 | `tensorium-node` | Full node (RPC + P2P) |
-| `txmminer` | CPU miner |
+| `txmminer` | CPU miner (dev/test only — diff 36 requires GPU) |
+| `txmminer-cuda` | **GPU miner** — NVIDIA CUDA, RTX 3000/4000/5000+ |
 | `txmwallet` | Wallet CLI |
 
 Or download directly from [Releases](https://github.com/rygroup-dev/tensorium-core/releases).
+
+### GPU Mining (Required at Difficulty 36)
+
+```bash
+# Pre-built binary (sm_86 = RTX 3000/4000 series)
+chmod +x txmminer-cuda-linux-x86_64-sm86
+sudo mv txmminer-cuda-linux-x86_64-sm86 /usr/local/bin/txmminer-cuda
+txmminer-cuda 127.0.0.1:23332 YOUR_ADDRESS
+
+# Build from source for your GPU
+cd tools/txmminer-cuda
+make ARCH=sm_86    # RTX 3000/4000
+make ARCH=sm_89    # RTX 4000 Ada
+make ARCH=sm_90    # H100/H200
+```
+
+| GPU | Hashrate | Avg Block Time (diff 36) |
+| --- | --- | --- |
+| RTX 3060 | ~380 MH/s | ~3 minutes |
+| RTX 3080 | ~1.2 GH/s | ~57 seconds |
+| RTX 4090 | ~2.5 GH/s | ~27 seconds |
+| H100 SXM | ~2 GH/s | ~34 seconds |
 
 ---
 
