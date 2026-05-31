@@ -51,9 +51,9 @@ impl ConsensusParams {
             founder_allocation_atoms: FOUNDER_ALLOCATION_ATOMS,
             mining_allocation_atoms: MINING_ALLOCATION_ATOMS,
             initial_reward_atoms: 1_523_557_865,
-            initial_leading_zero_bits: 26,
-            min_leading_zero_bits: 20,
-            max_leading_zero_bits: 40,
+            initial_leading_zero_bits: 36,
+            min_leading_zero_bits: 28,
+            max_leading_zero_bits: 48,
             difficulty_adjustment_window: 60,
             coinbase_maturity_blocks: 100,
             max_future_block_time_seconds: 2 * 60 * 60,
@@ -72,8 +72,8 @@ impl ConsensusParams {
             founder_allocation_atoms: FOUNDER_ALLOCATION_ATOMS,
             mining_allocation_atoms: MINING_ALLOCATION_ATOMS,
             initial_reward_atoms: 1_523_557_865,
-            initial_leading_zero_bits: 36,
-            min_leading_zero_bits: 28,
+            initial_leading_zero_bits: 40,
+            min_leading_zero_bits: 32,
             max_leading_zero_bits: 56,
             difficulty_adjustment_window: 120,
             coinbase_maturity_blocks: 100,
@@ -84,10 +84,11 @@ impl ConsensusParams {
 }
 
 // ── CONSENSUS FREEZE ──────────────────────────────────────────────────────
-// TESTNET parameters are FROZEN as of Phase 5 (2025-05-31).
+// TESTNET parameters are FROZEN as of Phase 6 (2025-05-31).
 // Do NOT change TESTNET fields without a chain reset and version bump.
-// Genesis: 00000035d8a99c0900fec5daa3ef5a7c2d71c7140e473d239a24b0dd4cd7f6c3
-// These parameters are locked for the duration of the testnet stability period.
+// Difficulty 36 bits — requires GPU mining (RTX 3060+)
+// Genesis nonce: see main.rs GENESIS_NONCE_36 (pre-mined via CUDA on RTX 3060)
+// These parameters are locked for the GPU-first testnet phase.
 pub const TESTNET: ConsensusParams = ConsensusParams::testnet();
 
 // MAINNET_CANDIDATE parameters are a planning placeholder — NOT FINAL.

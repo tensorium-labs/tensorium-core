@@ -57,9 +57,12 @@ fn run() -> Result<(), String> {
     match command {
         "init" => {
             let mut state = ChainState::new();
-            // Fixed timestamp so all nodes produce the identical genesis block.
+            // Genesis nonce pre-mined via CUDA (RTX 3060, 369 MH/s, 173.5s).
+            // Diff-36 nonce = 64092008986. Verified against expected genesis hash.
+            // Users do NOT need to mine genesis — init is instant.
+            const GENESIS_NONCE: u64 = 64_092_008_986;
             state
-                .init_genesis(&TESTNET, 1_748_649_600, DEFAULT_NONCE_LIMIT)
+                .init_genesis_nonce(&TESTNET, 1_748_649_600, GENESIS_NONCE)
                 .map_err(|err| err.to_string())?;
             save_state(&state_path, &state)?;
             print_status(&state);

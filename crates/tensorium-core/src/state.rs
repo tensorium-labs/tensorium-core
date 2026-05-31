@@ -93,6 +93,32 @@ impl ChainState {
         Ok(self.tip().expect("genesis was just pushed"))
     }
 
+    /// Initialize genesis using a pre-computed nonce (no CPU mining required).
+    /// Used for GPU-first chains where genesis was mined offline via CUDA.
+    pub fn init_genesis_nonce(
+        &mut self,
+        params: &ConsensusParams,
+        timestamp_seconds: u64,
+        genesis_nonce: u64,
+    ) -> Result<&Block, StateError> {
+        if !self.blocks.is_empty() {
+            return Err(StateError::GenesisAlreadyExists);
+        }
+        let mut block = candidate_block(params, None, timestamp_seconds, "genesis", vec![]);
+        block.header.nonce = genesis_nonce;
+        // Verify the pre-computed nonce actually satisfies difficulty
+        if !crate::pow::header_meets_work(&block.header) {
+            return Err(StateError::MiningFailed);
+        }
+        validate_block(params, None, &block, timestamp_seconds)?;
+        let hash_hex = block.hash().to_hex();
+        let block_copy = block.clone();
+        self.blocks.push(block);
+        self.block_map.insert(hash_hex, block_copy);
+        Ok(self.tip().expect("genesis was just pushed"))
+    }
+
+
     pub fn mine_next_block(
         &mut self,
         params: &ConsensusParams,
