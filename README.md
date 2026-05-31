@@ -26,7 +26,10 @@ cargo run -p tensorium-node
 - Target block time: 60 seconds.
 - Halving interval: 1,051,200 blocks, about 2 years.
 - Halving eras: 10, about 20 years total.
-- Supply cap: 100,000,000 TNS.
+- Supply cap: 33,000,000 TXM.
+- Founder allocation: 1,000,000 TXM.
+- Mining allocation: 32,000,000 TXM.
+- Initial mining reward: 15.23557865 TXM per block.
 - Testnet PoW starts easier so the first local node can mine.
 - Mainnet-candidate PoW starts harder and is intended to become GPU-first before launch.
 

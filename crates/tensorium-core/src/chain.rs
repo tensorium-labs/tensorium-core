@@ -2,8 +2,12 @@ use serde::{Deserialize, Serialize};
 
 pub const COIN: u64 = 100_000_000;
 pub const MAX_HALVING_ERAS: u32 = 10;
-pub const TOTAL_SUPPLY_COINS: u64 = 100_000_000;
+pub const TOTAL_SUPPLY_COINS: u64 = 33_000_000;
+pub const FOUNDER_ALLOCATION_COINS: u64 = 1_000_000;
+pub const MINING_ALLOCATION_COINS: u64 = 32_000_000;
 pub const TOTAL_SUPPLY_ATOMS: u64 = TOTAL_SUPPLY_COINS * COIN;
+pub const FOUNDER_ALLOCATION_ATOMS: u64 = FOUNDER_ALLOCATION_COINS * COIN;
+pub const MINING_ALLOCATION_ATOMS: u64 = MINING_ALLOCATION_COINS * COIN;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub enum ChainNetwork {
@@ -19,6 +23,8 @@ pub struct ConsensusParams {
     pub halving_interval_blocks: u64,
     pub max_halving_eras: u32,
     pub total_supply_atoms: u64,
+    pub founder_allocation_atoms: u64,
+    pub mining_allocation_atoms: u64,
     pub initial_reward_atoms: u64,
     pub initial_leading_zero_bits: u8,
     pub min_leading_zero_bits: u8,
@@ -41,7 +47,9 @@ impl ConsensusParams {
             halving_interval_blocks: 1_051_200,
             max_halving_eras: MAX_HALVING_ERAS,
             total_supply_atoms: TOTAL_SUPPLY_ATOMS,
-            initial_reward_atoms: 4_762_172_329,
+            founder_allocation_atoms: FOUNDER_ALLOCATION_ATOMS,
+            mining_allocation_atoms: MINING_ALLOCATION_ATOMS,
+            initial_reward_atoms: 1_523_557_865,
             initial_leading_zero_bits: 12,
             min_leading_zero_bits: 8,
             max_leading_zero_bits: 28,
@@ -59,7 +67,9 @@ impl ConsensusParams {
             halving_interval_blocks: 1_051_200,
             max_halving_eras: MAX_HALVING_ERAS,
             total_supply_atoms: TOTAL_SUPPLY_ATOMS,
-            initial_reward_atoms: 4_762_172_329,
+            founder_allocation_atoms: FOUNDER_ALLOCATION_ATOMS,
+            mining_allocation_atoms: MINING_ALLOCATION_ATOMS,
+            initial_reward_atoms: 1_523_557_865,
             initial_leading_zero_bits: 22,
             min_leading_zero_bits: 18,
             max_leading_zero_bits: 48,

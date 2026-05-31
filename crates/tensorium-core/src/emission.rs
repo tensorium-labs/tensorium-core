@@ -28,7 +28,7 @@ pub fn emitted_supply_until_height(params: &ConsensusParams, exclusive_height: u
         remaining -= blocks;
     }
 
-    emitted.min(params.total_supply_atoms)
+    emitted.min(params.mining_allocation_atoms)
 }
 
 #[cfg(test)]
@@ -53,6 +53,6 @@ mod tests {
     #[test]
     fn emission_never_exceeds_cap() {
         let supply = emitted_supply_until_height(&TESTNET, TESTNET.halving_interval_blocks * 20);
-        assert!(supply <= TESTNET.total_supply_atoms);
+        assert!(supply <= TESTNET.mining_allocation_atoms);
     }
 }
