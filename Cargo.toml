@@ -4,6 +4,7 @@ members = [
     "crates/tensorium-node",
     "crates/txmwallet",
     "crates/txmminer",
+    "crates/tensorium-pool",
 ]
 resolver = "2"
 
