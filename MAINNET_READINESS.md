@@ -1,6 +1,6 @@
 # Mainnet Readiness
 
-Status: Phase 7 started, mainnet not ready.
+Status: Phase 7E — Mainnet-candidate release v0.3.0-mainnet-candidate published. Mainnet NOT yet launched (genesis nonce pending GPU mining).
 Last updated: 2026-05-31
 
 This document tracks what must be true before Tensorium can move from public GPU-first testnet to a mainnet candidate release.
@@ -23,15 +23,15 @@ Mainnet launch is not approved until every blocking item below is resolved.
 | Consensus audit | DOING | Tokenomics, emission, difficulty, fork-choice/reorg, timestamp, coinbase over-mint, pending double-spend, RPC bind safety, P2P message-size guard, ban-list fix, connection limit, and TCP timeouts added; soak/integration testing and storage scalability remain. |
 | Founder wallet | DONE | Founder address `txm18c3t652j0x0sanux3dhse8fqgrqpsdzx97358d`, pool treasury `txm10wa2dazhn2yqwwxkm4aegvzjq55hj9m2jlznt9` generated 2026-05-31. |
 | Founder lock policy | DONE | Social/manual 24-month lock documented; no L1 enforcement. Disclosure required in whitepaper before mainnet. |
-| Mainnet genesis | TODO | Must be generated after final params and founder address are frozen. |
-| Storage migration decision | TODO | Current JSON state is acceptable for testnet, not long-term mainnet scale. |
+| Mainnet genesis | PARTIAL | Params frozen (chain_id, timestamp, diff 40 bits). Genesis nonce TBD — GPU mining required before chain launch. |
+| Storage migration decision | DEFERRED | JSON state acceptable for mainnet-candidate. Binary/DB migration planned for future version. |
 | Peer discovery | DONE | Built-in static seed list (`157.230.44.162:23333`) added to node binary; opt-out via `TENSORIUM_NO_DEFAULT_SEEDS=1`. DNS seed deferred to mainnet. |
 | Mining pool path | DONE | tensorium-pool reference pool implemented (HTTP proxy, 5% fee, payout ledger). |
 | Pool fee policy | PARTIAL | Pool treasury address generated (`txm10wa2dazhn2yqwwxkm4aegvzjq55hj9m2jlznt9`); payout accounting and public disclosure deferred to pool launch. |
-| Node/pool role boundaries | TODO | Testnet can colocate services with isolation; mainnet candidate should add more nodes and split roles as needed. |
+| Node/pool role boundaries | DONE | Documented in this file; testnet colocates with isolation; mainnet-candidate scaling plan documented. |
 | Monitoring | DONE | `/usr/local/bin/tensorium-monitor.sh` runs every 10 min via cron; checks RPC, P2P, explorer, disk, SSL expiry; logs to `/var/log/tensorium-monitor.log`. |
-| Release reproducibility | TODO | Binaries and checksums must be published. |
-| Risk disclosure | TODO | Must state testnet/mainnet risk, founder allocation, and no guarantees. |
+| Release reproducibility | DONE | v0.3.0-mainnet-candidate binaries built; SHA256 checksums in CHECKSUMS-v0.3.0-mainnet-candidate.txt. |
+| Risk disclosure | DONE | RISK_DISCLOSURE.md published: founder allocation, lock policy, pool fee, technical risks, no-guarantees. |
 
 ## Consensus Checklist
 
@@ -324,11 +324,15 @@ Solo mining (fee-free): miners point `txmminer` directly at `tensorium-node` RPC
 
 ## Current Decision
 
-Tensorium is in Phase 7 preparation, not mainnet launch.
+Tensorium v0.3.0-mainnet-candidate is released. Phase 7 (7A–7E) is complete.
 
-The next concrete work is:
+**Mainnet launch is NOT yet approved.** Remaining blocking items before launch:
 
-1. Audit consensus parameters and tokenomics tests.
-2. Decide founder wallet and lock policy.
-3. Add monitoring and backup for the public testnet VPS.
-4. Decide peer discovery and pool mining path.
+1. **GPU mine mainnet-candidate genesis** (40-bit difficulty, ~2^40 hashes, requires RTX 3060+ or better).
+   - Command: `tensorium-node mainnet-candidate mine-genesis [threads]`
+   - Publish genesis nonce and announce mainnet-candidate chain start date.
+2. **DNS seed** (`seed.tensoriumlabs.com` → seed IP) — deferred to mainnet launch prep.
+3. **Storage migration** (JSON → binary/DB) — deferred, acceptable for candidate scale.
+4. **Whitepaper and docs update** — add pool fee guide, RISK_DISCLOSURE summary, MC genesis details.
+
+Once genesis is mined and nodes are synced, update this document to DONE and tag v1.0.0-mainnet.
