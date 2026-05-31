@@ -26,7 +26,7 @@ Mainnet launch is not approved until every blocking item below is resolved.
 | Mainnet genesis | TODO | Must be generated after final params and founder address are frozen. |
 | Storage migration decision | TODO | Current JSON state is acceptable for testnet, not long-term mainnet scale. |
 | Peer discovery | DONE | Built-in static seed list (`157.230.44.162:23333`) added to node binary; opt-out via `TENSORIUM_NO_DEFAULT_SEEDS=1`. DNS seed deferred to mainnet. |
-| Mining pool path | TODO | Decide whether to ship a reference pool or document solo mining only. |
+| Mining pool path | DONE | tensorium-pool reference pool implemented (HTTP proxy, 5% fee, payout ledger). |
 | Pool fee policy | PARTIAL | Pool treasury address generated (`txm10wa2dazhn2yqwwxkm4aegvzjq55hj9m2jlznt9`); payout accounting and public disclosure deferred to pool launch. |
 | Node/pool role boundaries | TODO | Testnet can colocate services with isolation; mainnet candidate should add more nodes and split roles as needed. |
 | Monitoring | DONE | `/usr/local/bin/tensorium-monitor.sh` runs every 10 min via cron; checks RPC, P2P, explorer, disk, SSL expiry; logs to `/var/log/tensorium-monitor.log`. |
@@ -251,15 +251,65 @@ Phase 7C update (2026-05-31):
 
 ## Mining Checklist
 
-- [ ] CUDA miner tested from release binary.
-- [ ] CUDA miner tested from source build.
-- [ ] RTX 3000/4000 benchmark published.
-- [ ] At least one high-end GPU benchmark published.
-- [ ] Multi-GPU behavior tested or explicitly deferred.
-- [ ] Pool mining path decided.
-- [ ] Pool payout accounting supports 5% official pool fee.
-- [ ] Pool fee disclosure added to docs/UI.
-- [ ] Solo mining guide updated.
+Phase 7D update (2026-05-31):
+
+- [x] CUDA miner tested from release binary. *(v0.2.0-testnet, RTX 3060 mined 5 blocks at diff 36)*
+- [x] CUDA miner tested from source build. *(sm86, compiled and tested Phase 6)*
+- [x] RTX 3000/4000 benchmark published. *(RTX 3060 ~410 MH/s, avg block time ~167s at diff 36)*
+- [ ] At least one high-end GPU benchmark published. *(RTX 4090 tested via Vast AI; formal publish deferred)*
+- [x] Multi-GPU behavior tested or explicitly deferred. *(deferred: txmminer-cuda is single-GPU per process; multi-GPU via multiple processes documented)*
+- [x] Pool mining path decided. *(reference pool: tensorium-pool crate, HTTP proxy model)*
+- [x] Pool payout accounting supports 5% official pool fee. *(split_fee() in accounting.rs, 9 unit tests)*
+- [ ] Pool fee disclosure added to docs/UI. *(pending docs update)*
+- [x] Solo mining guide updated. *(README and docs.tensoriumlabs.com cover solo mining)*
+
+### Pool: tensorium-pool Reference Implementation
+
+Pool binary: `tensorium-pool` (new crate in workspace, commit 2ed0104).
+
+Architecture:
+
+- Miners point `txmminer` / `txmminer-cuda` at the pool bind address instead of the node RPC.
+- Pool proxies `GET /getblocktemplate/<miner_addr>` → node using **pool treasury address** as coinbase recipient.
+- Pool proxies `POST /submitblock` → node; on acceptance records payout accounting.
+- Payout ledger: `pool-ledger.json` (JSON, appended per accepted block).
+
+Fee model:
+
+- `POOL_FEE_BPS = 500` (5.00 %).
+- `split_fee(gross, 500)` → `(net = gross × 0.95, fee = gross × 0.05)`, fee rounds down.
+- Gross reward credited to pool treasury on-chain; pool operator owes `net` to miner.
+
+Pool endpoints:
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /health` | liveness check |
+| `GET /getblocktemplate/<miner>` | work distribution (coinbase → treasury) |
+| `POST /submitblock` | block submission + accounting |
+| `GET /pool/stats` | blocks found, fees collected, pending net |
+| `GET /pool/accounting` | full payout ledger |
+| `GET /pool/pending/<addr>` | per-miner pending payout |
+
+Required env vars:
+
+```
+TENSORIUM_POOL_TREASURY=<pool_treasury_address>   # required
+TENSORIUM_NODE_RPC=127.0.0.1:23332                 # default
+TENSORIUM_POOL_BIND=0.0.0.0:23336                  # default
+TENSORIUM_POOL_LEDGER=pool-ledger.json             # default
+```
+
+Pool treasury address: `txm10wa2dazhn2yqwwxkm4aegvzjq55hj9m2jlznt9`
+
+Payout flow (operator responsibility):
+
+1. Block found → gross reward on-chain to treasury, ledger entry created.
+2. Operator reviews `tensorium-pool accounting`.
+3. Operator signs and broadcasts payment transaction from treasury wallet to miner address.
+4. Operator runs `tensorium-pool mark-paid <miner_addr>`.
+
+Solo mining (fee-free): miners point `txmminer` directly at `tensorium-node` RPC — no pool fee.
 
 ## Release Checklist
 
