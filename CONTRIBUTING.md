@@ -52,6 +52,7 @@ We are **not** looking for:
 
 ## Resources
 
+- [Telegram Community](https://t.me/+QOsnpSdhDGZkZGQ1) — ask questions before opening an issue
 - [Documentation](https://docs.tensoriumlabs.com)
 - [Mining Guide](https://docs.tensoriumlabs.com/mining.html)
 - [Whitepaper](https://whitepaper.tensoriumlabs.com)

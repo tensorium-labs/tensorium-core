@@ -1,5 +1,8 @@
 blank_issues_enabled: false
 contact_links:
+  - name: Telegram Community
+    url: https://t.me/+QOsnpSdhDGZkZGQ1
+    about: Ask questions, get mining help, and chat with other Tensorium miners
   - name: Mining Guide
     url: https://docs.tensoriumlabs.com/mining.html
     about: Step-by-step guide to running a node and mining TXM

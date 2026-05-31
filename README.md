@@ -5,6 +5,10 @@ A Proof-of-Work blockchain built in Rust — open testnet, CPU mining, GPU-first
 > **Status:** Public testnet — coins have no monetary value, bugs welcome via Issues.
 > Chain: `tensorium-testnet-0` | Ticker: `TXM` | P2P port: `23333` | RPC port: `23332`
 
+[![Telegram](https://img.shields.io/badge/Telegram-Community-blue?logo=telegram)](https://t.me/+QOsnpSdhDGZkZGQ1)
+[![Docs](https://img.shields.io/badge/Docs-docs.tensoriumlabs.com-7c3aed)](https://docs.tensoriumlabs.com)
+[![Explorer](https://img.shields.io/badge/Explorer-Live-green)](https://explorer.tensoriumlabs.com)
+
 ## Install (Linux x86_64)
 
 ```bash
@@ -217,13 +221,25 @@ Ban duration: 1 hour. Persisted to `tensorium-testnet-banlist.json`.
 | --- | --- |
 | Chain ID | `tensorium-testnet-0` |
 | Target block time | 60 seconds |
-| Initial PoW difficulty | 12 leading zero bits |
+| Initial PoW difficulty | 26 leading zero bits |
 | Difficulty window | 60 blocks |
 | Max adjustment per window | ±1 bit |
 | Coinbase maturity | 100 blocks |
 | Max future timestamp | 2 hours |
 | P2P port | 23333 |
 | RPC port | 23332 |
+
+---
+
+## Community
+
+| | |
+|---|---|
+| 💬 Telegram | [t.me/+QOsnpSdhDGZkZGQ1](https://t.me/+QOsnpSdhDGZkZGQ1) — chat, mining help, announcements |
+| 🐛 Issues | [github.com/rygroup-dev/tensorium-core/issues](https://github.com/rygroup-dev/tensorium-core/issues) — bug reports and feature requests |
+| 📖 Docs | [docs.tensoriumlabs.com](https://docs.tensoriumlabs.com) — node setup, mining guide, RPC reference |
+| 📄 Whitepaper | [whitepaper.tensoriumlabs.com](https://whitepaper.tensoriumlabs.com) — technical design and tokenomics |
+| 🔍 Explorer | [explorer.tensoriumlabs.com](https://explorer.tensoriumlabs.com) — live chain data |
 
 ---
 
