@@ -29,8 +29,6 @@ const DEFAULT_P2P_BIND: &str = "127.0.0.1:23333";
 
 // Mainnet-candidate defaults (different ports so testnet and mc can coexist)
 const DEFAULT_MC_STATE_PATH: &str = "tensorium-mc-state.json";
-const DEFAULT_MC_MEMPOOL_PATH: &str = "tensorium-mc-mempool.json";
-const DEFAULT_MC_BAN_PATH: &str = "tensorium-mc-banlist.json";
 const DEFAULT_MC_RPC_BIND: &str = "127.0.0.1:33332";
 const DEFAULT_MC_P2P_BIND: &str = "0.0.0.0:33333";
 /// Genesis timestamp for the mainnet-candidate chain (2026-06-01 00:00:00 UTC).
