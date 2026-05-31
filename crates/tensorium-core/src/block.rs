@@ -2,19 +2,60 @@ use serde::{Deserialize, Serialize};
 
 use crate::hash::Hash256;
 
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
+pub struct OutPoint {
+    pub txid: Hash256,
+    pub output_index: u32,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct TxInput {
+    pub previous_output: OutPoint,
+    pub signature_script: Vec<u8>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct TxOutput {
+    pub value_atoms: u64,
+    pub address: String,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct Transaction {
     pub id: Hash256,
+    pub inputs: Vec<TxInput>,
+    pub outputs: Vec<TxOutput>,
     pub payload: Vec<u8>,
 }
 
 impl Transaction {
     pub fn coinbase(height: u64, reward_atoms: u64, miner: &str) -> Self {
         let payload = format!("coinbase:{height}:{reward_atoms}:{miner}").into_bytes();
+        let outputs = if reward_atoms == 0 {
+            Vec::new()
+        } else {
+            vec![TxOutput {
+                value_atoms: reward_atoms,
+                address: miner.to_owned(),
+            }]
+        };
+        let id = transaction_id(&[], &outputs, &payload);
         Self {
-            id: Hash256::double_sha256(&payload),
+            id,
+            inputs: Vec::new(),
+            outputs,
             payload,
         }
+    }
+
+    pub fn is_coinbase(&self) -> bool {
+        self.inputs.is_empty() && self.payload.starts_with(b"coinbase:")
+    }
+
+    pub fn total_output_atoms(&self) -> u64 {
+        self.outputs
+            .iter()
+            .fold(0u64, |sum, output| sum.saturating_add(output.value_atoms))
     }
 }
 
@@ -102,4 +143,19 @@ pub fn merkle_root(transactions: &[Transaction]) -> Hash256 {
     }
 
     layer[0]
+}
+
+fn transaction_id(inputs: &[TxInput], outputs: &[TxOutput], payload: &[u8]) -> Hash256 {
+    let mut bytes = Vec::new();
+    for input in inputs {
+        bytes.extend_from_slice(&input.previous_output.txid.0);
+        bytes.extend_from_slice(&input.previous_output.output_index.to_le_bytes());
+        bytes.extend_from_slice(&input.signature_script);
+    }
+    for output in outputs {
+        bytes.extend_from_slice(&output.value_atoms.to_le_bytes());
+        bytes.extend_from_slice(output.address.as_bytes());
+    }
+    bytes.extend_from_slice(payload);
+    Hash256::double_sha256(&bytes)
 }

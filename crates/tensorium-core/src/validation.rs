@@ -25,6 +25,8 @@ pub enum ValidationError {
     MissingCoinbase,
     #[error("coinbase reward exceeds consensus emission schedule")]
     CoinbaseRewardTooHigh,
+    #[error("first transaction must be coinbase")]
+    FirstTransactionNotCoinbase,
 }
 
 pub fn validate_block(
@@ -70,14 +72,12 @@ fn validate_coinbase(params: &ConsensusParams, block: &Block) -> Result<(), Vali
         .transactions
         .first()
         .ok_or(ValidationError::MissingCoinbase)?;
+    if !coinbase.is_coinbase() {
+        return Err(ValidationError::FirstTransactionNotCoinbase);
+    }
 
     let reward_limit = reward_at_height(params, block.header.height);
-    let payload = String::from_utf8_lossy(&coinbase.payload);
-    let reward = payload
-        .split(':')
-        .nth(2)
-        .and_then(|raw| raw.parse::<u64>().ok())
-        .unwrap_or(u64::MAX);
+    let reward = coinbase.total_output_atoms();
 
     if reward > reward_limit {
         return Err(ValidationError::CoinbaseRewardTooHigh);
