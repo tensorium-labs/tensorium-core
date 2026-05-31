@@ -13,7 +13,7 @@ use serde_json::json;
 use tensorium_core::{
     block::Transaction,
     chain::TESTNET,
-    Block, ChainState, Hash256, Mempool, UtxoSet,
+    Block, ChainState, Hash256, Mempool, StateError, UtxoSet,
 };
 
 const DEFAULT_STATE_PATH: &str = "tensorium-testnet-state.json";
@@ -121,7 +121,12 @@ fn now_seconds() -> u64 {
 fn load_state(path: &Path) -> Result<ChainState, String> {
     let raw = fs::read_to_string(path)
         .map_err(|err| format!("failed to read {}: {err}", path.display()))?;
-    serde_json::from_str(&raw).map_err(|err| format!("failed to parse {}: {err}", path.display()))
+    let mut state: ChainState = serde_json::from_str(&raw)
+        .map_err(|err| format!("failed to parse {}: {err}", path.display()))?;
+    // Populate block_map from the canonical chain for state files written
+    // before fork-choice support was added.
+    state.ensure_block_map();
+    Ok(state)
 }
 
 fn save_state(path: &Path, state: &ChainState) -> Result<(), String> {
@@ -425,23 +430,28 @@ fn handle_p2p_connection(stream: &mut TcpStream, state_path: &Path) -> Result<()
 }
 
 fn accept_peer_block(state_path: &Path, block: Block) -> Result<(u64, Hash256), String> {
+    let block_height = block.header.height;
+    let block_hash = block.hash();
     let mut state = load_state(state_path)?;
-    state
-        .submit_block(&TESTNET, block, now_seconds())
-        .map_err(|err| err.to_string())?;
-    let tip = state.tip().expect("block was just pushed");
-    let height = tip.header.height;
-    let hash = tip.hash();
-    let accepted_block = tip.clone();
+
+    match state.submit_block(&TESTNET, block.clone(), now_seconds()) {
+        Ok(_) => {}
+        Err(StateError::AlreadyKnown) => {
+            // We already have this block — acknowledge without re-saving.
+            return Ok((block_height, block_hash));
+        }
+        Err(err) => return Err(err.to_string()),
+    }
+
     save_state(state_path, &state)?;
 
-    // Clean mempool of any confirmed transactions
+    // Clean mempool of transactions confirmed by this block.
     let mempool_path = mempool_path_from_env();
     let mut mempool = load_mempool(&mempool_path);
-    mempool.remove_confirmed(&accepted_block);
+    mempool.remove_confirmed(&block);
     let _ = save_mempool(&mempool_path, &mempool);
 
-    Ok((height, hash))
+    Ok((block_height, block_hash))
 }
 
 fn accept_peer_tx(
@@ -641,9 +651,11 @@ fn sync_from_peer(peer: &str, state_path: &Path) -> Result<(), String> {
         let batch_count = blocks.len();
         for block in blocks {
             let height = block.header.height;
-            state
-                .submit_block(&TESTNET, block, now_seconds())
-                .map_err(|err| format!("sync failed at height {height}: {err}"))?;
+            match state.submit_block(&TESTNET, block, now_seconds()) {
+                Ok(_) => {}
+                Err(StateError::AlreadyKnown) => {} // resume after interrupted sync
+                Err(err) => return Err(format!("sync failed at height {height}: {err}")),
+            }
             current_height = height;
         }
 
@@ -780,24 +792,31 @@ fn handle_rpc_stream(stream: &mut TcpStream, state_path: &Path) -> Result<(), St
             let block: Block = serde_json::from_str(parsed.body)
                 .map_err(|err| format!("failed to parse submitted block: {err}"))?;
             let mut state = load_state(state_path)?;
-            state
-                .submit_block(&TESTNET, block, now_seconds())
-                .map_err(|err| err.to_string())?;
 
-            let tip = state.tip().expect("block was just pushed");
-            let height = tip.header.height;
-            let hash = tip.hash();
-            let block_to_broadcast = tip.clone();
+            let accepted = match state.submit_block(&TESTNET, block.clone(), now_seconds()) {
+                Ok(b) => b,
+                Err(StateError::AlreadyKnown) => {
+                    return write_json_response(
+                        stream,
+                        200,
+                        &json!({ "accepted": true, "height": block.header.height, "hash": block.hash(), "note": "already known" }),
+                    );
+                }
+                Err(err) => return Err(err.to_string()),
+            };
+
+            let height = accepted.header.height;
+            let hash = accepted.hash();
 
             save_state(state_path, &state)?;
 
-            // Remove confirmed transactions from mempool
+            // Remove confirmed transactions from mempool.
             let mut mempool = load_mempool(&mempool_path);
-            mempool.remove_confirmed(&block_to_broadcast);
+            mempool.remove_confirmed(&accepted);
             let _ = save_mempool(&mempool_path, &mempool);
 
-            // Broadcast to configured peers
-            broadcast_block_to_peers(&block_to_broadcast, &state);
+            // Broadcast to configured peers.
+            broadcast_block_to_peers(&accepted, &state);
 
             write_json_response(
                 stream,
@@ -806,6 +825,7 @@ fn handle_rpc_stream(stream: &mut TcpStream, state_path: &Path) -> Result<(), St
                     "accepted": true,
                     "height": height,
                     "hash": hash,
+                    "canonical": state.tip_hash() == hash,
                 }),
             )
         }
