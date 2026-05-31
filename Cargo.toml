@@ -2,6 +2,7 @@
 members = [
     "crates/tensorium-core",
     "crates/tensorium-node",
+    "crates/txmminer",
 ]
 resolver = "2"
 
