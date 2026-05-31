@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tensorium_core::{
     block::{merkle_root as compute_merkle_root, BlockHeader, Transaction},
-    chain::{MAINNET_CANDIDATE, TESTNET},
+    chain::{ConsensusParams, MAINNET_CANDIDATE, TESTNET},
     emission::reward_at_height,
     pow::header_meets_work,
     Block, ChainState, Hash256, Mempool, StateError, UtxoSet,
@@ -30,6 +30,8 @@ const DEFAULT_P2P_BIND: &str = "127.0.0.1:23333";
 
 // Mainnet-candidate defaults (different ports so testnet and mc can coexist)
 const DEFAULT_MC_STATE_PATH: &str = "tensorium-mc-state.json";
+const DEFAULT_MC_MEMPOOL_PATH: &str = "tensorium-mc-mempool.json";
+const DEFAULT_MC_BAN_PATH: &str = "tensorium-mc-banlist.json";
 const DEFAULT_MC_RPC_BIND: &str = "127.0.0.1:33332";
 const DEFAULT_MC_P2P_BIND: &str = "0.0.0.0:33333";
 /// Genesis timestamp for the mainnet-candidate chain (2026-06-01 00:00:00 UTC).
@@ -94,11 +96,11 @@ fn run() -> Result<(), String> {
                 .init_genesis_nonce(&TESTNET, 1_748_649_600, GENESIS_NONCE)
                 .map_err(|err| err.to_string())?;
             save_state(&state_path, &state)?;
-            print_status(&state);
+            print_status(&state, &TESTNET);
         }
         "status" => {
             let state = load_state(&state_path)?;
-            print_status(&state);
+            print_status(&state, &TESTNET);
         }
         "mine-once" => {
             let mut state = load_state(&state_path)?;
@@ -107,21 +109,27 @@ fn run() -> Result<(), String> {
                 .mine_next_block(&TESTNET, now_seconds(), miner, DEFAULT_NONCE_LIMIT)
                 .map_err(|err| err.to_string())?;
             save_state(&state_path, &state)?;
-            print_status(&state);
+            print_status(&state, &TESTNET);
         }
         "rpc" => {
             let bind = args.get(2).map(String::as_str).unwrap_or(DEFAULT_RPC_BIND);
-            serve_rpc(bind, state_path)?;
+            serve_rpc(bind, state_path, mempool_path_from_env(), &TESTNET)?;
         }
         "p2p-listen" => {
             let bind = args.get(2).map(String::as_str).unwrap_or(DEFAULT_P2P_BIND);
-            serve_p2p(bind, state_path)?;
+            serve_p2p(
+                bind,
+                state_path,
+                mempool_path_from_env(),
+                ban_path_from_env(),
+                &TESTNET,
+            )?;
         }
         "p2p-connect" => {
             let peer = args
                 .get(2)
                 .ok_or_else(|| "usage: tensorium-node p2p-connect <host:port>".to_owned())?;
-            connect_peer(peer, &state_path)?;
+            connect_peer(peer, &state_path, &TESTNET)?;
         }
         "sync" => {
             let peers = configured_peers();
@@ -132,7 +140,7 @@ fn run() -> Result<(), String> {
                 .ok_or_else(|| {
                     "usage: tensorium-node sync <peer>  (or set TENSORIUM_PEERS; disable built-in seeds with TENSORIUM_NO_DEFAULT_SEEDS=1)".to_owned()
                 })?;
-            sync_from_peer(peer, &state_path)?;
+            sync_from_peer(peer, &state_path, &TESTNET)?;
         }
         "peers" => print_manual_peers(),
         "banlist" => print_banlist(),
@@ -158,7 +166,7 @@ fn run() -> Result<(), String> {
                         .map_err(|err| err.to_string())?;
                     save_state(&mc_state, &state)?;
                     println!("mainnet-candidate genesis initialized");
-                    print_status(&state);
+                    print_status(&state, &MAINNET_CANDIDATE);
                 }
                 "mine-genesis" => {
                     let threads = args
@@ -184,12 +192,48 @@ fn run() -> Result<(), String> {
                     let mc_state = mc_state_path_from_env();
                     save_state(&mc_state, &state)?;
                     println!("GENESIS NONCE: {nonce}  (hardcode this in node binary for v1 release)");
-                    print_status(&state);
+                    print_status(&state, &MAINNET_CANDIDATE);
+                }
+                "rpc" => {
+                    let bind = args
+                        .get(3)
+                        .map(String::as_str)
+                        .unwrap_or(DEFAULT_MC_RPC_BIND);
+                    serve_rpc(
+                        bind,
+                        mc_state_path_from_env(),
+                        mc_mempool_path_from_env(),
+                        &MAINNET_CANDIDATE,
+                    )?;
+                }
+                "p2p-listen" => {
+                    let bind = args
+                        .get(3)
+                        .map(String::as_str)
+                        .unwrap_or(DEFAULT_MC_P2P_BIND);
+                    serve_p2p(
+                        bind,
+                        mc_state_path_from_env(),
+                        mc_mempool_path_from_env(),
+                        mc_ban_path_from_env(),
+                        &MAINNET_CANDIDATE,
+                    )?;
+                }
+                "sync" => {
+                    let peers = configured_peers();
+                    let peer = args
+                        .get(3)
+                        .map(String::as_str)
+                        .or_else(|| peers.first().map(|s| s.as_str()))
+                        .ok_or_else(|| {
+                            "usage: tensorium-node mainnet-candidate sync <peer>".to_owned()
+                        })?;
+                    sync_from_peer(peer, &mc_state_path_from_env(), &MAINNET_CANDIDATE)?;
                 }
                 "status" => {
                     let mc_state = mc_state_path_from_env();
                     let state = load_state(&mc_state)?;
-                    print_status(&state);
+                    print_status(&state, &MAINNET_CANDIDATE);
                 }
                 _ => print_help_mc(),
             }
@@ -226,6 +270,18 @@ fn mc_state_path_from_env() -> PathBuf {
     env::var("TENSORIUM_MC_STATE")
         .map(PathBuf::from)
         .unwrap_or_else(|_| PathBuf::from(DEFAULT_MC_STATE_PATH))
+}
+
+fn mc_mempool_path_from_env() -> PathBuf {
+    env::var("TENSORIUM_MC_MEMPOOL")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| PathBuf::from(DEFAULT_MC_MEMPOOL_PATH))
+}
+
+fn mc_ban_path_from_env() -> PathBuf {
+    env::var("TENSORIUM_MC_BANS")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| PathBuf::from(DEFAULT_MC_BAN_PATH))
 }
 
 /// Multi-threaded CPU nonce search for the mainnet-candidate genesis block.
@@ -375,11 +431,11 @@ fn save_mempool(path: &Path, mempool: &Mempool) -> Result<(), String> {
 }
 
 /// Build a full UTXO set by replaying all blocks in `state`.
-fn build_utxo_set(state: &ChainState) -> Result<UtxoSet, String> {
+fn build_utxo_set(state: &ChainState, params: &ConsensusParams) -> Result<UtxoSet, String> {
     let mut utxos = UtxoSet::new();
     for block in &state.blocks {
         utxos
-            .apply_block(&TESTNET, block)
+            .apply_block(params, block)
             .map_err(|err| format!("UTXO apply failed: {err}"))?;
     }
     Ok(utxos)
@@ -518,9 +574,9 @@ fn unban_ip(ip: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn print_status(state: &ChainState) {
+fn print_status(state: &ChainState, params: &ConsensusParams) {
     let Some(tip) = state.tip() else {
-        println!("chain_id={} height=empty", TESTNET.chain_id);
+        println!("chain_id={} height=empty", params.chain_id);
         return;
     };
     println!(
@@ -573,8 +629,11 @@ fn print_help() {
 fn print_help_mc() {
     println!("tensorium-node mainnet-candidate <subcommand>\n");
     println!("subcommands:");
-    println!("  init <genesis_nonce>    initialize mc state with a pre-mined genesis nonce");
-    println!("  mine-genesis [threads]  CPU-mine the mc genesis nonce (may take hours; use GPU)");
+    println!("  init [genesis_nonce]    initialize mc state (uses hardcoded nonce by default)");
+    println!("  rpc [bind]              start mainnet-candidate RPC server");
+    println!("  p2p-listen [bind]       start mainnet-candidate P2P server");
+    println!("  sync [peer]             sync mc chain from a peer");
+    println!("  mine-genesis [threads]  CPU-mine the mc genesis nonce");
     println!("  status                  show mc chain status");
     println!();
     println!("mainnet-candidate params:");
@@ -589,10 +648,9 @@ fn print_help_mc() {
     println!("  p2p_default    = {DEFAULT_MC_P2P_BIND}");
     println!();
     println!("env:");
-    println!("  TENSORIUM_MC_STATE    mc state file path, default {DEFAULT_MC_STATE_PATH}");
-    println!();
-    println!("NOTE: Full mainnet-candidate RPC/P2P daemon support is planned.");
-    println!("      Genesis nonce must be GPU-mined before mainnet-candidate chain launch.");
+    println!("  TENSORIUM_MC_STATE    mc state file, default {DEFAULT_MC_STATE_PATH}");
+    println!("  TENSORIUM_MC_MEMPOOL  mc mempool file, default {DEFAULT_MC_MEMPOOL_PATH}");
+    println!("  TENSORIUM_MC_BANS     mc ban list file, default {DEFAULT_MC_BAN_PATH}");
 }
 
 // ---------------------------------------------------------------------------
@@ -681,7 +739,7 @@ fn write_p2p_line<T: Serialize>(stream: &mut TcpStream, value: &T) -> Result<(),
         .map_err(|err| format!("failed to write p2p message: {err}"))
 }
 
-fn local_hello(state: &ChainState) -> P2pHello {
+fn local_hello(state: &ChainState, params: &ConsensusParams) -> P2pHello {
     let node_id =
         env::var("TENSORIUM_NODE_ID").unwrap_or_else(|_| format!("node-{}", now_seconds()));
     let (height, tip_hash) = state
@@ -691,24 +749,24 @@ fn local_hello(state: &ChainState) -> P2pHello {
     P2pHello {
         protocol: "tensorium-p2p".to_owned(),
         version: P2P_PROTOCOL_VERSION,
-        chain_id: TESTNET.chain_id.to_owned(),
+        chain_id: params.chain_id.to_owned(),
         node_id,
         height,
         tip_hash,
     }
 }
 
-fn validate_hello(hello: &P2pHello) -> Result<(), String> {
+fn validate_hello(hello: &P2pHello, params: &ConsensusParams) -> Result<(), String> {
     if hello.protocol != "tensorium-p2p" {
         return Err(format!("unsupported P2P protocol: {}", hello.protocol));
     }
     if hello.version != P2P_PROTOCOL_VERSION {
         return Err(format!("unsupported P2P version: {}", hello.version));
     }
-    if hello.chain_id != TESTNET.chain_id {
+    if hello.chain_id != params.chain_id {
         return Err(format!(
             "wrong chain_id: {} (expected {})",
-            hello.chain_id, TESTNET.chain_id
+            hello.chain_id, params.chain_id
         ));
     }
     Ok(())
@@ -718,11 +776,16 @@ fn validate_hello(hello: &P2pHello) -> Result<(), String> {
 // P2P server — accepts inbound connections and processes messages
 // ---------------------------------------------------------------------------
 
-fn serve_p2p(bind: &str, state_path: PathBuf) -> Result<(), String> {
+fn serve_p2p(
+    bind: &str,
+    state_path: PathBuf,
+    mempool_path: PathBuf,
+    ban_path: PathBuf,
+    params: &'static ConsensusParams,
+) -> Result<(), String> {
     let listener =
         TcpListener::bind(bind).map_err(|err| format!("failed to bind {bind}: {err}"))?;
     println!("tensorium P2P listening on {bind}");
-    let ban_path = ban_path_from_env();
     let peer_count = Arc::new(AtomicUsize::new(0));
 
     for stream in listener.incoming() {
@@ -757,10 +820,13 @@ fn serve_p2p(bind: &str, state_path: PathBuf) -> Result<(), String> {
 
                 let path = state_path.clone();
                 let bans = ban_path.clone();
+                let mpool = mempool_path.clone();
                 let count = Arc::clone(&peer_count);
                 count.fetch_add(1, Ordering::Relaxed);
                 thread::spawn(move || {
-                    if let Err(err) = handle_p2p_connection(&mut stream, &path, &bans) {
+                    if let Err(err) =
+                        handle_p2p_connection(&mut stream, &path, &bans, &mpool, params)
+                    {
                         eprintln!("p2p connection error from {remote_ip}: {err}");
                     }
                     count.fetch_sub(1, Ordering::Relaxed);
@@ -785,9 +851,10 @@ fn handle_p2p_connection(
     stream: &mut TcpStream,
     state_path: &Path,
     ban_path: &Path,
+    mempool_path: &Path,
+    params: &ConsensusParams,
 ) -> Result<(), String> {
     let remote_ip = peer_ip(stream);
-    let mempool_path = mempool_path_from_env();
 
     // --- handshake ---
     let line = match read_p2p_line(stream) {
@@ -806,7 +873,7 @@ fn handle_p2p_connection(
         }
     };
 
-    if let Err(err) = validate_hello(&remote) {
+    if let Err(err) = validate_hello(&remote, params) {
         // Wrong chain_id, version, or protocol — potentially an attacker or
         // a node on the wrong network.  Instant ban.
         record_violation(ban_path, &remote_ip, SCORE_BAD_HANDSHAKE);
@@ -817,7 +884,7 @@ fn handle_p2p_connection(
     }
 
     let state = load_state(state_path)?;
-    write_p2p_line(stream, &local_hello(&state))?;
+    write_p2p_line(stream, &local_hello(&state, params))?;
 
     println!(
         "p2p accepted peer={} ip={remote_ip} chain_id={} height={} tip={}",
@@ -847,7 +914,7 @@ fn handle_p2p_connection(
 
         match msg {
             P2pMsg::NewBlock { block } => {
-                match accept_peer_block(state_path, *block) {
+                match accept_peer_block(state_path, mempool_path, *block, params) {
                     Ok((height, hash)) => {
                         println!(
                             "p2p accepted block from {} height={height} hash={hash}",
@@ -883,7 +950,7 @@ fn handle_p2p_connection(
             }
             P2pMsg::NewTx { tx } => {
                 let txid = tx.id;
-                match accept_peer_tx(&state_path, &mempool_path, *tx) {
+                match accept_peer_tx(&state_path, mempool_path, *tx, params) {
                     Ok(()) => {
                         println!("p2p accepted tx from {} txid={txid}", remote.node_id);
                         let _ = write_p2p_line(stream, &P2pMsg::TxAck { txid });
@@ -958,15 +1025,19 @@ fn handle_p2p_connection(
     Ok(())
 }
 
-fn accept_peer_block(state_path: &Path, block: Block) -> Result<(u64, Hash256), String> {
+fn accept_peer_block(
+    state_path: &Path,
+    mempool_path: &Path,
+    block: Block,
+    params: &ConsensusParams,
+) -> Result<(u64, Hash256), String> {
     let block_height = block.header.height;
     let block_hash = block.hash();
     let mut state = load_state(state_path)?;
 
-    match state.submit_block(&TESTNET, block.clone(), now_seconds()) {
+    match state.submit_block(params, block.clone(), now_seconds()) {
         Ok(_) => {}
         Err(StateError::AlreadyKnown) => {
-            // We already have this block — acknowledge without re-saving.
             return Ok((block_height, block_hash));
         }
         Err(err) => return Err(err.to_string()),
@@ -974,22 +1045,25 @@ fn accept_peer_block(state_path: &Path, block: Block) -> Result<(u64, Hash256), 
 
     save_state(state_path, &state)?;
 
-    // Clean mempool of transactions confirmed by this block.
-    let mempool_path = mempool_path_from_env();
-    let mut mempool = load_mempool(&mempool_path);
+    let mut mempool = load_mempool(mempool_path);
     mempool.remove_confirmed(&block);
-    let _ = save_mempool(&mempool_path, &mempool);
+    let _ = save_mempool(mempool_path, &mempool);
 
     Ok((block_height, block_hash))
 }
 
-fn accept_peer_tx(state_path: &Path, mempool_path: &Path, tx: Transaction) -> Result<(), String> {
+fn accept_peer_tx(
+    state_path: &Path,
+    mempool_path: &Path,
+    tx: Transaction,
+    params: &ConsensusParams,
+) -> Result<(), String> {
     let state = load_state(state_path)?;
-    let utxos = build_utxo_set(&state)?;
+    let utxos = build_utxo_set(&state, params)?;
     let tip_height = state.height().unwrap_or(0);
     let mut mempool = load_mempool(mempool_path);
     mempool
-        .add(&utxos, &TESTNET, tx, tip_height)
+        .add(&utxos, params, tx, tip_height)
         .map_err(|err| err.to_string())?;
     save_mempool(mempool_path, &mempool)
 }
@@ -998,14 +1072,19 @@ fn accept_peer_tx(state_path: &Path, mempool_path: &Path, tx: Transaction) -> Re
 // P2P client — push a block or transaction to a single peer
 // ---------------------------------------------------------------------------
 
-fn push_block_to_peer(peer: &str, block: &Block, state: &ChainState) -> Result<u64, String> {
+fn push_block_to_peer(
+    peer: &str,
+    block: &Block,
+    state: &ChainState,
+    params: &ConsensusParams,
+) -> Result<u64, String> {
     let mut stream = TcpStream::connect(peer).map_err(|err| format!("connect {peer}: {err}"))?;
 
-    write_p2p_line(&mut stream, &local_hello(state))?;
+    write_p2p_line(&mut stream, &local_hello(state, params))?;
     let line = read_p2p_line(&mut stream)?;
     let remote: P2pHello =
         serde_json::from_str(&line).map_err(|err| format!("parse hello from {peer}: {err}"))?;
-    validate_hello(&remote)?;
+    validate_hello(&remote, params)?;
 
     write_p2p_line(
         &mut stream,
@@ -1025,14 +1104,19 @@ fn push_block_to_peer(peer: &str, block: &Block, state: &ChainState) -> Result<u
     }
 }
 
-fn push_tx_to_peer(peer: &str, tx: &Transaction, state: &ChainState) -> Result<Hash256, String> {
+fn push_tx_to_peer(
+    peer: &str,
+    tx: &Transaction,
+    state: &ChainState,
+    params: &ConsensusParams,
+) -> Result<Hash256, String> {
     let mut stream = TcpStream::connect(peer).map_err(|err| format!("connect {peer}: {err}"))?;
 
-    write_p2p_line(&mut stream, &local_hello(state))?;
+    write_p2p_line(&mut stream, &local_hello(state, params))?;
     let line = read_p2p_line(&mut stream)?;
     let remote: P2pHello =
         serde_json::from_str(&line).map_err(|err| format!("parse hello from {peer}: {err}"))?;
-    validate_hello(&remote)?;
+    validate_hello(&remote, params)?;
 
     write_p2p_line(
         &mut stream,
@@ -1053,10 +1137,10 @@ fn push_tx_to_peer(peer: &str, tx: &Transaction, state: &ChainState) -> Result<H
 }
 
 /// Broadcast a block to every configured peer.  Per-peer errors are logged.
-fn broadcast_block_to_peers(block: &Block, state: &ChainState) {
+fn broadcast_block_to_peers(block: &Block, state: &ChainState, params: &ConsensusParams) {
     let peers = configured_peers();
     for peer in &peers {
-        match push_block_to_peer(peer, block, state) {
+        match push_block_to_peer(peer, block, state, params) {
             Ok(height) => println!("broadcast block to {peer} accepted height={height}"),
             Err(err) => eprintln!("broadcast block to {peer} failed: {err}"),
         }
@@ -1064,10 +1148,10 @@ fn broadcast_block_to_peers(block: &Block, state: &ChainState) {
 }
 
 /// Broadcast a transaction to every configured peer.  Per-peer errors are logged.
-fn broadcast_tx_to_peers(tx: &Transaction, state: &ChainState) {
+fn broadcast_tx_to_peers(tx: &Transaction, state: &ChainState, params: &ConsensusParams) {
     let peers = configured_peers();
     for peer in &peers {
-        match push_tx_to_peer(peer, tx, state) {
+        match push_tx_to_peer(peer, tx, state, params) {
             Ok(txid) => println!("broadcast tx to {peer} accepted txid={txid}"),
             Err(err) => eprintln!("broadcast tx to {peer} failed: {err}"),
         }
@@ -1100,16 +1184,16 @@ fn configured_peers() -> Vec<String> {
 // p2p-connect — diagnostic handshake
 // ---------------------------------------------------------------------------
 
-fn connect_peer(peer: &str, state_path: &Path) -> Result<(), String> {
+fn connect_peer(peer: &str, state_path: &Path, params: &ConsensusParams) -> Result<(), String> {
     let state = load_state(state_path)?;
     let mut stream =
         TcpStream::connect(peer).map_err(|err| format!("failed to connect to {peer}: {err}"))?;
 
-    write_p2p_line(&mut stream, &local_hello(&state))?;
+    write_p2p_line(&mut stream, &local_hello(&state, params))?;
     let line = read_p2p_line(&mut stream)?;
     let remote: P2pHello =
         serde_json::from_str(&line).map_err(|err| format!("parse hello: {err}"))?;
-    validate_hello(&remote)?;
+    validate_hello(&remote, params)?;
 
     println!(
         "connected peer={} chain_id={} height={} tip={}",
@@ -1137,7 +1221,11 @@ fn print_manual_peers() {
 ///
 /// Blocks are fetched in batches of SYNC_BATCH_SIZE, validated against our
 /// local chain, and persisted after each successful batch.
-fn sync_from_peer(peer: &str, state_path: &Path) -> Result<(), String> {
+fn sync_from_peer(
+    peer: &str,
+    state_path: &Path,
+    params: &ConsensusParams,
+) -> Result<(), String> {
     let mut state = load_state(state_path)?;
     let our_height = state.height().unwrap_or(0);
 
@@ -1145,11 +1233,11 @@ fn sync_from_peer(peer: &str, state_path: &Path) -> Result<(), String> {
     let mut stream =
         TcpStream::connect(peer).map_err(|err| format!("failed to connect to {peer}: {err}"))?;
 
-    write_p2p_line(&mut stream, &local_hello(&state))?;
+    write_p2p_line(&mut stream, &local_hello(&state, params))?;
     let line = read_p2p_line(&mut stream)?;
     let remote: P2pHello =
         serde_json::from_str(&line).map_err(|err| format!("parse hello from {peer}: {err}"))?;
-    validate_hello(&remote)?;
+    validate_hello(&remote, params)?;
 
     if remote.height <= our_height {
         println!(
@@ -1187,7 +1275,7 @@ fn sync_from_peer(peer: &str, state_path: &Path) -> Result<(), String> {
         let batch_count = blocks.len();
         for block in blocks {
             let height = block.header.height;
-            match state.submit_block(&TESTNET, block, now_seconds()) {
+            match state.submit_block(params, block, now_seconds()) {
                 Ok(_) => {}
                 Err(StateError::AlreadyKnown) => {} // resume after interrupted sync
                 Err(err) => return Err(format!("sync failed at height {height}: {err}")),
@@ -1212,7 +1300,12 @@ fn sync_from_peer(peer: &str, state_path: &Path) -> Result<(), String> {
 // HTTP RPC server
 // ---------------------------------------------------------------------------
 
-fn serve_rpc(bind: &str, state_path: PathBuf) -> Result<(), String> {
+fn serve_rpc(
+    bind: &str,
+    state_path: PathBuf,
+    mempool_path: PathBuf,
+    params: &'static ConsensusParams,
+) -> Result<(), String> {
     ensure_safe_rpc_bind(bind)?;
     let listener =
         TcpListener::bind(bind).map_err(|err| format!("failed to bind {bind}: {err}"))?;
@@ -1221,10 +1314,11 @@ fn serve_rpc(bind: &str, state_path: PathBuf) -> Result<(), String> {
     for stream in listener.incoming() {
         match stream {
             Ok(mut stream) => {
-                // Guard against slow HTTP clients that never finish sending.
                 let _ = stream
                     .set_read_timeout(Some(Duration::from_secs(RPC_READ_TIMEOUT_SECS)));
-                if let Err(err) = handle_rpc_stream(&mut stream, &state_path) {
+                if let Err(err) =
+                    handle_rpc_stream(&mut stream, &state_path, &mempool_path, params)
+                {
                     let response = RpcError {
                         error: err.to_string(),
                     };
@@ -1279,14 +1373,18 @@ fn ensure_safe_rpc_bind(bind: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn handle_rpc_stream(stream: &mut TcpStream, state_path: &Path) -> Result<(), String> {
+fn handle_rpc_stream(
+    stream: &mut TcpStream,
+    state_path: &Path,
+    mempool_path: &Path,
+    params: &ConsensusParams,
+) -> Result<(), String> {
     let mut buffer = [0u8; 65_536];
     let bytes_read = stream
         .read(&mut buffer)
         .map_err(|err| format!("failed to read request: {err}"))?;
     let request = String::from_utf8_lossy(&buffer[..bytes_read]);
     let parsed = parse_http_request(&request).ok_or_else(|| "invalid HTTP request".to_owned())?;
-    let mempool_path = mempool_path_from_env();
 
     match (parsed.method.as_str(), parsed.path.as_str()) {
         ("GET", "/health") => write_json_response(stream, 200, &json!({ "ok": true })),
@@ -1297,7 +1395,7 @@ fn handle_rpc_stream(stream: &mut TcpStream, state_path: &Path) -> Result<(), St
                 stream,
                 200,
                 &json!({
-                    "chain_id": TESTNET.chain_id,
+                    "chain_id": params.chain_id,
                     "height": state.height(),
                     "blocks": state.blocks.len(),
                 }),
@@ -1352,13 +1450,13 @@ fn handle_rpc_stream(stream: &mut TcpStream, state_path: &Path) -> Result<(), St
             let mempool = load_mempool(&mempool_path);
             let extra_txs = mempool.select_for_block();
             let block = state
-                .candidate_block_with_mempool(&TESTNET, now_seconds(), miner, extra_txs)
+                .candidate_block_with_mempool(params, now_seconds(), miner, extra_txs)
                 .map_err(|err| err.to_string())?;
             write_json_response(
                 stream,
                 200,
                 &json!({
-                    "chain_id": TESTNET.chain_id,
+                    "chain_id": params.chain_id,
                     "height": block.header.height,
                     "previous_hash": block.header.previous_hash,
                     "leading_zero_bits": block.header.leading_zero_bits,
@@ -1381,7 +1479,7 @@ fn handle_rpc_stream(stream: &mut TcpStream, state_path: &Path) -> Result<(), St
             };
             let mut state = load_state(state_path)?;
 
-            let accepted = match state.submit_block(&TESTNET, block.clone(), now_seconds()) {
+            let accepted = match state.submit_block(params, block.clone(), now_seconds()) {
                 Ok(b) => b,
                 Err(StateError::AlreadyKnown) => {
                     return write_json_response(
@@ -1403,8 +1501,7 @@ fn handle_rpc_stream(stream: &mut TcpStream, state_path: &Path) -> Result<(), St
             mempool.remove_confirmed(&accepted);
             let _ = save_mempool(&mempool_path, &mempool);
 
-            // Broadcast to configured peers.
-            broadcast_block_to_peers(&accepted, &state);
+            broadcast_block_to_peers(&accepted, &state, params);
 
             write_json_response(
                 stream,
@@ -1431,17 +1528,16 @@ fn handle_rpc_stream(stream: &mut TcpStream, state_path: &Path) -> Result<(), St
             };
             let txid = tx.id;
             let state = load_state(state_path)?;
-            let utxos = build_utxo_set(&state)?;
+            let utxos = build_utxo_set(&state, params)?;
             let tip_height = state.height().unwrap_or(0);
 
-            let mut mempool = load_mempool(&mempool_path);
+            let mut mempool = load_mempool(mempool_path);
             mempool
-                .add(&utxos, &TESTNET, tx.clone(), tip_height)
+                .add(&utxos, params, tx.clone(), tip_height)
                 .map_err(|err| err.to_string())?;
-            save_mempool(&mempool_path, &mempool)?;
+            save_mempool(mempool_path, &mempool)?;
 
-            // Broadcast to configured peers
-            broadcast_tx_to_peers(&tx, &state);
+            broadcast_tx_to_peers(&tx, &state, params);
 
             write_json_response(
                 stream,
