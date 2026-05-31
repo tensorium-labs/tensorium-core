@@ -178,6 +178,7 @@ dependencies = [
 name = "tensorium-node"
 version = "0.1.0"
 dependencies = [
+ "serde",
  "serde_json",
  "tensorium-core",
 ]
