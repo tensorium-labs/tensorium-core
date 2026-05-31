@@ -35,6 +35,10 @@ const DEFAULT_MC_P2P_BIND: &str = "0.0.0.0:33333";
 /// Genesis timestamp for the mainnet-candidate chain (2026-06-01 00:00:00 UTC).
 /// All nodes MUST use this exact value to share the same genesis block.
 const MC_GENESIS_TIMESTAMP: u64 = 1_780_272_000;
+/// Genesis nonce for the mainnet-candidate chain.
+/// Mined via CUDA on RTX 5090 at 2.28 GH/s in 24.6 seconds (2026-05-31).
+/// Genesis hash: 0000000000d61e99b9e2530609632b399d0f0b538c2d54daa1dddbfe28ea08dc
+const MC_GENESIS_NONCE: u64 = 56_167_663_277;
 const P2P_PROTOCOL_VERSION: u32 = 1;
 /// Maximum blocks returned per GetBlocks response.
 const SYNC_BATCH_SIZE: usize = 50;
@@ -142,12 +146,11 @@ fn run() -> Result<(), String> {
             let subcmd = args.get(2).map(String::as_str).unwrap_or("help");
             match subcmd {
                 "init" => {
-                    let nonce_str = args.get(3).ok_or_else(|| {
-                        "usage: tensorium-node mainnet-candidate init <genesis_nonce>".to_owned()
-                    })?;
-                    let nonce: u64 = nonce_str
-                        .parse()
-                        .map_err(|_| format!("invalid nonce: {nonce_str}"))?;
+                    // Use hardcoded genesis nonce, or override with explicit argument.
+                    let nonce: u64 = match args.get(3) {
+                        Some(s) => s.parse().map_err(|_| format!("invalid nonce: {s}"))?,
+                        None => MC_GENESIS_NONCE,
+                    };
                     let mc_state = mc_state_path_from_env();
                     let mut state = ChainState::new();
                     state
@@ -580,6 +583,8 @@ fn print_help_mc() {
     println!("  target_block   = {}s ({}min)", MAINNET_CANDIDATE.target_block_seconds, MAINNET_CANDIDATE.target_block_seconds / 60);
     println!("  halving        = every {} blocks (~{} years)", MAINNET_CANDIDATE.halving_interval_blocks, MAINNET_CANDIDATE.halving_interval_blocks / 525_600);
     println!("  genesis_ts     = {MC_GENESIS_TIMESTAMP}  (2026-06-01 00:00:00 UTC)");
+    println!("  genesis_nonce  = {MC_GENESIS_NONCE}  (mined RTX 5090, 2026-05-31)");
+    println!("  genesis_hash   = 0000000000d61e99b9e2530609632b399d0f0b538c2d54daa1dddbfe28ea08dc");
     println!("  rpc_default    = {DEFAULT_MC_RPC_BIND}");
     println!("  p2p_default    = {DEFAULT_MC_P2P_BIND}");
     println!();
