@@ -1,5 +1,7 @@
 use std::{
     env, fs,
+    io::{Read, Write},
+    net::TcpStream,
     path::{Path, PathBuf},
 };
 
@@ -20,6 +22,7 @@ use tensorium_core::{
 const DEFAULT_WALLET_PATH: &str = "tensorium-wallet.json";
 const DEFAULT_STATE_PATH: &str = "tensorium-testnet-state.json";
 const DEFAULT_SIGNED_TX_PATH: &str = "tensorium-signed-tx.json";
+const DEFAULT_RPC: &str = "127.0.0.1:23332";
 const ARGON2_MEMORY_KIB: u32 = 19 * 1024;
 const ARGON2_ITERATIONS: u32 = 3;
 const ARGON2_PARALLELISM: u32 = 1;
@@ -113,6 +116,17 @@ fn run() -> Result<(), String> {
             let keypair = wallet.decrypt(&passphrase)?;
             println!("address={}", keypair.address.as_str());
             println!("unlocked=true");
+        }
+        "broadcast" => {
+            let tx_path = args
+                .get(2)
+                .map(PathBuf::from)
+                .unwrap_or_else(|| PathBuf::from(DEFAULT_SIGNED_TX_PATH));
+            let rpc = args.get(3).map(String::as_str).unwrap_or(DEFAULT_RPC);
+            let raw = fs::read_to_string(&tx_path)
+                .map_err(|err| format!("failed to read {}: {err}", tx_path.display()))?;
+            let response = rpc_post(rpc, "/sendrawtransaction", &raw)?;
+            println!("{response}");
         }
         _ => print_help(),
     }
@@ -279,17 +293,47 @@ fn print_help() {
     println!("txmwallet <command>");
     println!();
     println!("commands:");
-    println!("  create          create a local wallet file");
-    println!("  getnewaddress   print wallet address");
-    println!("  balance         scan local chain state for wallet balance");
-    println!("  send            create a signed local transaction file");
-    println!("  show            print wallet public summary");
-    println!("  unlock-check    verify passphrase can decrypt wallet");
+    println!("  create                            create a local wallet file");
+    println!("  getnewaddress                     print wallet address");
+    println!("  balance                           scan local chain state for wallet balance");
+    println!("  send <to> <atoms> [tx_file]       build and sign a transaction file");
+    println!("  broadcast [tx_file] [rpc]         submit signed tx file to node RPC");
+    println!("  show                              print wallet public summary");
+    println!("  unlock-check                      verify passphrase can decrypt wallet");
     println!();
     println!("env:");
-    println!("  TENSORIUM_WALLET    wallet file path, default {DEFAULT_WALLET_PATH}");
-    println!("  TENSORIUM_STATE     chain state path, default {DEFAULT_STATE_PATH}");
-    println!("  TENSORIUM_WALLET_PASSPHRASE required for create and unlock-check");
+    println!("  TENSORIUM_WALLET             wallet file, default {DEFAULT_WALLET_PATH}");
+    println!("  TENSORIUM_STATE              chain state, default {DEFAULT_STATE_PATH}");
+    println!("  TENSORIUM_WALLET_PASSPHRASE  required for create, send, unlock-check");
+}
+
+// ---------------------------------------------------------------------------
+// Minimal HTTP client for sendrawtransaction
+// ---------------------------------------------------------------------------
+
+fn rpc_post(rpc: &str, path: &str, body: &str) -> Result<String, String> {
+    let request = format!(
+        "POST {path} HTTP/1.1\r\nhost: {rpc}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+        body.len()
+    );
+    let mut stream =
+        TcpStream::connect(rpc).map_err(|err| format!("failed to connect to {rpc}: {err}"))?;
+    stream
+        .write_all(request.as_bytes())
+        .map_err(|err| format!("failed to send request: {err}"))?;
+
+    let mut response = String::new();
+    stream
+        .read_to_string(&mut response)
+        .map_err(|err| format!("failed to read response: {err}"))?;
+
+    let (head, response_body) = response
+        .split_once("\r\n\r\n")
+        .ok_or_else(|| "invalid HTTP response".to_owned())?;
+    if !head.starts_with("HTTP/1.1 200") {
+        return Err(format!("RPC error: {response_body}"));
+    }
+    Ok(response_body.to_owned())
 }
 
 impl WalletFile {

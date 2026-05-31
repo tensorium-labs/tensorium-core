@@ -10,9 +10,14 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use tensorium_core::{chain::TESTNET, Block, ChainState, Hash256};
+use tensorium_core::{
+    block::Transaction,
+    chain::TESTNET,
+    Block, ChainState, Hash256, Mempool, UtxoSet,
+};
 
 const DEFAULT_STATE_PATH: &str = "tensorium-testnet-state.json";
+const DEFAULT_MEMPOOL_PATH: &str = "tensorium-testnet-mempool.json";
 const DEFAULT_NONCE_LIMIT: u64 = 10_000_000;
 const DEFAULT_RPC_BIND: &str = "127.0.0.1:23332";
 const DEFAULT_P2P_BIND: &str = "127.0.0.1:23333";
@@ -73,10 +78,20 @@ fn run() -> Result<(), String> {
     Ok(())
 }
 
+// ---------------------------------------------------------------------------
+// Paths and env helpers
+// ---------------------------------------------------------------------------
+
 fn state_path_from_env() -> PathBuf {
     env::var("TENSORIUM_STATE")
         .map(PathBuf::from)
         .unwrap_or_else(|_| PathBuf::from(DEFAULT_STATE_PATH))
+}
+
+fn mempool_path_from_env() -> PathBuf {
+    env::var("TENSORIUM_MEMPOOL")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| PathBuf::from(DEFAULT_MEMPOOL_PATH))
 }
 
 fn now_seconds() -> u64 {
@@ -85,6 +100,10 @@ fn now_seconds() -> u64 {
         .expect("system time before unix epoch")
         .as_secs()
 }
+
+// ---------------------------------------------------------------------------
+// State persistence
+// ---------------------------------------------------------------------------
 
 fn load_state(path: &Path) -> Result<ChainState, String> {
     let raw = fs::read_to_string(path)
@@ -98,12 +117,36 @@ fn save_state(path: &Path, state: &ChainState) -> Result<(), String> {
     fs::write(path, raw).map_err(|err| format!("failed to write {}: {err}", path.display()))
 }
 
+/// Load mempool, or return an empty one if the file does not exist yet.
+fn load_mempool(path: &Path) -> Mempool {
+    let Ok(raw) = fs::read_to_string(path) else {
+        return Mempool::new();
+    };
+    serde_json::from_str(&raw).unwrap_or_else(|_| Mempool::new())
+}
+
+fn save_mempool(path: &Path, mempool: &Mempool) -> Result<(), String> {
+    let raw = serde_json::to_string_pretty(mempool)
+        .map_err(|err| format!("failed to serialize mempool: {err}"))?;
+    fs::write(path, raw).map_err(|err| format!("failed to write {}: {err}", path.display()))
+}
+
+/// Build a full UTXO set by replaying all blocks in `state`.
+fn build_utxo_set(state: &ChainState) -> Result<UtxoSet, String> {
+    let mut utxos = UtxoSet::new();
+    for block in &state.blocks {
+        utxos
+            .apply_block(&TESTNET, block)
+            .map_err(|err| format!("UTXO apply failed: {err}"))?;
+    }
+    Ok(utxos)
+}
+
 fn print_status(state: &ChainState) {
     let Some(tip) = state.tip() else {
         println!("chain_id={} height=empty", TESTNET.chain_id);
         return;
     };
-
     println!(
         "chain_id={} height={} tip={} difficulty_bits={} blocks={}",
         tip.header.chain_id,
@@ -122,21 +165,24 @@ fn print_help() {
     println!("  status               show local chain status");
     println!("  mine-once [miner]    mine one block and persist it");
     println!("  rpc [bind]           start localhost HTTP RPC server");
-    println!("  p2p-listen [bind]    listen for peer connections and blocks");
+    println!("  p2p-listen [bind]    listen for peer connections and messages");
     println!("  p2p-connect <peer>   connect to a peer for diagnostics");
     println!("  peers                print manual peers from TENSORIUM_PEERS");
     println!();
     println!("rpc endpoints:");
-    println!("  GET /getblockcount");
-    println!("  GET /getdifficulty");
-    println!("  GET /getblock/<height>");
-    println!("  GET /getblocktemplate/<miner>");
-    println!("  POST /submitblock    (also broadcasts to TENSORIUM_PEERS)");
-    println!("  GET /health");
+    println!("  GET  /health");
+    println!("  GET  /getblockcount");
+    println!("  GET  /getdifficulty");
+    println!("  GET  /getblock/<height>");
+    println!("  GET  /getblocktemplate/<miner>   (includes mempool txs)");
+    println!("  POST /submitblock                 (broadcasts to peers, cleans mempool)");
+    println!("  POST /sendrawtransaction          (validates, pools, broadcasts to peers)");
+    println!("  GET  /getmempoolinfo");
     println!();
     println!("env:");
     println!("  TENSORIUM_STATE      state file path, default {DEFAULT_STATE_PATH}");
-    println!("  TENSORIUM_PEERS      comma-separated peers to broadcast blocks to");
+    println!("  TENSORIUM_MEMPOOL    mempool file path, default {DEFAULT_MEMPOOL_PATH}");
+    println!("  TENSORIUM_PEERS      comma-separated peers to broadcast to");
     println!("  TENSORIUM_NODE_ID    node identity string");
 }
 
@@ -158,17 +204,17 @@ struct P2pHello {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "type")]
 enum P2pMsg {
-    /// Peer is pushing a newly mined block.
+    // --- block propagation ---
     NewBlock { block: Box<Block> },
-    /// Block was accepted; echoes height and hash.
     Ack { height: u64, hash: Hash256 },
-    /// Block was rejected; includes the reason.
     Reject { reason: String },
+    // --- transaction propagation ---
+    NewTx { tx: Box<Transaction> },
+    TxAck { txid: Hash256 },
+    TxReject { txid: Hash256, reason: String },
 }
 
-/// Read bytes from `stream` one at a time until a newline, returning the line
-/// without the trailing `\n`.  Returns an error if the peer closes before
-/// sending a newline.
+/// Read one newline-terminated line from `stream` byte-by-byte.
 fn read_p2p_line(stream: &mut TcpStream) -> Result<String, String> {
     let mut buf = Vec::new();
     let mut byte = [0u8; 1];
@@ -221,7 +267,10 @@ fn validate_hello(hello: &P2pHello) -> Result<(), String> {
         return Err(format!("unsupported P2P version: {}", hello.version));
     }
     if hello.chain_id != TESTNET.chain_id {
-        return Err(format!("wrong chain_id: {} (expected {})", hello.chain_id, TESTNET.chain_id));
+        return Err(format!(
+            "wrong chain_id: {} (expected {})",
+            hello.chain_id, TESTNET.chain_id
+        ));
     }
     Ok(())
 }
@@ -248,22 +297,20 @@ fn serve_p2p(bind: &str, state_path: PathBuf) -> Result<(), String> {
             Err(err) => eprintln!("p2p accept error: {err}"),
         }
     }
-
     Ok(())
 }
 
 /// Full lifecycle of a single inbound P2P connection:
-/// 1. Read remote hello and validate.
-/// 2. Send local hello.
-/// 3. Loop reading P2pMsg until the peer closes.
+/// handshake, then a message loop handling blocks and transactions.
 fn handle_p2p_connection(stream: &mut TcpStream, state_path: &Path) -> Result<(), String> {
-    // 1. Read remote hello
+    let mempool_path = mempool_path_from_env();
+
+    // --- handshake ---
     let line = read_p2p_line(stream)?;
     let remote: P2pHello =
         serde_json::from_str(&line).map_err(|err| format!("parse hello: {err}"))?;
     validate_hello(&remote)?;
 
-    // 2. Send local hello
     let state = load_state(state_path)?;
     write_p2p_line(stream, &local_hello(&state))?;
 
@@ -272,7 +319,7 @@ fn handle_p2p_connection(stream: &mut TcpStream, state_path: &Path) -> Result<()
         remote.node_id, remote.chain_id, remote.height, remote.tip_hash
     );
 
-    // 3. Message loop
+    // --- message loop ---
     loop {
         let line = match read_p2p_line(stream) {
             Ok(line) => line,
@@ -298,16 +345,36 @@ fn handle_p2p_connection(stream: &mut TcpStream, state_path: &Path) -> Result<()
                         let _ = write_p2p_line(stream, &P2pMsg::Ack { height, hash });
                     }
                     Err(reason) => {
-                        eprintln!(
-                            "p2p rejected block from {}: {reason}",
-                            remote.node_id
-                        );
+                        eprintln!("p2p rejected block from {}: {reason}", remote.node_id);
                         let _ = write_p2p_line(stream, &P2pMsg::Reject { reason });
                     }
                 }
             }
-            P2pMsg::Ack { .. } | P2pMsg::Reject { .. } => {
-                eprintln!("p2p unexpected message type from {}", remote.node_id);
+            P2pMsg::NewTx { tx } => {
+                let txid = tx.id;
+                match accept_peer_tx(&state_path, &mempool_path, *tx) {
+                    Ok(()) => {
+                        println!(
+                            "p2p accepted tx from {} txid={txid}",
+                            remote.node_id
+                        );
+                        let _ = write_p2p_line(stream, &P2pMsg::TxAck { txid });
+                    }
+                    Err(reason) => {
+                        eprintln!("p2p rejected tx from {}: {reason}", remote.node_id);
+                        let _ =
+                            write_p2p_line(stream, &P2pMsg::TxReject { txid, reason });
+                    }
+                }
+            }
+            P2pMsg::Ack { .. }
+            | P2pMsg::Reject { .. }
+            | P2pMsg::TxAck { .. }
+            | P2pMsg::TxReject { .. } => {
+                eprintln!(
+                    "p2p unexpected response-type message from {}",
+                    remote.node_id
+                );
             }
         }
     }
@@ -316,7 +383,6 @@ fn handle_p2p_connection(stream: &mut TcpStream, state_path: &Path) -> Result<()
     Ok(())
 }
 
-/// Load state, validate and append the block, then persist.
 fn accept_peer_block(state_path: &Path, block: Block) -> Result<(u64, Hash256), String> {
     let mut state = load_state(state_path)?;
     state
@@ -325,30 +391,47 @@ fn accept_peer_block(state_path: &Path, block: Block) -> Result<(u64, Hash256), 
     let tip = state.tip().expect("block was just pushed");
     let height = tip.header.height;
     let hash = tip.hash();
+    let accepted_block = tip.clone();
     save_state(state_path, &state)?;
+
+    // Clean mempool of any confirmed transactions
+    let mempool_path = mempool_path_from_env();
+    let mut mempool = load_mempool(&mempool_path);
+    mempool.remove_confirmed(&accepted_block);
+    let _ = save_mempool(&mempool_path, &mempool);
+
     Ok((height, hash))
 }
 
+fn accept_peer_tx(
+    state_path: &Path,
+    mempool_path: &Path,
+    tx: Transaction,
+) -> Result<(), String> {
+    let state = load_state(state_path)?;
+    let utxos = build_utxo_set(&state)?;
+    let tip_height = state.height().unwrap_or(0);
+    let mut mempool = load_mempool(mempool_path);
+    mempool
+        .add(&utxos, &TESTNET, tx, tip_height)
+        .map_err(|err| err.to_string())?;
+    save_mempool(mempool_path, &mempool)
+}
+
 // ---------------------------------------------------------------------------
-// P2P client — push a block to a single peer
+// P2P client — push a block or transaction to a single peer
 // ---------------------------------------------------------------------------
 
-/// Connect to `peer`, handshake, push `block`, and wait for Ack/Reject.
-/// Returns the accepted height on success.
 fn push_block_to_peer(peer: &str, block: &Block, state: &ChainState) -> Result<u64, String> {
     let mut stream =
         TcpStream::connect(peer).map_err(|err| format!("connect {peer}: {err}"))?;
 
-    // Send hello
     write_p2p_line(&mut stream, &local_hello(state))?;
-
-    // Read remote hello
     let line = read_p2p_line(&mut stream)?;
     let remote: P2pHello =
         serde_json::from_str(&line).map_err(|err| format!("parse hello from {peer}: {err}"))?;
     validate_hello(&remote)?;
 
-    // Send NewBlock
     write_p2p_line(
         &mut stream,
         &P2pMsg::NewBlock {
@@ -356,7 +439,6 @@ fn push_block_to_peer(peer: &str, block: &Block, state: &ChainState) -> Result<u
         },
     )?;
 
-    // Read response
     let line = read_p2p_line(&mut stream)?;
     let response: P2pMsg = serde_json::from_str(&line)
         .map_err(|err| format!("parse response from {peer}: {err}"))?;
@@ -364,25 +446,56 @@ fn push_block_to_peer(peer: &str, block: &Block, state: &ChainState) -> Result<u
     match response {
         P2pMsg::Ack { height, .. } => Ok(height),
         P2pMsg::Reject { reason } => Err(format!("block rejected by {peer}: {reason}")),
-        P2pMsg::NewBlock { .. } => Err(format!("unexpected NewBlock from {peer}")),
+        other => Err(format!("unexpected response from {peer}: {other:?}")),
     }
 }
 
-/// Broadcast `block` to every peer in `TENSORIUM_PEERS`.  Errors per peer are
-/// logged but do not abort the broadcast to remaining peers.
+fn push_tx_to_peer(peer: &str, tx: &Transaction, state: &ChainState) -> Result<Hash256, String> {
+    let mut stream =
+        TcpStream::connect(peer).map_err(|err| format!("connect {peer}: {err}"))?;
+
+    write_p2p_line(&mut stream, &local_hello(state))?;
+    let line = read_p2p_line(&mut stream)?;
+    let remote: P2pHello =
+        serde_json::from_str(&line).map_err(|err| format!("parse hello from {peer}: {err}"))?;
+    validate_hello(&remote)?;
+
+    write_p2p_line(
+        &mut stream,
+        &P2pMsg::NewTx {
+            tx: Box::new(tx.clone()),
+        },
+    )?;
+
+    let line = read_p2p_line(&mut stream)?;
+    let response: P2pMsg = serde_json::from_str(&line)
+        .map_err(|err| format!("parse response from {peer}: {err}"))?;
+
+    match response {
+        P2pMsg::TxAck { txid } => Ok(txid),
+        P2pMsg::TxReject { reason, .. } => Err(format!("tx rejected by {peer}: {reason}")),
+        other => Err(format!("unexpected response from {peer}: {other:?}")),
+    }
+}
+
+/// Broadcast a block to every configured peer.  Per-peer errors are logged.
 fn broadcast_block_to_peers(block: &Block, state: &ChainState) {
     let peers = configured_peers();
-    if peers.is_empty() {
-        return;
-    }
     for peer in &peers {
         match push_block_to_peer(peer, block, state) {
-            Ok(height) => {
-                println!("broadcast block to {peer} accepted height={height}");
-            }
-            Err(err) => {
-                eprintln!("broadcast block to {peer} failed: {err}");
-            }
+            Ok(height) => println!("broadcast block to {peer} accepted height={height}"),
+            Err(err) => eprintln!("broadcast block to {peer} failed: {err}"),
+        }
+    }
+}
+
+/// Broadcast a transaction to every configured peer.  Per-peer errors are logged.
+fn broadcast_tx_to_peers(tx: &Transaction, state: &ChainState) {
+    let peers = configured_peers();
+    for peer in &peers {
+        match push_tx_to_peer(peer, tx, state) {
+            Ok(txid) => println!("broadcast tx to {peer} accepted txid={txid}"),
+            Err(err) => eprintln!("broadcast tx to {peer} failed: {err}"),
         }
     }
 }
@@ -406,7 +519,6 @@ fn connect_peer(peer: &str, state_path: &Path) -> Result<(), String> {
         TcpStream::connect(peer).map_err(|err| format!("failed to connect to {peer}: {err}"))?;
 
     write_p2p_line(&mut stream, &local_hello(&state))?;
-
     let line = read_p2p_line(&mut stream)?;
     let remote: P2pHello =
         serde_json::from_str(&line).map_err(|err| format!("parse hello: {err}"))?;
@@ -452,7 +564,6 @@ fn serve_rpc(bind: &str, state_path: PathBuf) -> Result<(), String> {
             Err(err) => eprintln!("rpc connection error: {err}"),
         }
     }
-
     Ok(())
 }
 
@@ -463,9 +574,11 @@ fn handle_rpc_stream(stream: &mut TcpStream, state_path: &Path) -> Result<(), St
         .map_err(|err| format!("failed to read request: {err}"))?;
     let request = String::from_utf8_lossy(&buffer[..bytes_read]);
     let parsed = parse_http_request(&request).ok_or_else(|| "invalid HTTP request".to_owned())?;
+    let mempool_path = mempool_path_from_env();
 
     match (parsed.method.as_str(), parsed.path.as_str()) {
         ("GET", "/health") => write_json_response(stream, 200, &json!({ "ok": true })),
+
         ("GET", "/getblockcount") => {
             let state = load_state(state_path)?;
             write_json_response(
@@ -478,6 +591,7 @@ fn handle_rpc_stream(stream: &mut TcpStream, state_path: &Path) -> Result<(), St
                 }),
             )
         }
+
         ("GET", "/getdifficulty") => {
             let state = load_state(state_path)?;
             let Some(tip) = state.tip() else {
@@ -493,13 +607,15 @@ fn handle_rpc_stream(stream: &mut TcpStream, state_path: &Path) -> Result<(), St
                 }),
             )
         }
+
         ("GET", path) if path.starts_with("/getblock/") => {
             let height = path
                 .trim_start_matches("/getblock/")
                 .parse::<u64>()
                 .map_err(|err| format!("invalid block height: {err}"))?;
             let state = load_state(state_path)?;
-            let Some(block) = state.blocks.iter().find(|block| block.header.height == height)
+            let Some(block) =
+                state.blocks.iter().find(|block| block.header.height == height)
             else {
                 return write_json_response(stream, 404, &RpcError::new("block not found"));
             };
@@ -512,14 +628,17 @@ fn handle_rpc_stream(stream: &mut TcpStream, state_path: &Path) -> Result<(), St
                 }),
             )
         }
+
         ("GET", path) if path.starts_with("/getblocktemplate/") => {
             let miner = path.trim_start_matches("/getblocktemplate/");
             if miner.is_empty() {
                 return write_json_response(stream, 404, &RpcError::new("missing miner address"));
             }
             let state = load_state(state_path)?;
+            let mempool = load_mempool(&mempool_path);
+            let extra_txs = mempool.select_for_block();
             let block = state
-                .candidate_block(&TESTNET, now_seconds(), miner)
+                .candidate_block_with_mempool(&TESTNET, now_seconds(), miner, extra_txs)
                 .map_err(|err| err.to_string())?;
             write_json_response(
                 stream,
@@ -529,10 +648,12 @@ fn handle_rpc_stream(stream: &mut TcpStream, state_path: &Path) -> Result<(), St
                     "height": block.header.height,
                     "previous_hash": block.header.previous_hash,
                     "leading_zero_bits": block.header.leading_zero_bits,
+                    "tx_count": block.transactions.len(),
                     "template": block,
                 }),
             )
         }
+
         ("POST", "/submitblock") => {
             let block: Block = serde_json::from_str(parsed.body)
                 .map_err(|err| format!("failed to parse submitted block: {err}"))?;
@@ -548,7 +669,12 @@ fn handle_rpc_stream(stream: &mut TcpStream, state_path: &Path) -> Result<(), St
 
             save_state(state_path, &state)?;
 
-            // Broadcast to configured peers; errors are logged, not fatal.
+            // Remove confirmed transactions from mempool
+            let mut mempool = load_mempool(&mempool_path);
+            mempool.remove_confirmed(&block_to_broadcast);
+            let _ = save_mempool(&mempool_path, &mempool);
+
+            // Broadcast to configured peers
             broadcast_block_to_peers(&block_to_broadcast, &state);
 
             write_json_response(
@@ -561,6 +687,48 @@ fn handle_rpc_stream(stream: &mut TcpStream, state_path: &Path) -> Result<(), St
                 }),
             )
         }
+
+        ("POST", "/sendrawtransaction") => {
+            let tx: Transaction = serde_json::from_str(parsed.body)
+                .map_err(|err| format!("failed to parse transaction: {err}"))?;
+            let txid = tx.id;
+            let state = load_state(state_path)?;
+            let utxos = build_utxo_set(&state)?;
+            let tip_height = state.height().unwrap_or(0);
+
+            let mut mempool = load_mempool(&mempool_path);
+            mempool
+                .add(&utxos, &TESTNET, tx.clone(), tip_height)
+                .map_err(|err| err.to_string())?;
+            save_mempool(&mempool_path, &mempool)?;
+
+            // Broadcast to configured peers
+            broadcast_tx_to_peers(&tx, &state);
+
+            write_json_response(
+                stream,
+                200,
+                &json!({
+                    "accepted": true,
+                    "txid": txid,
+                    "mempool_size": mempool.len(),
+                }),
+            )
+        }
+
+        ("GET", "/getmempoolinfo") => {
+            let mempool = load_mempool(&mempool_path);
+            let txids: Vec<String> = mempool.pending.keys().cloned().collect();
+            write_json_response(
+                stream,
+                200,
+                &json!({
+                    "count": mempool.len(),
+                    "txids": txids,
+                }),
+            )
+        }
+
         _ => write_json_response(stream, 404, &RpcError::new("unknown RPC endpoint")),
     }
 }

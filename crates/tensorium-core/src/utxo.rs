@@ -1,10 +1,10 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::{
-    block::{Block, OutPoint, TxOutput},
+    block::{Block, OutPoint, Transaction, TxOutput},
     chain::ConsensusParams,
     emission::reward_at_height,
     wallet::verify_transaction_input,
@@ -49,6 +49,37 @@ impl UtxoSet {
         self.entries
             .values()
             .fold(0u64, |sum, entry| sum.saturating_add(entry.output.value_atoms))
+    }
+
+    /// Validate that `tx` can be spent given the current UTXO set.
+    /// Does not mutate the set — safe to call for mempool acceptance checks.
+    pub fn validate_transaction(
+        &self,
+        tx: &Transaction,
+        tip_height: u64,
+        params: &ConsensusParams,
+    ) -> Result<(), UtxoError> {
+        let mut seen: HashSet<OutPoint> = HashSet::new();
+        for input in &tx.inputs {
+            if !seen.insert(input.previous_output) {
+                return Err(UtxoError::DuplicateInput);
+            }
+            let entry = self
+                .entries
+                .get(&input.previous_output)
+                .ok_or(UtxoError::MissingInput)?;
+            if entry.coinbase
+                && tip_height
+                    < entry
+                        .created_height
+                        .saturating_add(params.coinbase_maturity_blocks)
+            {
+                return Err(UtxoError::ImmatureCoinbaseSpend);
+            }
+            verify_transaction_input(tx, input, &entry.output.address)
+                .map_err(|_| UtxoError::InvalidSignature)?;
+        }
+        Ok(())
     }
 
     pub fn apply_block(

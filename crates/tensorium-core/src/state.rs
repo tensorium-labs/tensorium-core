@@ -85,7 +85,20 @@ impl ChainState {
         miner: &str,
     ) -> Result<Block, StateError> {
         let parent = self.tip().ok_or(StateError::MissingGenesis)?;
-        Ok(candidate_block(params, Some(parent), timestamp_seconds, miner))
+        Ok(candidate_block(params, Some(parent), timestamp_seconds, miner, vec![]))
+    }
+
+    /// Like `candidate_block` but includes `extra_txs` (e.g. from the mempool)
+    /// after the coinbase.
+    pub fn candidate_block_with_mempool(
+        &self,
+        params: &ConsensusParams,
+        timestamp_seconds: u64,
+        miner: &str,
+        extra_txs: Vec<Transaction>,
+    ) -> Result<Block, StateError> {
+        let parent = self.tip().ok_or(StateError::MissingGenesis)?;
+        Ok(candidate_block(params, Some(parent), timestamp_seconds, miner, extra_txs))
     }
 
     pub fn submit_block(
@@ -109,7 +122,7 @@ fn mine_candidate_block(
     miner: &str,
     max_nonce: u64,
 ) -> Result<Block, StateError> {
-    let block = candidate_block(params, parent, timestamp_seconds, miner);
+    let block = candidate_block(params, parent, timestamp_seconds, miner, vec![]);
     let header = block.header;
     let mined_header = mine_header(header, max_nonce).ok_or(StateError::MiningFailed)?;
     Ok(Block::new(mined_header, block.transactions))
@@ -120,23 +133,27 @@ fn candidate_block(
     parent: Option<&Block>,
     timestamp_seconds: u64,
     miner: &str,
+    extra_txs: Vec<Transaction>,
 ) -> Block {
     let height = parent.map_or(0, |block| block.header.height + 1);
     let previous_hash = parent.map_or(Hash256::ZERO, Block::hash);
     let reward = reward_at_height(params, height);
-    let tx = Transaction::coinbase(height, reward, miner);
+    let coinbase_tx = Transaction::coinbase(height, reward, miner);
+    let mut transactions = Vec::with_capacity(1 + extra_txs.len());
+    transactions.push(coinbase_tx);
+    transactions.extend(extra_txs);
     let header = BlockHeader {
         version: 1,
         chain_id: params.chain_id.to_owned(),
         height,
         previous_hash,
-        merkle_root: merkle_root(core::slice::from_ref(&tx)),
+        merkle_root: merkle_root(&transactions),
         timestamp_seconds,
         leading_zero_bits: params.initial_leading_zero_bits,
         nonce: 0,
     };
 
-    Block::new(header, vec![tx])
+    Block::new(header, transactions)
 }
 
 #[cfg(test)]
