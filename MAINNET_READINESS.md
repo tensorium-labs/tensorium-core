@@ -23,7 +23,7 @@ Mainnet launch is not approved until every blocking item below is resolved.
 | Consensus audit | DOING | Tokenomics, emission, difficulty, fork-choice/reorg, timestamp, coinbase over-mint, pending double-spend, RPC bind safety, P2P message-size guard, ban-list fix, connection limit, and TCP timeouts added; soak/integration testing and storage scalability remain. |
 | Founder wallet | DONE | Founder address `txm18c3t652j0x0sanux3dhse8fqgrqpsdzx97358d`, pool treasury `txm10wa2dazhn2yqwwxkm4aegvzjq55hj9m2jlznt9` generated 2026-05-31. |
 | Founder lock policy | DONE | Social/manual 24-month lock documented; no L1 enforcement. Disclosure required in whitepaper before mainnet. |
-| Mainnet genesis | PARTIAL | Params frozen (chain_id, timestamp, diff 40 bits). Genesis nonce TBD — GPU mining required before chain launch. |
+| Mainnet genesis | DONE | Nonce `56_167_663_277` mined RTX 5090 (2.28 GH/s, 24.6s, 2026-05-31). Hash: `0000000000d61e99b9e2530609632b399d0f0b538c2d54daa1dddbfe28ea08dc`. Hardcoded in binary. |
 | Storage migration decision | DEFERRED | JSON state acceptable for mainnet-candidate. Binary/DB migration planned for future version. |
 | Peer discovery | DONE | Built-in static seed list (`157.230.44.162:23333`) added to node binary; opt-out via `TENSORIUM_NO_DEFAULT_SEEDS=1`. DNS seed deferred to mainnet. |
 | Mining pool path | DONE | tensorium-pool reference pool implemented (HTTP proxy, 5% fee, payout ledger). |
@@ -326,13 +326,21 @@ Solo mining (fee-free): miners point `txmminer` directly at `tensorium-node` RPC
 
 Tensorium v0.3.0-mainnet-candidate is released. Phase 7 (7A–7E) is complete.
 
-**Mainnet launch is NOT yet approved.** Remaining blocking items before launch:
+**Mainnet launch is NOT yet approved.** Remaining items before launch:
 
-1. **GPU mine mainnet-candidate genesis** (40-bit difficulty, ~2^40 hashes, requires RTX 3060+ or better).
-   - Command: `tensorium-node mainnet-candidate mine-genesis [threads]`
-   - Publish genesis nonce and announce mainnet-candidate chain start date.
+1. **Full MC RPC/P2P daemon** — node binary currently still uses TESTNET params in RPC/P2P handlers. Needs refactor to accept ConsensusParams at runtime.
 2. **DNS seed** (`seed.tensoriumlabs.com` → seed IP) — deferred to mainnet launch prep.
 3. **Storage migration** (JSON → binary/DB) — deferred, acceptable for candidate scale.
 4. **Whitepaper and docs update** — add pool fee guide, RISK_DISCLOSURE summary, MC genesis details.
 
-Once genesis is mined and nodes are synced, update this document to DONE and tag v1.0.0-mainnet.
+### Mainnet-Candidate Genesis (DONE)
+
+- **Nonce:** `56_167_663_277`
+- **Hash:** `0000000000d61e99b9e2530609632b399d0f0b538c2d54daa1dddbfe28ea08dc`
+- **Timestamp:** `1_780_272_000` (2026-06-01 00:00:00 UTC)
+- **Mined:** RTX 5090, CUDA, 2.28 GH/s, 24.6 seconds (2026-05-31)
+- **Verified:** `tensorium-node mainnet-candidate init` on two independent machines (GPU server + VPS) → identical hash
+- **Hardcoded:** `MC_GENESIS_NONCE` in `tensorium-node/src/main.rs`
+- **To initialize:** `tensorium-node mainnet-candidate init` (no args needed)
+
+Once MC RPC/P2P daemon is complete and nodes can sync on the MC chain, tag v1.0.0-mainnet-candidate-launch.
