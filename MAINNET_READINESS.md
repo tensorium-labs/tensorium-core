@@ -90,7 +90,7 @@ Phase 7A extended hardening (2026-05-31):
 - **RPC rate-limit strategy documented:** RPC is single-threaded and loopback-only by default. Public RPC (`TENSORIUM_RPC_ALLOW_PUBLIC=1`) requires nginx with `limit_req` and `limit_conn` in front; this is documented in the source.
 - **HTTP 400 status text fixed:** `write_json_response` now returns `Bad Request` for 400 codes.
 - **6 new BanList unit tests:** sub-threshold persistence, threshold activation, instant-ban on bad handshake, expiry/prune behaviour, active-ban survival, and manual unban.
-- Pending VPS verification: `cargo fmt && cargo test --workspace` (expected to pass with ≥47 tests).
+- VPS verified: `cargo fmt` OK; `cargo test --workspace` → **45 tests passed** (37 core + 8 node), 0 failed, no warnings.
 
 ## Founder Wallet Policy
 
