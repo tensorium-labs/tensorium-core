@@ -28,7 +28,7 @@ This document tracks what must be true before Tensorium mainnet-candidate chain 
 | Storage migration decision | DEFERRED | JSON state acceptable for mainnet-candidate. Binary/DB migration planned for future version. |
 | Peer discovery | DONE | Built-in static seed list (`157.230.44.162:23333`) added to node binary; opt-out via `TENSORIUM_NO_DEFAULT_SEEDS=1`. DNS seed deferred to mainnet. |
 | Mining pool path | DONE | tensorium-pool reference pool implemented (HTTP proxy, 5% fee, payout ledger). |
-| Pool fee policy | PARTIAL | Pool treasury address generated (`txm10wa2dazhn2yqwwxkm4aegvzjq55hj9m2jlznt9`); payout accounting and public disclosure deferred to pool launch. |
+| Pool fee policy | DONE | Pool treasury address generated (`txm10wa2dazhn2yqwwxkm4aegvzjq55hj9m2jlznt9`); payout accounting implemented; `pool.tensoriumlabs.com` discloses 5% fee before miners connect. |
 | Node/pool role boundaries | DONE | Documented in this file; testnet colocates with isolation; mainnet-candidate scaling plan documented. |
 | Monitoring | DONE | `/usr/local/bin/tensorium-monitor.sh` runs every 10 min via cron; checks RPC, P2P, explorer, disk, SSL expiry; logs to `/var/log/tensorium-monitor.log`. |
 | Release reproducibility | DONE | v0.3.0-mainnet-candidate binaries built; SHA256 checksums in CHECKSUMS-v0.3.0-mainnet-candidate.txt. |
@@ -104,7 +104,7 @@ Phase 7B completed (2026-05-31).
 - [x] Publish founder allocation amount.
 - [x] Publish lock/vesting policy.
 - [x] Explain whether lock is protocol-enforced or policy/manual.
-- [ ] Publish pool fee policy and pool treasury address before opening an official pool. *(address generated; announcement deferred until official pool launch)*
+- [x] Publish pool fee policy and pool treasury address before opening an official pool. *(pool website disclosure)*
 
 ### Founder Cold Wallet
 
@@ -261,7 +261,7 @@ Phase 7D update (2026-05-31):
 - [x] Multi-GPU behavior tested or explicitly deferred. *(deferred: txmminer-cuda is single-GPU per process; multi-GPU via multiple processes documented)*
 - [x] Pool mining path decided. *(reference pool: tensorium-pool crate, HTTP proxy model)*
 - [x] Pool payout accounting supports 5% official pool fee. *(split_fee() in accounting.rs, 9 unit tests)*
-- [ ] Pool fee disclosure added to docs/UI. *(pending docs update)*
+- [x] Pool fee disclosure added to docs/UI. *(`pool.tensoriumlabs.com` shows 5% fee, treasury address, gross/net payout)*
 - [x] Solo mining guide updated. *(README and docs.tensoriumlabs.com cover solo mining)*
 
 ### Pool: tensorium-pool Reference Implementation
@@ -359,8 +359,8 @@ Chrome extension wallet stack: TypeScript + React, separate repo `tensorium-wall
 
 | Item | Status | Notes |
 |---|---|---|
-| Pool website | TODO | `pool.tensoriumlabs.com` — frontend for `tensorium-pool` backend: stats, miner lookup, payout history, connect guide |
-| Pool fee disclosure | TODO | Show 5% fee, treasury address, gross/net payout on pool page before miners connect |
+| Pool website | DONE | `tensorium-pool-website` — Next.js + TypeScript frontend for `tensorium-pool`: stats, miner lookup, payout history, connect guide |
+| Pool fee disclosure | DONE | Shows 5% fee, treasury address, gross reward, pool fee, and net payout before miners connect |
 | Testnet faucet | TODO | `faucet.tensoriumlabs.com` — 1x per address per 24h, send small testnet TXM for testing |
 
 ### 8D — Docs & Community
