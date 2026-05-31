@@ -1,4 +1,5 @@
 /target
+tensorium-testnet-state.json
 **/*.rs.bk
 .env
 .env.*

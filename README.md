@@ -18,7 +18,9 @@ Status: private early scaffold. Do not use this for mainnet, funds, or public mi
 
 ```bash
 cargo test
-cargo run -p tensorium-node
+cargo run -p tensorium-node -- init
+cargo run -p tensorium-node -- status
+cargo run -p tensorium-node -- mine-once local-dev-miner
 ```
 
 ## Current Consensus Defaults
