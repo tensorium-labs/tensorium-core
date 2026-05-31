@@ -83,7 +83,16 @@ impl ConsensusParams {
     }
 }
 
+// ── CONSENSUS FREEZE ──────────────────────────────────────────────────────
+// TESTNET parameters are FROZEN as of Phase 5 (2025-05-31).
+// Do NOT change TESTNET fields without a chain reset and version bump.
+// Genesis: 00000035d8a99c0900fec5daa3ef5a7c2d71c7140e473d239a24b0dd4cd7f6c3
+// These parameters are locked for the duration of the testnet stability period.
 pub const TESTNET: ConsensusParams = ConsensusParams::testnet();
+
+// MAINNET_CANDIDATE parameters are a planning placeholder — NOT FINAL.
+// Will be locked only after Phase 6 (GPU testnet) is stable and a security
+// audit is complete. Do not deploy mainnet from this constant.
 pub const MAINNET_CANDIDATE: ConsensusParams = ConsensusParams::mainnet_candidate();
 
 /// Low-difficulty params for unit tests — mines instantly (difficulty 8 = 256 hashes avg).

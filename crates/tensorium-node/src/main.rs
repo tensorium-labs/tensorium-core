@@ -1035,8 +1035,10 @@ fn handle_rpc_stream(stream: &mut TcpStream, state_path: &Path) -> Result<(), St
         }
 
         ("POST", "/submitblock") => {
-            let block: Block = serde_json::from_str(parsed.body)
-                .map_err(|err| format!("failed to parse submitted block: {err}"))?;
+            let block: Block = match serde_json::from_str(parsed.body) {
+                Ok(b) => b,
+                Err(err) => return write_json_response(stream, 400, &RpcError::new(&format!("invalid block: {err}"))),
+            };
             let mut state = load_state(state_path)?;
 
             let accepted = match state.submit_block(&TESTNET, block.clone(), now_seconds()) {
@@ -1077,8 +1079,10 @@ fn handle_rpc_stream(stream: &mut TcpStream, state_path: &Path) -> Result<(), St
         }
 
         ("POST", "/sendrawtransaction") => {
-            let tx: Transaction = serde_json::from_str(parsed.body)
-                .map_err(|err| format!("failed to parse transaction: {err}"))?;
+            let tx: Transaction = match serde_json::from_str(parsed.body) {
+                Ok(t) => t,
+                Err(err) => return write_json_response(stream, 400, &RpcError::new(&format!("invalid transaction: {err}"))),
+            };
             let txid = tx.id;
             let state = load_state(state_path)?;
             let utxos = build_utxo_set(&state)?;
