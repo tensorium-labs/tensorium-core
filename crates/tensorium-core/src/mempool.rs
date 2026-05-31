@@ -15,6 +15,8 @@ pub enum MempoolError {
     CoinbaseNotAllowed,
     #[error("transaction is already in the mempool")]
     AlreadyKnown,
+    #[error("transaction conflicts with a transaction already in the mempool")]
+    PendingConflict,
     #[error(transparent)]
     InvalidTransaction(#[from] UtxoError),
 }
@@ -47,9 +49,26 @@ impl Mempool {
         if self.pending.contains_key(&key) {
             return Err(MempoolError::AlreadyKnown);
         }
+        if self.conflicts_with_pending(&tx) {
+            return Err(MempoolError::PendingConflict);
+        }
         utxos.validate_transaction(&tx, tip_height, params)?;
         self.pending.insert(key, tx);
         Ok(())
+    }
+
+    fn conflicts_with_pending(&self, tx: &Transaction) -> bool {
+        let new_inputs: HashSet<OutPoint> = tx
+            .inputs
+            .iter()
+            .map(|input| input.previous_output)
+            .collect();
+        self.pending.values().any(|pending| {
+            pending
+                .inputs
+                .iter()
+                .any(|input| new_inputs.contains(&input.previous_output))
+        })
     }
 
     /// Return transactions suitable for inclusion in the next block.
@@ -96,9 +115,10 @@ impl Mempool {
 mod tests {
     use crate::{
         block::{Block, BlockHeader, OutPoint, Transaction, TxInput, TxOutput},
-        chain::TESTNET,
+        chain::{TESTNET, TEST_PARAMS},
         hash::Hash256,
-        utxo::UtxoSet,
+        utxo::{UtxoEntry, UtxoSet},
+        wallet::WalletKeypair,
     };
 
     use super::*;
@@ -170,10 +190,64 @@ mod tests {
 
         // A block that does contain our tx should remove it.
         let confirming_block = Block::new(
-            fake_block.header.clone(),  // reuse header; content differs via txs
+            fake_block.header.clone(), // reuse header; content differs via txs
             vec![tx],
         );
         mp.remove_confirmed(&confirming_block);
         assert_eq!(mp.len(), 0);
+    }
+
+    #[test]
+    fn rejects_pending_double_spend() {
+        let keypair = WalletKeypair::generate();
+        let mut utxos = UtxoSet::new();
+        let outpoint = OutPoint {
+            txid: Hash256([7; 32]),
+            output_index: 0,
+        };
+        utxos.entries.insert(
+            outpoint,
+            UtxoEntry {
+                output: TxOutput {
+                    value_atoms: 100,
+                    address: keypair.address.as_str().to_owned(),
+                },
+                created_height: 0,
+                coinbase: false,
+            },
+        );
+
+        let mut first = Transaction::payment(
+            vec![TxInput {
+                previous_output: outpoint,
+                signature_script: Vec::new(),
+            }],
+            vec![TxOutput {
+                value_atoms: 60,
+                address: "txm1receivera".to_owned(),
+            }],
+        );
+        keypair.sign_transaction(&mut first).unwrap();
+
+        let mut second = Transaction::payment(
+            vec![TxInput {
+                previous_output: outpoint,
+                signature_script: Vec::new(),
+            }],
+            vec![TxOutput {
+                value_atoms: 40,
+                address: "txm1receiverb".to_owned(),
+            }],
+        );
+        keypair.sign_transaction(&mut second).unwrap();
+
+        let mut mp = Mempool::new();
+        mp.add(&utxos, &TEST_PARAMS, first, 200).unwrap();
+
+        assert_eq!(
+            mp.add(&utxos, &TEST_PARAMS, second, 200),
+            Err(MempoolError::PendingConflict)
+        );
+        assert_eq!(mp.len(), 1);
     }
 }

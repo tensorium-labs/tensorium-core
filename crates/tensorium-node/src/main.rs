@@ -1,19 +1,20 @@
 use std::{
-    env,
-    fs,
+    env, fs,
     io::{Read, Write},
     net::{TcpListener, TcpStream},
     path::{Path, PathBuf},
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    },
     thread,
-    time::{SystemTime, UNIX_EPOCH},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tensorium_core::{
-    block::Transaction,
-    chain::TESTNET,
-    Block, ChainState, Hash256, Mempool, StateError, UtxoSet,
+    block::Transaction, chain::TESTNET, Block, ChainState, Hash256, Mempool, StateError, UtxoSet,
 };
 
 const DEFAULT_STATE_PATH: &str = "tensorium-testnet-state.json";
@@ -25,6 +26,18 @@ const DEFAULT_P2P_BIND: &str = "127.0.0.1:23333";
 const P2P_PROTOCOL_VERSION: u32 = 1;
 /// Maximum blocks returned per GetBlocks response.
 const SYNC_BATCH_SIZE: usize = 50;
+/// Maximum newline-delimited P2P message size. Keeps malformed peers from
+/// growing an unbounded buffer before JSON parsing.
+const MAX_P2P_LINE_BYTES: usize = 1_048_576;
+/// Maximum concurrent inbound P2P connections. Prevents thread exhaustion
+/// under a connection-flood DoS.
+const MAX_INBOUND_PEERS: usize = 64;
+/// Seconds before a P2P read or write operation times out. Keeps a slow or
+/// dead peer from holding a thread indefinitely.
+const P2P_IO_TIMEOUT_SECS: u64 = 30;
+/// Seconds before an RPC read operation times out. Guards against slow HTTP
+/// clients that never finish sending the request.
+const RPC_READ_TIMEOUT_SECS: u64 = 10;
 
 // ---------------------------------------------------------------------------
 // Peer ban constants
@@ -236,8 +249,12 @@ impl BanList {
     }
 
     fn prune_expired(&mut self, now: u64) {
+        // Keep entries with no ban yet (score accumulation only) and entries
+        // with an active ban.  Only remove entries whose ban has expired —
+        // using map_or(false, …) would accidentally wipe sub-threshold score
+        // entries, preventing peers from ever reaching the ban threshold.
         self.entries
-            .retain(|_, e| e.banned_until.map_or(false, |u| u > now));
+            .retain(|_, e| e.banned_until.map_or(true, |u| u > now));
     }
 }
 
@@ -258,7 +275,9 @@ fn save_banlist(path: &Path, banlist: &BanList) {
 /// just imposed so the caller can close the connection.
 fn record_violation(ban_path: &Path, ip: &str, score: u32) -> bool {
     let mut banlist = load_banlist(ban_path);
-    let banned = banlist.record(ip, score, now_seconds());
+    let now = now_seconds();
+    banlist.prune_expired(now);
+    let banned = banlist.record(ip, score, now);
     if banned {
         eprintln!(
             "p2p ban imposed on {ip} \
@@ -369,6 +388,7 @@ fn print_help() {
     println!("  TENSORIUM_BANS       ban list file path, default {DEFAULT_BAN_PATH}");
     println!("  TENSORIUM_PEERS      comma-separated peers to broadcast to");
     println!("  TENSORIUM_NODE_ID    node identity string");
+    println!("  TENSORIUM_RPC_ALLOW_PUBLIC=1  allow non-loopback RPC bind");
 }
 
 // ---------------------------------------------------------------------------
@@ -390,18 +410,36 @@ struct P2pHello {
 #[serde(tag = "type")]
 enum P2pMsg {
     // --- block propagation ---
-    NewBlock { block: Box<Block> },
-    Ack { height: u64, hash: Hash256 },
-    Reject { reason: String },
+    NewBlock {
+        block: Box<Block>,
+    },
+    Ack {
+        height: u64,
+        hash: Hash256,
+    },
+    Reject {
+        reason: String,
+    },
     // --- transaction propagation ---
-    NewTx { tx: Box<Transaction> },
-    TxAck { txid: Hash256 },
-    TxReject { txid: Hash256, reason: String },
+    NewTx {
+        tx: Box<Transaction>,
+    },
+    TxAck {
+        txid: Hash256,
+    },
+    TxReject {
+        txid: Hash256,
+        reason: String,
+    },
     // --- chain sync ---
     /// Request up to SYNC_BATCH_SIZE blocks starting at `from_height`.
-    GetBlocks { from_height: u64 },
+    GetBlocks {
+        from_height: u64,
+    },
     /// Response to GetBlocks; empty vec means "no more blocks".
-    Blocks { blocks: Vec<Block> },
+    Blocks {
+        blocks: Vec<Block>,
+    },
 }
 
 /// Read one newline-terminated line from `stream` byte-by-byte.
@@ -416,6 +454,13 @@ fn read_p2p_line(stream: &mut TcpStream) -> Result<String, String> {
                     break;
                 }
                 buf.push(byte[0]);
+                if buf.len() > MAX_P2P_LINE_BYTES {
+                    return Err(format!(
+                        "p2p message too large: {} bytes exceeds limit {}",
+                        buf.len(),
+                        MAX_P2P_LINE_BYTES
+                    ));
+                }
             }
             Err(err) => return Err(format!("read from peer: {err}")),
         }
@@ -474,11 +519,23 @@ fn serve_p2p(bind: &str, state_path: PathBuf) -> Result<(), String> {
         TcpListener::bind(bind).map_err(|err| format!("failed to bind {bind}: {err}"))?;
     println!("tensorium P2P listening on {bind}");
     let ban_path = ban_path_from_env();
+    let peer_count = Arc::new(AtomicUsize::new(0));
 
     for stream in listener.incoming() {
         match stream {
             Ok(mut stream) => {
                 let remote_ip = peer_ip(&stream);
+
+                // Enforce inbound connection limit before spawning a thread.
+                let current = peer_count.load(Ordering::Relaxed);
+                if current >= MAX_INBOUND_PEERS {
+                    eprintln!(
+                        "p2p connection limit reached ({current}/{MAX_INBOUND_PEERS}), \
+                         refusing ip={remote_ip}"
+                    );
+                    let _ = stream.shutdown(std::net::Shutdown::Both);
+                    continue;
+                }
 
                 // Reject connections from banned peers before spawning a thread.
                 let banlist = load_banlist(&ban_path);
@@ -488,12 +545,21 @@ fn serve_p2p(bind: &str, state_path: PathBuf) -> Result<(), String> {
                     continue;
                 }
 
+                // Apply I/O timeouts so a slow or dead peer does not hold a
+                // thread forever.
+                let timeout = Some(Duration::from_secs(P2P_IO_TIMEOUT_SECS));
+                let _ = stream.set_read_timeout(timeout);
+                let _ = stream.set_write_timeout(timeout);
+
                 let path = state_path.clone();
                 let bans = ban_path.clone();
+                let count = Arc::clone(&peer_count);
+                count.fetch_add(1, Ordering::Relaxed);
                 thread::spawn(move || {
                     if let Err(err) = handle_p2p_connection(&mut stream, &path, &bans) {
                         eprintln!("p2p connection error from {remote_ip}: {err}");
                     }
+                    count.fetch_sub(1, Ordering::Relaxed);
                 });
             }
             Err(err) => eprintln!("p2p accept error: {err}"),
@@ -564,7 +630,10 @@ fn handle_p2p_connection(
         let msg: P2pMsg = match serde_json::from_str(&line) {
             Ok(msg) => msg,
             Err(err) => {
-                eprintln!("p2p invalid message from {} (ip={remote_ip}): {err}", remote.node_id);
+                eprintln!(
+                    "p2p invalid message from {} (ip={remote_ip}): {err}",
+                    remote.node_id
+                );
                 if record_violation(ban_path, &remote_ip, SCORE_INVALID_MSG) {
                     break; // newly banned — close connection
                 }
@@ -586,7 +655,9 @@ fn handle_p2p_connection(
                         // AlreadyKnown / UnknownParent — not the peer's fault.
                         let _ = write_p2p_line(
                             stream,
-                            &P2pMsg::Reject { reason: reason.clone() },
+                            &P2pMsg::Reject {
+                                reason: reason.clone(),
+                            },
                         );
                     }
                     Err(reason) => {
@@ -596,7 +667,9 @@ fn handle_p2p_connection(
                         );
                         let _ = write_p2p_line(
                             stream,
-                            &P2pMsg::Reject { reason: reason.clone() },
+                            &P2pMsg::Reject {
+                                reason: reason.clone(),
+                            },
                         );
                         if record_violation(ban_path, &remote_ip, SCORE_INVALID_BLOCK) {
                             break; // newly banned
@@ -608,17 +681,17 @@ fn handle_p2p_connection(
                 let txid = tx.id;
                 match accept_peer_tx(&state_path, &mempool_path, *tx) {
                     Ok(()) => {
-                        println!(
-                            "p2p accepted tx from {} txid={txid}",
-                            remote.node_id
-                        );
+                        println!("p2p accepted tx from {} txid={txid}", remote.node_id);
                         let _ = write_p2p_line(stream, &P2pMsg::TxAck { txid });
                     }
                     Err(ref reason) if !is_bannable_tx_error(reason) => {
                         // AlreadyKnown / missing UTXO — not necessarily hostile.
                         let _ = write_p2p_line(
                             stream,
-                            &P2pMsg::TxReject { txid, reason: reason.clone() },
+                            &P2pMsg::TxReject {
+                                txid,
+                                reason: reason.clone(),
+                            },
                         );
                     }
                     Err(reason) => {
@@ -628,7 +701,10 @@ fn handle_p2p_connection(
                         );
                         let _ = write_p2p_line(
                             stream,
-                            &P2pMsg::TxReject { txid, reason: reason.clone() },
+                            &P2pMsg::TxReject {
+                                txid,
+                                reason: reason.clone(),
+                            },
                         );
                         if record_violation(ban_path, &remote_ip, SCORE_INVALID_TX) {
                             break; // newly banned
@@ -703,11 +779,7 @@ fn accept_peer_block(state_path: &Path, block: Block) -> Result<(u64, Hash256), 
     Ok((block_height, block_hash))
 }
 
-fn accept_peer_tx(
-    state_path: &Path,
-    mempool_path: &Path,
-    tx: Transaction,
-) -> Result<(), String> {
+fn accept_peer_tx(state_path: &Path, mempool_path: &Path, tx: Transaction) -> Result<(), String> {
     let state = load_state(state_path)?;
     let utxos = build_utxo_set(&state)?;
     let tip_height = state.height().unwrap_or(0);
@@ -723,8 +795,7 @@ fn accept_peer_tx(
 // ---------------------------------------------------------------------------
 
 fn push_block_to_peer(peer: &str, block: &Block, state: &ChainState) -> Result<u64, String> {
-    let mut stream =
-        TcpStream::connect(peer).map_err(|err| format!("connect {peer}: {err}"))?;
+    let mut stream = TcpStream::connect(peer).map_err(|err| format!("connect {peer}: {err}"))?;
 
     write_p2p_line(&mut stream, &local_hello(state))?;
     let line = read_p2p_line(&mut stream)?;
@@ -740,8 +811,8 @@ fn push_block_to_peer(peer: &str, block: &Block, state: &ChainState) -> Result<u
     )?;
 
     let line = read_p2p_line(&mut stream)?;
-    let response: P2pMsg = serde_json::from_str(&line)
-        .map_err(|err| format!("parse response from {peer}: {err}"))?;
+    let response: P2pMsg =
+        serde_json::from_str(&line).map_err(|err| format!("parse response from {peer}: {err}"))?;
 
     match response {
         P2pMsg::Ack { height, .. } => Ok(height),
@@ -751,8 +822,7 @@ fn push_block_to_peer(peer: &str, block: &Block, state: &ChainState) -> Result<u
 }
 
 fn push_tx_to_peer(peer: &str, tx: &Transaction, state: &ChainState) -> Result<Hash256, String> {
-    let mut stream =
-        TcpStream::connect(peer).map_err(|err| format!("connect {peer}: {err}"))?;
+    let mut stream = TcpStream::connect(peer).map_err(|err| format!("connect {peer}: {err}"))?;
 
     write_p2p_line(&mut stream, &local_hello(state))?;
     let line = read_p2p_line(&mut stream)?;
@@ -768,8 +838,8 @@ fn push_tx_to_peer(peer: &str, tx: &Transaction, state: &ChainState) -> Result<H
     )?;
 
     let line = read_p2p_line(&mut stream)?;
-    let response: P2pMsg = serde_json::from_str(&line)
-        .map_err(|err| format!("parse response from {peer}: {err}"))?;
+    let response: P2pMsg =
+        serde_json::from_str(&line).map_err(|err| format!("parse response from {peer}: {err}"))?;
 
     match response {
         P2pMsg::TxAck { txid } => Ok(txid),
@@ -855,13 +925,13 @@ fn sync_from_peer(peer: &str, state_path: &Path) -> Result<(), String> {
     let our_height = state.height().unwrap_or(0);
 
     // --- handshake ---
-    let mut stream = TcpStream::connect(peer)
-        .map_err(|err| format!("failed to connect to {peer}: {err}"))?;
+    let mut stream =
+        TcpStream::connect(peer).map_err(|err| format!("failed to connect to {peer}: {err}"))?;
 
     write_p2p_line(&mut stream, &local_hello(&state))?;
     let line = read_p2p_line(&mut stream)?;
-    let remote: P2pHello = serde_json::from_str(&line)
-        .map_err(|err| format!("parse hello from {peer}: {err}"))?;
+    let remote: P2pHello =
+        serde_json::from_str(&line).map_err(|err| format!("parse hello from {peer}: {err}"))?;
     validate_hello(&remote)?;
 
     if remote.height <= our_height {
@@ -910,18 +980,14 @@ fn sync_from_peer(peer: &str, state_path: &Path) -> Result<(), String> {
 
         save_state(state_path, &state)?;
         synced += batch_count;
-        println!(
-            "  synced +{batch_count} blocks  height={current_height}  total_synced={synced}"
-        );
+        println!("  synced +{batch_count} blocks  height={current_height}  total_synced={synced}");
 
         if current_height >= remote.height {
             break;
         }
     }
 
-    println!(
-        "sync complete: tip={current_height} synced={synced} blocks from {peer}"
-    );
+    println!("sync complete: tip={current_height} synced={synced} blocks from {peer}");
     Ok(())
 }
 
@@ -930,6 +996,7 @@ fn sync_from_peer(peer: &str, state_path: &Path) -> Result<(), String> {
 // ---------------------------------------------------------------------------
 
 fn serve_rpc(bind: &str, state_path: PathBuf) -> Result<(), String> {
+    ensure_safe_rpc_bind(bind)?;
     let listener =
         TcpListener::bind(bind).map_err(|err| format!("failed to bind {bind}: {err}"))?;
     println!("tensorium RPC listening on http://{bind}");
@@ -937,6 +1004,9 @@ fn serve_rpc(bind: &str, state_path: PathBuf) -> Result<(), String> {
     for stream in listener.incoming() {
         match stream {
             Ok(mut stream) => {
+                // Guard against slow HTTP clients that never finish sending.
+                let _ = stream
+                    .set_read_timeout(Some(Duration::from_secs(RPC_READ_TIMEOUT_SECS)));
                 if let Err(err) = handle_rpc_stream(&mut stream, &state_path) {
                     let response = RpcError {
                         error: err.to_string(),
@@ -947,6 +1017,48 @@ fn serve_rpc(bind: &str, state_path: PathBuf) -> Result<(), String> {
             Err(err) => eprintln!("rpc connection error: {err}"),
         }
     }
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// RPC rate-limit strategy notes
+// ---------------------------------------------------------------------------
+// The RPC server is single-threaded: it handles one request at a time.
+// This is intentional — it serialises state access and naturally throttles
+// throughput without extra locking.
+//
+// By default, RPC binds to 127.0.0.1 only (enforced by ensure_safe_rpc_bind).
+// Localhost exposure does not require further rate limiting.
+//
+// If TENSORIUM_RPC_ALLOW_PUBLIC=1 is set to expose RPC on a public interface,
+// the operator MUST place a reverse proxy (e.g. nginx) in front with:
+//   - per-IP request rate limiting  (limit_req_zone / limit_req)
+//   - connection concurrency limit  (limit_conn)
+//   - allowed methods whitelist     (GET and POST only)
+// Failing to do so risks amplification attacks that exhaust disk I/O via
+// repeated getblock / getblocktemplate calls.
+//
+// The RPC_READ_TIMEOUT_SECS guard prevents a single slow HTTP client from
+// holding the server thread indefinitely, but it is not a substitute for
+// nginx-level rate limiting on public endpoints.
+
+fn ensure_safe_rpc_bind(bind: &str) -> Result<(), String> {
+    let host = bind
+        .rsplit_once(':')
+        .map(|(host, _)| host)
+        .unwrap_or(bind)
+        .trim_matches(['[', ']']);
+    let loopback = host == "127.0.0.1" || host == "localhost" || host == "::1";
+    let explicitly_allowed = env::var("TENSORIUM_RPC_ALLOW_PUBLIC")
+        .map(|value| value == "1" || value.eq_ignore_ascii_case("true"))
+        .unwrap_or(false);
+
+    if !loopback && !explicitly_allowed {
+        return Err(format!(
+            "refusing public RPC bind {bind}; use 127.0.0.1 or set TENSORIUM_RPC_ALLOW_PUBLIC=1"
+        ));
+    }
+
     Ok(())
 }
 
@@ -997,8 +1109,10 @@ fn handle_rpc_stream(stream: &mut TcpStream, state_path: &Path) -> Result<(), St
                 .parse::<u64>()
                 .map_err(|err| format!("invalid block height: {err}"))?;
             let state = load_state(state_path)?;
-            let Some(block) =
-                state.blocks.iter().find(|block| block.header.height == height)
+            let Some(block) = state
+                .blocks
+                .iter()
+                .find(|block| block.header.height == height)
             else {
                 return write_json_response(stream, 404, &RpcError::new("block not found"));
             };
@@ -1040,7 +1154,13 @@ fn handle_rpc_stream(stream: &mut TcpStream, state_path: &Path) -> Result<(), St
         ("POST", "/submitblock") => {
             let block: Block = match serde_json::from_str(parsed.body) {
                 Ok(b) => b,
-                Err(err) => return write_json_response(stream, 400, &RpcError::new(&format!("invalid block: {err}"))),
+                Err(err) => {
+                    return write_json_response(
+                        stream,
+                        400,
+                        &RpcError::new(&format!("invalid block: {err}")),
+                    )
+                }
             };
             let mut state = load_state(state_path)?;
 
@@ -1084,7 +1204,13 @@ fn handle_rpc_stream(stream: &mut TcpStream, state_path: &Path) -> Result<(), St
         ("POST", "/sendrawtransaction") => {
             let tx: Transaction = match serde_json::from_str(parsed.body) {
                 Ok(t) => t,
-                Err(err) => return write_json_response(stream, 400, &RpcError::new(&format!("invalid transaction: {err}"))),
+                Err(err) => {
+                    return write_json_response(
+                        stream,
+                        400,
+                        &RpcError::new(&format!("invalid transaction: {err}")),
+                    )
+                }
             };
             let txid = tx.id;
             let state = load_state(state_path)?;
@@ -1133,10 +1259,7 @@ fn handle_rpc_stream(stream: &mut TcpStream, state_path: &Path) -> Result<(), St
                 .iter()
                 .map(|(ip, e)| {
                     let banned = e.banned_until.map_or(false, |u| u > now);
-                    let secs_left = e
-                        .banned_until
-                        .filter(|&u| u > now)
-                        .map(|u| u - now);
+                    let secs_left = e.banned_until.filter(|&u| u > now).map(|u| u - now);
                     json!({
                         "ip": ip,
                         "score": e.score,
@@ -1145,7 +1268,11 @@ fn handle_rpc_stream(stream: &mut TcpStream, state_path: &Path) -> Result<(), St
                     })
                 })
                 .collect();
-            write_json_response(stream, 200, &json!({ "count": entries.len(), "entries": entries }))
+            write_json_response(
+                stream,
+                200,
+                &json!({ "count": entries.len(), "entries": entries }),
+            )
         }
 
         ("GET", path) if path.starts_with("/unban/") => {
@@ -1191,6 +1318,7 @@ fn write_json_response<T: Serialize>(
 ) -> Result<(), String> {
     let status_text = match status_code {
         200 => "OK",
+        400 => "Bad Request",
         404 => "Not Found",
         _ => "Internal Server Error",
     };
@@ -1215,5 +1343,105 @@ impl RpcError {
         Self {
             error: error.to_owned(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // --- RPC bind guard ---
+
+    #[test]
+    fn rpc_bind_allows_loopback_by_default() {
+        assert_eq!(ensure_safe_rpc_bind("127.0.0.1:23332"), Ok(()));
+        assert_eq!(ensure_safe_rpc_bind("localhost:23332"), Ok(()));
+    }
+
+    #[test]
+    fn rpc_bind_rejects_public_host_by_default() {
+        assert!(ensure_safe_rpc_bind("0.0.0.0:23332").is_err());
+    }
+
+    // --- BanList unit tests ---
+
+    #[test]
+    fn ban_score_persists_below_threshold() {
+        let mut bl = BanList::default();
+        let now = 1_000_000u64;
+        // Accumulate score that stays below the ban threshold.
+        bl.record("1.2.3.4", SCORE_INVALID_BLOCK, now); // 20
+        bl.record("1.2.3.4", SCORE_INVALID_BLOCK, now); // 40
+        bl.record("1.2.3.4", SCORE_INVALID_BLOCK, now); // 60
+        assert!(!bl.is_banned("1.2.3.4", now));
+        // prune_expired must NOT wipe entries that have score but no active ban.
+        bl.prune_expired(now + 7200);
+        assert!(
+            bl.entries.contains_key("1.2.3.4"),
+            "sub-threshold score entry must survive prune_expired"
+        );
+        assert_eq!(bl.entries["1.2.3.4"].score, 3 * SCORE_INVALID_BLOCK);
+    }
+
+    #[test]
+    fn ban_score_accumulates_to_threshold() {
+        let mut bl = BanList::default();
+        let now = 1_000_000u64;
+        // 5 × SCORE_INVALID_BLOCK = 100 = BAN_THRESHOLD → ban on 5th call.
+        for i in 0..4 {
+            let banned = bl.record("2.3.4.5", SCORE_INVALID_BLOCK, now);
+            assert!(!banned, "should not ban before threshold on call {i}");
+        }
+        let banned = bl.record("2.3.4.5", SCORE_INVALID_BLOCK, now);
+        assert!(banned, "should impose ban exactly at threshold");
+        assert!(bl.is_banned("2.3.4.5", now));
+    }
+
+    #[test]
+    fn bad_handshake_triggers_instant_ban() {
+        let mut bl = BanList::default();
+        let now = 1_000_000u64;
+        let banned = bl.record("3.4.5.6", SCORE_BAD_HANDSHAKE, now);
+        assert!(banned, "SCORE_BAD_HANDSHAKE must equal BAN_THRESHOLD");
+        assert!(bl.is_banned("3.4.5.6", now));
+    }
+
+    #[test]
+    fn expired_ban_is_pruned() {
+        let mut bl = BanList::default();
+        let now = 1_000_000u64;
+        bl.record("4.5.6.7", BAN_THRESHOLD, now);
+        assert!(bl.is_banned("4.5.6.7", now));
+        // After the ban duration, the entry should be cleaned up.
+        bl.prune_expired(now + BAN_DURATION_SECS + 1);
+        assert!(
+            !bl.entries.contains_key("4.5.6.7"),
+            "expired ban entry must be removed by prune_expired"
+        );
+    }
+
+    #[test]
+    fn active_ban_is_not_pruned() {
+        let mut bl = BanList::default();
+        let now = 1_000_000u64;
+        bl.record("5.6.7.8", BAN_THRESHOLD, now);
+        // Prune before the ban expires — entry must remain.
+        bl.prune_expired(now + BAN_DURATION_SECS / 2);
+        assert!(
+            bl.entries.contains_key("5.6.7.8"),
+            "active ban entry must survive prune_expired"
+        );
+        assert!(bl.is_banned("5.6.7.8", now));
+    }
+
+    #[test]
+    fn unban_removes_entry() {
+        let mut bl = BanList::default();
+        let now = 1_000_000u64;
+        bl.record("6.7.8.9", BAN_THRESHOLD, now);
+        assert!(bl.is_banned("6.7.8.9", now));
+        bl.unban("6.7.8.9");
+        assert!(!bl.entries.contains_key("6.7.8.9"));
+        assert!(!bl.is_banned("6.7.8.9", now));
     }
 }

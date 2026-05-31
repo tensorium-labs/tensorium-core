@@ -88,14 +88,16 @@ fn validate_coinbase(params: &ConsensusParams, block: &Block) -> Result<(), Vali
 
 #[cfg(test)]
 mod tests {
-    use crate::{chain::{TESTNET, TEST_PARAMS}, state::ChainState};
+    use crate::{block::Transaction, chain::TEST_PARAMS, pow::mine_header, state::ChainState};
 
     use super::*;
 
     #[test]
     fn accepts_mined_genesis_block() {
         let mut state = ChainState::new();
-        let block = state.init_genesis(&TEST_PARAMS, 1_700_000_000, 1_000_000).unwrap();
+        let block = state
+            .init_genesis(&TEST_PARAMS, 1_700_000_000, 1_000_000)
+            .unwrap();
 
         assert_eq!(
             validate_block(&TEST_PARAMS, None, block, 1_700_000_000),
@@ -115,6 +117,58 @@ mod tests {
         assert_eq!(
             validate_block(&TEST_PARAMS, None, &block, 1_700_000_000),
             Err(ValidationError::InvalidMerkleRoot)
+        );
+    }
+
+    #[test]
+    fn rejects_wrong_chain_id() {
+        let mut state = ChainState::new();
+        let mut block = state
+            .init_genesis(&TEST_PARAMS, 1_700_000_000, 1_000_000)
+            .unwrap()
+            .clone();
+        block.header.chain_id = "tensorium-wrong-chain".to_owned();
+
+        assert_eq!(
+            validate_block(&TEST_PARAMS, None, &block, 1_700_000_000),
+            Err(ValidationError::WrongChainId)
+        );
+    }
+
+    #[test]
+    fn rejects_future_timestamp() {
+        let mut state = ChainState::new();
+        let block = state
+            .init_genesis(&TEST_PARAMS, 1_700_000_000, 1_000_000)
+            .unwrap();
+        let now_before_allowed_window =
+            1_700_000_000 - TEST_PARAMS.max_future_block_time_seconds - 1;
+
+        assert_eq!(
+            validate_block(&TEST_PARAMS, None, block, now_before_allowed_window),
+            Err(ValidationError::FutureTimestamp)
+        );
+    }
+
+    #[test]
+    fn rejects_coinbase_reward_above_schedule() {
+        let mut state = ChainState::new();
+        let mut block = state
+            .init_genesis(&TEST_PARAMS, 1_700_000_000, 1_000_000)
+            .unwrap()
+            .clone();
+        block.transactions[0] = Transaction::coinbase(
+            block.header.height,
+            reward_at_height(&TEST_PARAMS, block.header.height) + 1,
+            "miner",
+        );
+        block.header.merkle_root = merkle_root(&block.transactions);
+        block.header.nonce = 0;
+        block.header = mine_header(block.header.clone(), 1_000_000).unwrap();
+
+        assert_eq!(
+            validate_block(&TEST_PARAMS, None, &block, 1_700_000_000),
+            Err(ValidationError::CoinbaseRewardTooHigh)
         );
     }
 }

@@ -118,7 +118,6 @@ impl ChainState {
         Ok(self.tip().expect("genesis was just pushed"))
     }
 
-
     pub fn mine_next_block(
         &mut self,
         params: &ConsensusParams,
@@ -127,13 +126,8 @@ impl ChainState {
         max_nonce: u64,
     ) -> Result<&Block, StateError> {
         let parent = self.tip().ok_or(StateError::MissingGenesis)?.clone();
-        let block = mine_candidate_block(
-            params,
-            Some(&parent),
-            timestamp_seconds,
-            miner,
-            max_nonce,
-        )?;
+        let block =
+            mine_candidate_block(params, Some(&parent), timestamp_seconds, miner, max_nonce)?;
         validate_block(params, Some(&parent), &block, timestamp_seconds)?;
         let hash_hex = block.hash().to_hex();
         let block_copy = block.clone();
@@ -150,7 +144,13 @@ impl ChainState {
         miner: &str,
     ) -> Result<Block, StateError> {
         let parent = self.tip().ok_or(StateError::MissingGenesis)?;
-        Ok(candidate_block(params, Some(parent), timestamp_seconds, miner, vec![]))
+        Ok(candidate_block(
+            params,
+            Some(parent),
+            timestamp_seconds,
+            miner,
+            vec![],
+        ))
     }
 
     /// Like `candidate_block` but includes `extra_txs` after the coinbase.
@@ -162,7 +162,13 @@ impl ChainState {
         extra_txs: Vec<Transaction>,
     ) -> Result<Block, StateError> {
         let parent = self.tip().ok_or(StateError::MissingGenesis)?;
-        Ok(candidate_block(params, Some(parent), timestamp_seconds, miner, extra_txs))
+        Ok(candidate_block(
+            params,
+            Some(parent),
+            timestamp_seconds,
+            miner,
+            extra_txs,
+        ))
     }
 
     /// Accept a block from a miner or a peer, applying the fork-choice rule.
@@ -212,8 +218,7 @@ impl ChainState {
 
             if !is_direct_extension {
                 // Reorg: find common ancestor depth for logging.
-                let ancestor_height =
-                    self.common_ancestor_height(block_hash, old_tip_hash);
+                let ancestor_height = self.common_ancestor_height(block_hash, old_tip_hash);
                 let reorg_depth = old_tip_height.saturating_sub(ancestor_height);
                 eprintln!(
                     "fork-choice: reorg depth={reorg_depth} \
@@ -366,14 +371,16 @@ fn candidate_block(
 
 #[cfg(test)]
 mod tests {
-    use crate::{chain::{TESTNET, TEST_PARAMS}, pow::mine_header};
+    use crate::{chain::TEST_PARAMS, pow::mine_header};
 
     use super::*;
 
     #[test]
     fn initializes_genesis_then_mines_next_block() {
         let mut state = ChainState::new();
-        state.init_genesis(&TEST_PARAMS, 1_700_000_000, 1_000_000).unwrap();
+        state
+            .init_genesis(&TEST_PARAMS, 1_700_000_000, 1_000_000)
+            .unwrap();
         assert_eq!(state.height(), Some(0));
         assert_eq!(state.block_map.len(), 1);
 
@@ -388,7 +395,9 @@ mod tests {
     #[test]
     fn builds_candidate_then_accepts_mined_submit() {
         let mut state = ChainState::new();
-        state.init_genesis(&TEST_PARAMS, 1_700_000_000, 1_000_000).unwrap();
+        state
+            .init_genesis(&TEST_PARAMS, 1_700_000_000, 1_000_000)
+            .unwrap();
 
         let candidate = state
             .candidate_block(&TEST_PARAMS, 1_700_000_060, "template-miner")
@@ -405,7 +414,9 @@ mod tests {
     #[test]
     fn submit_block_rejects_already_known() {
         let mut state = ChainState::new();
-        state.init_genesis(&TEST_PARAMS, 1_700_000_000, 1_000_000).unwrap();
+        state
+            .init_genesis(&TEST_PARAMS, 1_700_000_000, 1_000_000)
+            .unwrap();
 
         let candidate = state
             .candidate_block(&TEST_PARAMS, 1_700_000_060, "miner")
@@ -413,7 +424,9 @@ mod tests {
         let mined_header = mine_header(candidate.header.clone(), 1_000_000).unwrap();
         let block = Block::new(mined_header, candidate.transactions);
 
-        state.submit_block(&TEST_PARAMS, block.clone(), 1_700_000_060).unwrap();
+        state
+            .submit_block(&TEST_PARAMS, block.clone(), 1_700_000_060)
+            .unwrap();
         assert_eq!(
             state.submit_block(&TEST_PARAMS, block, 1_700_000_060),
             Err(StateError::AlreadyKnown)
@@ -423,7 +436,9 @@ mod tests {
     #[test]
     fn submit_block_rejects_unknown_parent() {
         let mut state = ChainState::new();
-        state.init_genesis(&TEST_PARAMS, 1_700_000_000, 1_000_000).unwrap();
+        state
+            .init_genesis(&TEST_PARAMS, 1_700_000_000, 1_000_000)
+            .unwrap();
 
         // Build a block whose previous_hash points to an unknown block.
         let mut orphan = candidate_block(&TEST_PARAMS, None, 1_700_000_060, "miner", vec![]);
@@ -444,7 +459,9 @@ mod tests {
     #[test]
     fn fork_choice_keeps_first_seen_on_equal_work() {
         let mut state = ChainState::new();
-        state.init_genesis(&TEST_PARAMS, 1_700_000_000, 1_000_000).unwrap();
+        state
+            .init_genesis(&TEST_PARAMS, 1_700_000_000, 1_000_000)
+            .unwrap();
 
         // Mine two competing blocks at height 1.
         let c1 = state
@@ -469,19 +486,91 @@ mod tests {
         state
             .submit_block(&TEST_PARAMS, block_b.clone(), 1_700_000_061)
             .unwrap();
-        assert_eq!(state.tip().unwrap().hash(), block_a.hash(), "first-seen stays canonical on equal work");
+        assert_eq!(
+            state.tip().unwrap().hash(),
+            block_a.hash(),
+            "first-seen stays canonical on equal work"
+        );
 
         // Both blocks are in block_map.
         assert!(state.block_map.contains_key(&block_a.hash().to_hex()));
         assert!(state.block_map.contains_key(&block_b.hash().to_hex()));
-        assert_eq!(state.blocks.len(), 2, "canonical chain has genesis + block_a");
+        assert_eq!(
+            state.blocks.len(),
+            2,
+            "canonical chain has genesis + block_a"
+        );
+    }
+
+    #[test]
+    fn fork_choice_reorgs_to_chain_with_more_work() {
+        let mut state = ChainState::new();
+        state
+            .init_genesis(&TEST_PARAMS, 1_700_000_000, 1_000_000)
+            .unwrap();
+        let genesis = state.blocks[0].clone();
+
+        let c1 = candidate_block(
+            &TEST_PARAMS,
+            Some(&genesis),
+            1_700_000_060,
+            "miner-a",
+            vec![],
+        );
+        let h1 = mine_header(c1.header.clone(), 10_000_000).unwrap();
+        let canonical_block = Block::new(h1, c1.transactions);
+        state
+            .submit_block(&TEST_PARAMS, canonical_block.clone(), 1_700_000_060)
+            .unwrap();
+        assert_eq!(state.tip().unwrap().hash(), canonical_block.hash());
+
+        let s1 = candidate_block(
+            &TEST_PARAMS,
+            Some(&genesis),
+            1_700_000_061,
+            "miner-b",
+            vec![],
+        );
+        let h2 = mine_header(s1.header.clone(), 10_000_000).unwrap();
+        let side_block = Block::new(h2, s1.transactions);
+        state
+            .submit_block(&TEST_PARAMS, side_block.clone(), 1_700_000_061)
+            .unwrap();
+        assert_eq!(
+            state.tip().unwrap().hash(),
+            canonical_block.hash(),
+            "equal-work side block must not reorg the tip"
+        );
+
+        let s2 = candidate_block(
+            &TEST_PARAMS,
+            Some(&side_block),
+            1_700_000_120,
+            "miner-b",
+            vec![],
+        );
+        let h3 = mine_header(s2.header.clone(), 10_000_000).unwrap();
+        let side_extension = Block::new(h3, s2.transactions);
+        state
+            .submit_block(&TEST_PARAMS, side_extension.clone(), 1_700_000_120)
+            .unwrap();
+
+        assert_eq!(state.tip().unwrap().hash(), side_extension.hash());
+        assert_eq!(state.blocks.len(), 3);
+        assert_eq!(state.blocks[1].hash(), side_block.hash());
+        assert_eq!(state.blocks[2].hash(), side_extension.hash());
+        assert!(state
+            .block_map
+            .contains_key(&canonical_block.hash().to_hex()));
     }
 
     #[test]
     fn ensure_block_map_migrates_old_state() {
         // Simulate a state file loaded without block_map (default empty).
         let mut state = ChainState::new();
-        state.init_genesis(&TEST_PARAMS, 1_700_000_000, 1_000_000).unwrap();
+        state
+            .init_genesis(&TEST_PARAMS, 1_700_000_000, 1_000_000)
+            .unwrap();
         // Manually clear block_map to simulate old state file.
         state.block_map.clear();
         assert!(state.block_map.is_empty());

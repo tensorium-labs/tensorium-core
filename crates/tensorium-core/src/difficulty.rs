@@ -29,7 +29,7 @@ pub fn next_leading_zero_bits(params: &ConsensusParams, sample: DifficultySample
 
 #[cfg(test)]
 mod tests {
-    use crate::chain::TESTNET;
+    use crate::chain::{MAINNET_CANDIDATE, TESTNET};
 
     use super::*;
 
@@ -40,7 +40,10 @@ mod tests {
             last_timestamp_seconds: 1,
             current_leading_zero_bits: TESTNET.max_leading_zero_bits,
         };
-        assert_eq!(next_leading_zero_bits(&TESTNET, sample), TESTNET.max_leading_zero_bits);
+        assert_eq!(
+            next_leading_zero_bits(&TESTNET, sample),
+            TESTNET.max_leading_zero_bits
+        );
     }
 
     #[test]
@@ -53,6 +56,63 @@ mod tests {
         assert_eq!(
             next_leading_zero_bits(&TESTNET, sample),
             TESTNET.initial_leading_zero_bits + 1
+        );
+    }
+
+    #[test]
+    fn difficulty_moves_down_when_blocks_are_too_slow() {
+        let expected = TESTNET
+            .target_block_seconds
+            .saturating_mul(TESTNET.difficulty_adjustment_window);
+        let sample = DifficultySample {
+            first_timestamp_seconds: 0,
+            last_timestamp_seconds: expected * 3,
+            current_leading_zero_bits: TESTNET.initial_leading_zero_bits,
+        };
+
+        assert_eq!(
+            next_leading_zero_bits(&TESTNET, sample),
+            TESTNET.initial_leading_zero_bits - 1
+        );
+    }
+
+    #[test]
+    fn difficulty_stays_flat_inside_target_band() {
+        let expected = TESTNET
+            .target_block_seconds
+            .saturating_mul(TESTNET.difficulty_adjustment_window);
+        let sample = DifficultySample {
+            first_timestamp_seconds: 0,
+            last_timestamp_seconds: expected,
+            current_leading_zero_bits: TESTNET.initial_leading_zero_bits,
+        };
+
+        assert_eq!(
+            next_leading_zero_bits(&TESTNET, sample),
+            TESTNET.initial_leading_zero_bits
+        );
+    }
+
+    #[test]
+    fn mainnet_candidate_difficulty_bounds_are_clamped() {
+        let fast_sample = DifficultySample {
+            first_timestamp_seconds: 0,
+            last_timestamp_seconds: 1,
+            current_leading_zero_bits: MAINNET_CANDIDATE.max_leading_zero_bits,
+        };
+        assert_eq!(
+            next_leading_zero_bits(&MAINNET_CANDIDATE, fast_sample),
+            MAINNET_CANDIDATE.max_leading_zero_bits
+        );
+
+        let slow_sample = DifficultySample {
+            first_timestamp_seconds: 0,
+            last_timestamp_seconds: u64::MAX,
+            current_leading_zero_bits: MAINNET_CANDIDATE.min_leading_zero_bits,
+        };
+        assert_eq!(
+            next_leading_zero_bits(&MAINNET_CANDIDATE, slow_sample),
+            MAINNET_CANDIDATE.min_leading_zero_bits
         );
     }
 }

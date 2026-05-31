@@ -46,9 +46,9 @@ impl UtxoSet {
     }
 
     pub fn total_atoms(&self) -> u64 {
-        self.entries
-            .values()
-            .fold(0u64, |sum, entry| sum.saturating_add(entry.output.value_atoms))
+        self.entries.values().fold(0u64, |sum, entry| {
+            sum.saturating_add(entry.output.value_atoms)
+        })
     }
 
     /// Validate that `tx` can be spent given the current UTXO set.
@@ -87,7 +87,10 @@ impl UtxoSet {
         params: &ConsensusParams,
         block: &Block,
     ) -> Result<(), UtxoError> {
-        let coinbase = block.transactions.first().ok_or(UtxoError::MissingCoinbase)?;
+        let coinbase = block
+            .transactions
+            .first()
+            .ok_or(UtxoError::MissingCoinbase)?;
         if coinbase.total_output_atoms() > reward_at_height(params, block.header.height) {
             return Err(UtxoError::CoinbaseOutputTooHigh);
         }
@@ -135,7 +138,7 @@ impl UtxoSet {
 mod tests {
     use crate::{
         block::{merkle_root, BlockHeader, Transaction, TxInput, TxOutput},
-        chain::{TESTNET, TEST_PARAMS},
+        chain::TEST_PARAMS,
         hash::Hash256,
         state::ChainState,
         wallet::WalletKeypair,
@@ -148,7 +151,9 @@ mod tests {
         let mut state = ChainState::new();
         let mut utxos = UtxoSet::new();
 
-        let genesis = state.init_genesis(&TEST_PARAMS, 1_700_000_000, 1_000_000).unwrap();
+        let genesis = state
+            .init_genesis(&TEST_PARAMS, 1_700_000_000, 1_000_000)
+            .unwrap();
         utxos.apply_block(&TEST_PARAMS, genesis).unwrap();
         assert_eq!(utxos.total_atoms(), reward_at_height(&TEST_PARAMS, 0));
 

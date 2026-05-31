@@ -1,7 +1,7 @@
 # Known Issues — Tensorium Testnet
 
-Status: Public Testnet (Phase 4 → Phase 5)
-Last updated: 2025-05-31
+Status: Public Testnet GPU-first (Phase 6 complete, Phase 7 preparation started)
+Last updated: 2026-05-31
 
 ---
 
@@ -13,7 +13,7 @@ Last updated: 2025-05-31
 **Component:** txmminer
 **Description:** When two miners mine the same block simultaneously, the second miner to submit receives `AlreadyKnown` from the node, which returns `accepted: true` with the existing height. The miner prints `✓` rather than logging a stale event. Functionally the miner continues correctly to the next block.
 **Impact:** None — mining continues normally. Log is slightly misleading.
-**Fix planned:** Phase 5 — return `accepted: false` for `AlreadyKnown` in RPC response.
+**Fix planned:** Phase 7 readiness — return `accepted: false` for `AlreadyKnown` in RPC response.
 
 ---
 
@@ -21,8 +21,8 @@ Last updated: 2025-05-31
 
 **Severity:** Low
 **Component:** tensorium-node (mine-once command)
-**Description:** `tensorium-node mine-once` uses a single-threaded nonce search. At testnet difficulty 26, this takes 10–120 seconds per block on typical hardware. This command is intended for development and testing, not production mining.
-**Workaround:** Use `txmminer` for continuous multi-threaded mining.
+**Description:** `tensorium-node mine-once` uses a single-threaded nonce search. At current GPU-first testnet difficulty, this command is only useful for development diagnostics and should not be treated as a real miner.
+**Workaround:** Use `txmminer-cuda` for GPU mining or `txmminer` only for low-difficulty/dev testing.
 
 ---
 
@@ -32,7 +32,7 @@ Last updated: 2025-05-31
 **Component:** tensorium-node P2P
 **Description:** Peer connections are configured entirely via `TENSORIUM_PEERS` environment variable. There is no DNS seed, peer exchange (PEX), or automatic discovery. New nodes must be pointed at a known seed node manually.
 **Workaround:** Set `TENSORIUM_PEERS=157.230.44.162:23333` and use `tensorium-node sync 157.230.44.162:23333` for initial sync.
-**Fix planned:** Phase 5 / Phase 6 — DNS seeds and PEX.
+**Fix planned:** Phase 7 readiness — DNS seeds and/or documented seed list.
 
 ---
 
@@ -79,6 +79,8 @@ Last updated: 2025-05-31
 | FI-001 | Genesis block non-deterministic (different hash per node) | v0.1.1 — fixed timestamp |
 | FI-002 | txmminer fails at difficulty > ~23 bits (nonce limit too low) | v0.1.1 — raised to u64::MAX |
 | FI-003 | Invalid POST body returns HTTP 500 instead of HTTP 400 | v0.1.2 — parse errors now 400 |
+| FI-004 | No GPU miner available for public testnet | v0.2.0-testnet — CUDA miner released |
+| FI-005 | GPU-first genesis took too long to initialize on normal nodes | v0.2.0-testnet — pre-mined genesis nonce |
 
 ---
 
@@ -86,8 +88,7 @@ Last updated: 2025-05-31
 
 These are known limitations that are intentional for testnet and will be addressed before mainnet:
 
-- CPU mining only (no GPU miner) — Phase 6
-- No mining pool support — Phase 6/7
-- No peer exchange / DNS seeds — Phase 5/6
+- No mining pool support — Phase 7 readiness
+- No peer exchange / DNS seeds — Phase 7 readiness
 - No security audit — required before mainnet
 - No rate limiting on RPC — testnet only, RPC should be localhost-bound

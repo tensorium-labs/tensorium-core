@@ -33,7 +33,7 @@ pub fn emitted_supply_until_height(params: &ConsensusParams, exclusive_height: u
 
 #[cfg(test)]
 mod tests {
-    use crate::chain::TESTNET;
+    use crate::chain::{MAINNET_CANDIDATE, TESTNET};
 
     use super::*;
 
@@ -54,5 +54,44 @@ mod tests {
     fn emission_never_exceeds_cap() {
         let supply = emitted_supply_until_height(&TESTNET, TESTNET.halving_interval_blocks * 20);
         assert!(supply <= TESTNET.mining_allocation_atoms);
+    }
+
+    #[test]
+    fn ten_era_emission_matches_mining_allocation_with_rounding_dust() {
+        let supply = emitted_supply_until_height(&TESTNET, TESTNET.halving_interval_blocks * 10);
+        let dust = TESTNET.mining_allocation_atoms - supply;
+
+        assert_eq!(supply, 3_199_999_995_331_200);
+        assert_eq!(dust, 4_668_800);
+        assert!(dust < TESTNET.initial_reward_atoms);
+    }
+
+    #[test]
+    fn mainnet_candidate_emission_matches_testnet_schedule() {
+        for era in 0..MAINNET_CANDIDATE.max_halving_eras {
+            let height = MAINNET_CANDIDATE.halving_interval_blocks * u64::from(era);
+            assert_eq!(
+                reward_at_height(&MAINNET_CANDIDATE, height),
+                reward_at_height(&TESTNET, height)
+            );
+        }
+
+        assert_eq!(
+            emitted_supply_until_height(
+                &MAINNET_CANDIDATE,
+                MAINNET_CANDIDATE.halving_interval_blocks * 10,
+            ),
+            emitted_supply_until_height(&TESTNET, TESTNET.halving_interval_blocks * 10)
+        );
+    }
+
+    #[test]
+    fn reward_is_zero_after_final_halving_era() {
+        for params in [TESTNET, MAINNET_CANDIDATE] {
+            let first_zero_height =
+                params.halving_interval_blocks * u64::from(params.max_halving_eras);
+            assert_eq!(reward_at_height(&params, first_zero_height), 0);
+            assert_eq!(reward_at_height(&params, first_zero_height + 1), 0);
+        }
     }
 }

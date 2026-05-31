@@ -1,11 +1,12 @@
 # Tensorium Core
 
-A Proof-of-Work blockchain built in Rust — open testnet, CPU mining, GPU-first mainnet direction.
+A Proof-of-Work blockchain built in Rust — public GPU-first testnet, CUDA mining, mainnet-candidate preparation.
 
 > **Status:** Public testnet — coins have no monetary value, bugs welcome via Issues.
 > Chain: `tensorium-testnet-0` | Ticker: `TXM` | P2P port: `23333` | RPC port: `23332`
 
 [![Telegram](https://img.shields.io/badge/Telegram-Community-blue?logo=telegram)](https://t.me/+QOsnpSdhDGZkZGQ1)
+[![Website](https://img.shields.io/badge/Website-tensoriumlabs.com-black)](https://tensoriumlabs.com)
 [![Docs](https://img.shields.io/badge/Docs-docs.tensoriumlabs.com-7c3aed)](https://docs.tensoriumlabs.com)
 [![Explorer](https://img.shields.io/badge/Explorer-Live-green)](https://explorer.tensoriumlabs.com)
 [![Release](https://img.shields.io/badge/Release-v0.2.0--testnet-orange)](https://github.com/rygroup-dev/tensorium-core/releases/tag/v0.2.0-testnet)
@@ -59,8 +60,16 @@ Tensorium is a Proof-of-Work Layer 1 blockchain focused on open mining, transpar
 - Block time: 60 seconds
 - Initial reward: 15.23557865 TXM/block
 - Halving: every 1,051,200 blocks (~2 years), 10 eras over 20 years
-- Testnet PoW: SHA256d, CPU-friendly for bootstrap
-- Mainnet direction: GPU-first (after stable testnet)
+- Testnet PoW: SHA256d at GPU-first difficulty 36
+- Current phase: Phase 7 preparation; mainnet is not ready until audit, founder policy, monitoring, and final disclosure are complete
+
+### Pool Fee Policy Draft
+
+Tensorium consensus does not include a hidden miner tax.
+
+The current Phase 7 draft allows an official/reference mining pool to charge a transparent `5%` pool fee. This fee would be handled by pool payout accounting, sent to a published pool treasury/development wallet, and shown before miners connect. Solo miners who submit blocks directly to their own node are not charged this pool fee by the protocol.
+
+For safety, the node and pool should be separate trust boundaries. A testnet may colocate them on one VPS to stay lightweight, as long as processes, folders, env files, logs, and wallet files are isolated. As the network grows, adding more nodes is good for redundancy, sync health, and decentralization; mainnet candidate infrastructure should add backup seed nodes and split high-risk services when needed.
 
 ---
 
@@ -71,6 +80,7 @@ Tensorium is a Proof-of-Work Layer 1 blockchain focused on open mining, transpar
 | `tensorium-core` | library | Block, transaction, UTXO, mempool, wallet, consensus, fork-choice |
 | `tensorium-node` | binary | Full node: HTTP RPC + P2P server |
 | `txmminer` | binary | CPU miner |
+| `txmminer-cuda` | binary | NVIDIA CUDA GPU miner |
 | `txmwallet` | binary | CLI wallet |
 
 ---
@@ -259,6 +269,7 @@ Ban duration: 1 hour. Persisted to `tensorium-testnet-banlist.json`.
 
 | | |
 |---|---|
+| 🌐 Website | [tensoriumlabs.com](https://tensoriumlabs.com) — project homepage |
 | 💬 Telegram | [t.me/+QOsnpSdhDGZkZGQ1](https://t.me/+QOsnpSdhDGZkZGQ1) — chat, mining help, announcements |
 | 🐛 Issues | [github.com/rygroup-dev/tensorium-core/issues](https://github.com/rygroup-dev/tensorium-core/issues) — bug reports and feature requests |
 | 📖 Docs | [docs.tensoriumlabs.com](https://docs.tensoriumlabs.com) — node setup, mining guide, RPC reference |

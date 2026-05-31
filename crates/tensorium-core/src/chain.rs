@@ -110,14 +110,64 @@ pub const TEST_PARAMS: ConsensusParams = ConsensusParams {
 mod tests {
     use super::*;
 
+    fn assert_supply_split(params: ConsensusParams) {
+        assert_eq!(params.total_supply_atoms, 33_000_000 * COIN);
+        assert_eq!(params.founder_allocation_atoms, 1_000_000 * COIN);
+        assert_eq!(params.mining_allocation_atoms, 32_000_000 * COIN);
+        assert_eq!(
+            params.founder_allocation_atoms + params.mining_allocation_atoms,
+            params.total_supply_atoms
+        );
+    }
+
     #[test]
     fn halving_interval_is_two_years_for_one_minute_blocks() {
-        assert_eq!(TESTNET.halving_interval_blocks, 2 * ConsensusParams::blocks_per_year(60));
+        assert_eq!(
+            TESTNET.halving_interval_blocks,
+            2 * ConsensusParams::blocks_per_year(60)
+        );
+    }
+
+    #[test]
+    fn testnet_tokenomics_match_phase_7_readiness_plan() {
+        assert_eq!(TESTNET.chain_id, "tensorium-testnet-0");
+        assert_eq!(TESTNET.target_block_seconds, 60);
+        assert_eq!(TESTNET.max_halving_eras, 10);
+        assert_eq!(TESTNET.initial_reward_atoms, 1_523_557_865);
+        assert_eq!(TESTNET.coinbase_maturity_blocks, 100);
+        assert_eq!(TESTNET.max_future_block_time_seconds, 2 * 60 * 60);
+        assert_supply_split(TESTNET);
+    }
+
+    #[test]
+    fn mainnet_candidate_tokenomics_match_testnet_supply_plan() {
+        assert_eq!(MAINNET_CANDIDATE.chain_id, "tensorium-mainnet-candidate-0");
+        assert_eq!(
+            MAINNET_CANDIDATE.target_block_seconds,
+            TESTNET.target_block_seconds
+        );
+        assert_eq!(
+            MAINNET_CANDIDATE.halving_interval_blocks,
+            TESTNET.halving_interval_blocks
+        );
+        assert_eq!(MAINNET_CANDIDATE.max_halving_eras, TESTNET.max_halving_eras);
+        assert_eq!(
+            MAINNET_CANDIDATE.initial_reward_atoms,
+            TESTNET.initial_reward_atoms
+        );
+        assert_supply_split(MAINNET_CANDIDATE);
     }
 
     #[test]
     fn mainnet_is_gpu_first_harder_than_testnet() {
         assert!(MAINNET_CANDIDATE.initial_leading_zero_bits > TESTNET.initial_leading_zero_bits);
         assert!(MAINNET_CANDIDATE.min_leading_zero_bits > TESTNET.min_leading_zero_bits);
+        assert!(MAINNET_CANDIDATE.max_leading_zero_bits > TESTNET.max_leading_zero_bits);
+        assert!(
+            MAINNET_CANDIDATE.min_leading_zero_bits <= MAINNET_CANDIDATE.initial_leading_zero_bits
+        );
+        assert!(
+            MAINNET_CANDIDATE.initial_leading_zero_bits <= MAINNET_CANDIDATE.max_leading_zero_bits
+        );
     }
 }
