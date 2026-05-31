@@ -28,7 +28,7 @@ This document tracks what must be true before Tensorium mainnet-candidate chain 
 | Storage migration decision | DEFERRED | JSON state acceptable for mainnet-candidate. Binary/DB migration planned for future version. |
 | Peer discovery | DONE | Built-in static seed list (`157.230.44.162:23333`) added to node binary; opt-out via `TENSORIUM_NO_DEFAULT_SEEDS=1`. DNS seed deferred to mainnet. |
 | Mining pool path | DONE | tensorium-pool reference pool implemented (HTTP proxy, 5% fee, payout ledger). |
-| Pool fee policy | DONE | Pool treasury address generated (`txm10wa2dazhn2yqwwxkm4aegvzjq55hj9m2jlznt9`); payout accounting implemented; `pool.tensoriumlabs.com` discloses 5% fee before miners connect. |
+| Pool fee policy | DONE | Pool treasury address generated (`txm10wa2dazhn2yqwwxkm4aegvzjq55hj9m2jlznt9`); payout accounting implemented; `pooltxm.tensoriumlabs.com` discloses 5% fee before miners connect. |
 | Node/pool role boundaries | DONE | Documented in this file; testnet colocates with isolation; mainnet-candidate scaling plan documented. |
 | Monitoring | DONE | `/usr/local/bin/tensorium-monitor.sh` runs every 10 min via cron; checks RPC, P2P, explorer, disk, SSL expiry; logs to `/var/log/tensorium-monitor.log`. |
 | Release reproducibility | DONE | v0.3.0-mainnet-candidate binaries built; SHA256 checksums in CHECKSUMS-v0.3.0-mainnet-candidate.txt. |
@@ -261,7 +261,7 @@ Phase 7D update (2026-05-31):
 - [x] Multi-GPU behavior tested or explicitly deferred. *(deferred: txmminer-cuda is single-GPU per process; multi-GPU via multiple processes documented)*
 - [x] Pool mining path decided. *(reference pool: tensorium-pool crate, HTTP proxy model)*
 - [x] Pool payout accounting supports 5% official pool fee. *(split_fee() in accounting.rs, 9 unit tests)*
-- [x] Pool fee disclosure added to docs/UI. *(`pool.tensoriumlabs.com` shows 5% fee, treasury address, gross/net payout)*
+- [x] Pool fee disclosure added to docs/UI. *(`pooltxm.tensoriumlabs.com` shows 5% fee, treasury address, gross/net payout)*
 - [x] Solo mining guide updated. *(README and docs.tensoriumlabs.com cover solo mining)*
 
 ### Pool: tensorium-pool Reference Implementation
@@ -459,7 +459,7 @@ TXM needs a way to be bought and sold. Three options by complexity:
 - [ ] Mobile wallet (Phase 10)
 
 **Mining Ecosystem — Phase 8-9:**
-- [ ] Pool website (pool.tensoriumlabs.com)
+- [ ] Pool website (pooltxm.tensoriumlabs.com)
 - [ ] Testnet faucet
 - [x] Mining guide, pool reference implementation
 
