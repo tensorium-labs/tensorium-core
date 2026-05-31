@@ -25,11 +25,11 @@ Mainnet launch is not approved until every blocking item below is resolved.
 | Founder lock policy | DONE | Social/manual 24-month lock documented; no L1 enforcement. Disclosure required in whitepaper before mainnet. |
 | Mainnet genesis | TODO | Must be generated after final params and founder address are frozen. |
 | Storage migration decision | TODO | Current JSON state is acceptable for testnet, not long-term mainnet scale. |
-| Peer discovery | TODO | DNS seed, static seed list, or peer exchange plan needed. |
+| Peer discovery | DONE | Built-in static seed list (`157.230.44.162:23333`) added to node binary; opt-out via `TENSORIUM_NO_DEFAULT_SEEDS=1`. DNS seed deferred to mainnet. |
 | Mining pool path | TODO | Decide whether to ship a reference pool or document solo mining only. |
 | Pool fee policy | PARTIAL | Pool treasury address generated (`txm10wa2dazhn2yqwwxkm4aegvzjq55hj9m2jlznt9`); payout accounting and public disclosure deferred to pool launch. |
 | Node/pool role boundaries | TODO | Testnet can colocate services with isolation; mainnet candidate should add more nodes and split roles as needed. |
-| Monitoring | TODO | Node, disk, RPC, P2P, explorer, and SSL monitoring needed. |
+| Monitoring | DONE | `/usr/local/bin/tensorium-monitor.sh` runs every 10 min via cron; checks RPC, P2P, explorer, disk, SSL expiry; logs to `/var/log/tensorium-monitor.log`. |
 | Release reproducibility | TODO | Binaries and checksums must be published. |
 | Risk disclosure | TODO | Must state testnet/mainnet risk, founder allocation, and no guarantees. |
 
@@ -221,19 +221,33 @@ Wallet separation:
 
 ## Infrastructure Checklist
 
-- [ ] Mainnet seed node prepared separately from testnet.
-- [ ] Backup seed node prepared.
-- [ ] Node, pool, explorer, and treasury roles isolated or explicitly documented for testnet.
-- [ ] Backup node plan documented.
-- [ ] RPC bound to localhost only.
-- [ ] P2P public port documented.
-- [ ] Firewall allowlist documented.
-- [ ] Log rotation configured.
-- [ ] Chain state backup plan documented.
-- [ ] Explorer deployed for mainnet candidate.
-- [ ] Docs and whitepaper updated for mainnet candidate.
-- [ ] SSL renewal verified.
-- [ ] External monitoring configured.
+Phase 7C update (2026-05-31):
+
+- [ ] Mainnet seed node prepared separately from testnet. *(deferred — requires new VPS decision)*
+- [ ] Backup seed node prepared. *(deferred — to be added as traffic grows)*
+- [x] Node, pool, explorer, and treasury roles isolated or explicitly documented for testnet.
+- [x] Backup node plan documented. *(Stage 1 testnet single VPS acceptable; Stage 2 adds backup node)*
+- [x] RPC bound to localhost only. *(127.0.0.1:23332, enforced by default)*
+- [x] P2P public port documented. *(0.0.0.0:23333, UFW allows 23333)*
+- [x] Firewall allowlist documented. *(UFW: SSH/22, HTTP/80, HTTPS/443, P2P/23333)*
+- [x] Log rotation configured. *(journald: max 500M / 50M per file / 30 days; explorer logrotate: 14 days)*
+- [x] Chain state backup plan documented. *(daily cron 03:00 UTC → /root/backups/, 14 rolling backups)*
+- [x] Explorer deployed for mainnet candidate. *(explorer.tensoriumlabs.com, pm2, nginx, SSL)*
+- [x] Docs and whitepaper updated for mainnet candidate. *(docs.tensoriumlabs.com, whitepaper.tensoriumlabs.com)*
+- [x] SSL renewal verified. *(certbot auto-renew active; monitor shows 89 days remaining)*
+- [x] External monitoring configured. *(tensorium-monitor.sh every 10 min; logs /var/log/tensorium-monitor.log)*
+
+### Peer Discovery
+
+- [x] Built-in static seed list: `DEFAULT_SEEDS = ["157.230.44.162:23333"]` in `tensorium-node`.
+- [x] New nodes connect without manual configuration; seed falls back automatically.
+- [x] Seed node itself runs with `TENSORIUM_NO_DEFAULT_SEEDS=1` to avoid self-connection.
+- [ ] DNS seed (`seed.tensoriumlabs.com` → seed IP) deferred to mainnet candidate stage.
+
+### Backup and Monitoring
+
+- Backup: `/usr/local/bin/tensorium-backup.sh` — tarballs `state.json`, `mempool.json`, `banlist.json`; cron `0 3 * * *`; keeps 14 rolling backups under `/root/backups/`.
+- Monitor: `/usr/local/bin/tensorium-monitor.sh` — checks RPC health, P2P port, explorer, disk %, SSL expiry; cron `*/10 * * * *`; logs to `/var/log/tensorium-monitor.log`.
 
 ## Mining Checklist
 
