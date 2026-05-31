@@ -114,7 +114,7 @@ fn run() -> Result<(), String> {
                 .map(|s| s.as_str())
                 .or_else(|| peers.first().map(|s| s.as_str()))
                 .ok_or_else(|| {
-                    "usage: tensorium-node sync <peer>  (or set TENSORIUM_PEERS)".to_owned()
+                    "usage: tensorium-node sync <peer>  (or set TENSORIUM_PEERS; disable built-in seeds with TENSORIUM_NO_DEFAULT_SEEDS=1)".to_owned()
                 })?;
             sync_from_peer(peer, &state_path)?;
         }
@@ -386,7 +386,8 @@ fn print_help() {
     println!("  TENSORIUM_STATE      state file path, default {DEFAULT_STATE_PATH}");
     println!("  TENSORIUM_MEMPOOL    mempool file path, default {DEFAULT_MEMPOOL_PATH}");
     println!("  TENSORIUM_BANS       ban list file path, default {DEFAULT_BAN_PATH}");
-    println!("  TENSORIUM_PEERS      comma-separated peers to broadcast to");
+    println!("  TENSORIUM_PEERS      comma-separated peers to broadcast to (overrides built-in seeds)");
+    println!("  TENSORIUM_NO_DEFAULT_SEEDS=1  disable built-in seed list");
     println!("  TENSORIUM_NODE_ID    node identity string");
     println!("  TENSORIUM_RPC_ALLOW_PUBLIC=1  allow non-loopback RPC bind");
 }
@@ -870,13 +871,26 @@ fn broadcast_tx_to_peers(tx: &Transaction, state: &ChainState) {
     }
 }
 
+/// Built-in testnet seed nodes. Used when TENSORIUM_PEERS is unset and
+/// TENSORIUM_NO_DEFAULT_SEEDS is not set.
+const DEFAULT_SEEDS: &[&str] = &["157.230.44.162:23333"];
+
 fn configured_peers() -> Vec<String> {
     let raw = env::var("TENSORIUM_PEERS").unwrap_or_default();
-    raw.split(',')
+    let manual: Vec<String> = raw
+        .split(',')
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .map(str::to_owned)
-        .collect()
+        .collect();
+    if !manual.is_empty() {
+        return manual;
+    }
+    // Fall back to built-in seeds unless operator explicitly opts out.
+    if env::var("TENSORIUM_NO_DEFAULT_SEEDS").is_ok() {
+        return vec![];
+    }
+    DEFAULT_SEEDS.iter().map(|s| s.to_string()).collect()
 }
 
 // ---------------------------------------------------------------------------
