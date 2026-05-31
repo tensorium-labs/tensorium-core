@@ -1,0 +1,14 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Mining Guide
+    url: https://docs.tensoriumlabs.com/mining.html
+    about: Step-by-step guide to running a node and mining TXM
+  - name: Documentation
+    url: https://docs.tensoriumlabs.com
+    about: Full Tensorium documentation
+  - name: Block Explorer
+    url: https://explorer.tensoriumlabs.com
+    about: Check chain status, blocks, and transactions
+  - name: Whitepaper
+    url: https://whitepaper.tensoriumlabs.com
+    about: Technical design and tokenomics
