@@ -20,7 +20,7 @@ Mainnet launch is not approved until every blocking item below is resolved.
 
 | Gate | Status | Notes |
 | --- | --- | --- |
-| Consensus audit | DOING | Tokenomics, emission, difficulty, fork-choice/reorg, timestamp, coinbase over-mint, pending double-spend, RPC bind safety, and P2P message-size guard added; broader P2P/RPC soak testing remains. |
+| Consensus audit | DOING | Tokenomics, emission, difficulty, fork-choice/reorg, timestamp, coinbase over-mint, pending double-spend, RPC bind safety, P2P message-size guard, ban-list fix, connection limit, and TCP timeouts added; soak/integration testing and storage scalability remain. |
 | Founder wallet | TODO | Address must be generated and published before genesis. |
 | Founder lock policy | TODO | Manual policy or native lock mechanism must be documented. |
 | Mainnet genesis | TODO | Must be generated after final params and founder address are frozen. |
@@ -81,6 +81,16 @@ Phase 7A node safety update:
 - Ban list cleanup now prunes expired bans when recording new violations.
 - CPU miner submit output now prints the accepted block hash, removing the remaining unused response field warning.
 - Verification on VPS: `cargo test --workspace` passed with 39 total unit tests and no warnings.
+
+Phase 7A extended hardening (2026-05-31):
+
+- **Bug fix:** `prune_expired` used `map_or(false, …)` which wiped sub-threshold score entries before they could accumulate to the ban threshold. Fixed to `map_or(true, …)` so only expired bans are removed; score-only entries persist across calls.
+- **P2P connection limit:** Added `MAX_INBOUND_PEERS = 64` with an `AtomicUsize` counter. New connections above the limit are refused immediately, preventing thread-exhaustion DoS.
+- **TCP I/O timeouts:** P2P connections have a 30-second read/write timeout; RPC connections have a 10-second read timeout. A slow or dead peer/client no longer holds a thread indefinitely.
+- **RPC rate-limit strategy documented:** RPC is single-threaded and loopback-only by default. Public RPC (`TENSORIUM_RPC_ALLOW_PUBLIC=1`) requires nginx with `limit_req` and `limit_conn` in front; this is documented in the source.
+- **HTTP 400 status text fixed:** `write_json_response` now returns `Bad Request` for 400 codes.
+- **6 new BanList unit tests:** sub-threshold persistence, threshold activation, instant-ban on bad handshake, expiry/prune behaviour, active-ban survival, and manual unban.
+- Pending VPS verification: `cargo fmt && cargo test --workspace` (expected to pass with ≥47 tests).
 
 ## Founder Wallet Policy
 
