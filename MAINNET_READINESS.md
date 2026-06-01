@@ -459,6 +459,8 @@ Execution checklist: see `PHASE9A_EXECUTION_CHECKLIST.md`.
 - Discord server (mining support, dev, governance channels)
 - Twitter/X: announce milestones, mining stats
 - Mining event / competition for hashrate bootstrap
+- Community infrastructure doc ready: `COMMUNITY_INFRASTRUCTURE.md`
+- Community launch announcement template ready: `templates/community-launch-announcement.md`
 
 ---
 
@@ -515,6 +517,7 @@ Execution checklist: see `PHASE9A_EXECUTION_CHECKLIST.md`.
 
 **Community & Legal:**
 - [x] Open source license (Apache-2.0)
+- [x] Community infrastructure runbook + announcement template prepared
 - [ ] Telegram public, Discord, Twitter/X
 - [ ] Security audit external
 
