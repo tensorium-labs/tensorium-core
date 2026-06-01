@@ -613,6 +613,7 @@ fn print_help() {
     println!("  POST /submitblock                 (broadcasts to peers, cleans mempool)");
     println!("  POST /sendrawtransaction          (validates, pools, broadcasts to peers)");
     println!("  GET  /getmempoolinfo");
+    println!("  GET  /getutxos/<address>          (mature UTXOs for address)");
     println!("  GET  /getbanlist");
     println!("  GET  /unban/<ip>                  (remove ban)");
     println!();
@@ -1629,6 +1630,51 @@ fn handle_rpc_stream(
             )
         }
 
+        ("GET", path) if path.starts_with("/getutxos/") => {
+            let address = path.trim_start_matches("/getutxos/");
+            if address.is_empty() {
+                return write_json_response(
+                    stream,
+                    400,
+                    &RpcError::new("missing address: GET /getutxos/<address>"),
+                );
+            }
+            let state = load_state(state_path)?;
+            let utxos = build_utxo_set(&state, params)?;
+            let tip_height = state.height().unwrap_or(0);
+            let entries: Vec<serde_json::Value> = utxos
+                .entries
+                .iter()
+                .filter(|(_, entry)| entry.output.address == address)
+                .map(|(outpoint, entry)| {
+                    let mature = !entry.coinbase
+                        || tip_height
+                            >= entry
+                                .created_height
+                                .saturating_add(params.coinbase_maturity_blocks);
+                    json!({
+                        "txid": outpoint.txid.to_hex(),
+                        "txid_bytes": outpoint.txid.0.to_vec(),
+                        "output_index": outpoint.output_index,
+                        "value_atoms": entry.output.value_atoms,
+                        "coinbase": entry.coinbase,
+                        "created_height": entry.created_height,
+                        "mature": mature,
+                    })
+                })
+                .collect();
+            write_json_response(
+                stream,
+                200,
+                &json!({
+                    "address": address,
+                    "tip_height": tip_height,
+                    "utxo_count": entries.len(),
+                    "utxos": entries,
+                }),
+            )
+        }
+
         _ => write_json_response(stream, 404, &RpcError::new("unknown RPC endpoint")),
     }
 }
@@ -1780,5 +1826,23 @@ mod tests {
         bl.unban("6.7.8.9");
         assert!(!bl.entries.contains_key("6.7.8.9"));
         assert!(!bl.is_banned("6.7.8.9", now));
+    }
+
+    // --- getutxos path parsing ---
+
+    #[test]
+    fn getutxos_path_parses() {
+        assert_eq!(
+            "/getutxos/txm1abc".trim_start_matches("/getutxos/"),
+            "txm1abc"
+        );
+        assert!("/getutxos/".trim_start_matches("/getutxos/").is_empty());
+    }
+
+    #[test]
+    fn getutxos_rejects_empty_address() {
+        let path = "/getutxos/";
+        let addr = path.trim_start_matches("/getutxos/");
+        assert!(addr.is_empty(), "empty address should be rejected");
     }
 }
