@@ -76,7 +76,13 @@ fn validate_coinbase(params: &ConsensusParams, block: &Block) -> Result<(), Vali
         return Err(ValidationError::FirstTransactionNotCoinbase);
     }
 
-    let reward_limit = reward_at_height(params, block.header.height);
+    // Genesis block (height 0) may carry the founder allocation on top of the
+    // normal mining reward. All other heights are bounded by reward only.
+    let reward_limit = if block.header.height == 0 && !params.founder_address.is_empty() {
+        reward_at_height(params, 0).saturating_add(params.founder_allocation_atoms)
+    } else {
+        reward_at_height(params, block.header.height)
+    };
     let reward = coinbase.total_output_atoms();
 
     if reward > reward_limit {
