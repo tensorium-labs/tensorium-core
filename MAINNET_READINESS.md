@@ -156,12 +156,12 @@ Draft decision:
 
 Required safety rules:
 
-- [ ] Publish the pool fee before miners connect. *(deferred to pool launch)*
+- [x] Publish the pool fee before miners connect. *(live on `pooltxm.tensoriumlabs.com` before miner connect flow)*
 - [x] Pool treasury address generated: `txm10wa2dazhn2yqwwxkm4aegvzjq55hj9m2jlznt9`
-- [ ] Show gross reward, pool fee, and net miner payout in pool accounting.
+- [x] Show gross reward, pool fee, and net miner payout in pool accounting.
 - [x] Pool treasury private key is separate from founder cold wallet — different keypair.
-- [ ] Do not hide the fee in miner code, payout scripts, or explorer output.
-- [ ] Document that miners can avoid pool fee by solo mining.
+- [x] Do not hide the fee in miner code, payout scripts, or explorer output.
+- [x] Document that miners can avoid pool fee by solo mining.
 
 Rationale:
 
@@ -201,22 +201,22 @@ Testnet rule:
 
 Scaling recommendation:
 
-- [ ] Stage 1 testnet: one VPS can run node, pool, and explorer with isolated roles.
+- [x] Stage 1 testnet: one VPS can run node, pool, and explorer with isolated roles.
 - [ ] Stage 2 public testnet: add at least one backup node.
 - [ ] Stage 3 mainnet candidate: split high-risk services as traffic and funds increase.
 
 Mainnet candidate recommendation:
 
-- [ ] Seed node: `tensorium-node`, no private payout keys.
+- [x] Seed node: `tensorium-node`, no private payout keys.
 - [ ] Backup seed node: independent node for redundancy.
-- [ ] Pool service: pool API/stratum, share accounting, payout scheduler.
+- [x] Pool service: pool API/stratum, share accounting, payout scheduler.
 - [ ] Explorer service: indexer and web UI with read-only RPC access.
 - [ ] Cold storage: founder wallet and treasury reserve.
 
 Wallet separation:
 
-- [ ] Founder cold wallet is separate from pool treasury.
-- [ ] Pool treasury wallet receives fee revenue and has a published address.
+- [x] Founder cold wallet is separate from pool treasury.
+- [x] Pool treasury wallet receives fee revenue and has a published address.
 - [ ] Pool payout hot wallet is limited and operational only.
 - [ ] Explorer/docs infrastructure has no private keys.
 
@@ -243,7 +243,7 @@ Phase 7C update (2026-05-31):
 - [x] Built-in static seed list: `DEFAULT_SEEDS = ["157.230.44.162:23333"]` in `tensorium-node`.
 - [x] New nodes connect without manual configuration; seed falls back automatically.
 - [x] Seed node itself runs with `TENSORIUM_NO_DEFAULT_SEEDS=1` to avoid self-connection.
-- [ ] DNS seed (`seed.tensoriumlabs.com` → seed IP) deferred to mainnet candidate stage.
+- [x] DNS seed (`seed.tensoriumlabs.com` → seed IP) active for mainnet-candidate stage.
 
 ### Backup and Monitoring
 
@@ -326,6 +326,16 @@ Solo mining (fee-free): miners point `txmminer` directly at `tensorium-node` RPC
 ## Current Decision
 
 Tensorium v0.3.1-mainnet-candidate is the current documented mainnet-candidate baseline. Phase 7 (7A–7E) is complete.
+
+## Remaining Launch Blockers
+
+These are the only Phase 8 items still blocking a public mainnet-candidate launch:
+
+1. Backup seed node on an additional VPS/provider.
+2. Soak test completion through `2026-06-15` with monitoring still green.
+3. Final public launch announcement after the two items above are satisfied.
+
+Everything else below Phase 9 and Phase 10 is ecosystem or post-launch roadmap, not a pre-launch blocker for the chain itself.
 
 ## Phase 8 — Pre-Launch Checklist
 
