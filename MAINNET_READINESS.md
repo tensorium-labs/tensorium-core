@@ -376,7 +376,7 @@ Chrome extension wallet stack: TypeScript + React, separate repo `tensorium-wall
 | Legacy GitHub repos | DONE | Old `rygroup-dev/tensorium-core` and `rygroup-dev/tensorium-pool-website` set back to private after migration |
 | Working order | DONE | Future flow: local edit -> local checks -> push `tensorium-labs` -> VPS deploy/sync -> smoke checks |
 | Temporary mainnet-candidate host | DECIDED | Use current DigitalOcean VPS first; local + GitHub remain source of truth so migration to Hetzner/dedicated VPS is straightforward later. |
-| Docs: Chrome extension guide | TODO | Wallet extension built and published (`tensorium-wallet-extension`); install guide for docs.tensoriumlabs.com pending. |
+| Docs: Chrome extension guide | DONE | `https://docs.tensoriumlabs.com/chrome-wallet.html` deployed 2026-06-01. Covers install, create/import, send, network selector, security model, FAQ. |
 | Public RPC endpoints | DONE | `https://rpc.tensoriumlabs.com` (testnet) + `https://mc-rpc.tensoriumlabs.com` (MC) live with CORS + rate limit (10r/s). Used by Chrome extension. |
 | Risk disclosure on website | DONE | Root site and docs link to `RISK_DISCLOSURE.md` |
 | Announce mainnet-candidate launch | TODO | LAST STEP only: after 8A infrastructure, 8E license/security, soak test, monitoring, and final checks pass |
