@@ -423,6 +423,7 @@ TXM needs a way to be bought and sold. Three options by complexity:
 3. Native atomic swap after scripting layer (Phase 10)
 
 Execution roadmap: see `PHASE9A_SWAP_ROADMAP.md`.
+Bridge trust model decision: see `PHASE9A_BRIDGE_MODEL_DECISION.md`.
 
 ### 9B — Explorer Improvements
 
