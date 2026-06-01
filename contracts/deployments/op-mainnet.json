@@ -1,0 +1,11 @@
+{
+  "network": "op-mainnet",
+  "timestamp": "2026-06-01T07:14:12.499Z",
+  "deployer": "0x15a8A0A259417ba0fFE92488FF09D458BE6ef9EB",
+  "multisig": "0x15a8A0A259417ba0fFE92488FF09D458BE6ef9EB",
+  "operator": "0x15a8A0A259417ba0fFE92488FF09D458BE6ef9EB",
+  "pauser": null,
+  "maxPerTx": "10000",
+  "WrappedTensorium": "0x2e71FD45530FAe75B6b427F3e71A0CDEB146C20e",
+  "TensoriumBridgeController": "0x4b31C557AD64609B975610812273BF82F1475384"
+}
