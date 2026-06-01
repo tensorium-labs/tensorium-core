@@ -16,6 +16,7 @@ Last updated: 2026-06-01
 
 - [x] Define `wTXM` ERC-20 contract shape
 - [x] Define bridge controller contract shape
+- [x] Create Solidity interface skeletons
 - [ ] Define operator role vs owner role separation
 - [ ] Define pause control path
 - [ ] Review contract ownership transfer path
