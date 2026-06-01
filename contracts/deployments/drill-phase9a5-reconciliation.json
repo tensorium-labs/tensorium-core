@@ -1,0 +1,73 @@
+{
+  "date": "2026-06-01",
+  "network": "op-sepolia",
+  "token": "0x2e71FD45530FAe75B6b427F3e71A0CDEB146C20e",
+  "controller": "0x4b31C557AD64609B975610812273BF82F1475384",
+  "custodyInflows": [
+    {
+      "txid": "0xa6a3e67812f5440f324eb1cd1652810fe8e68e2895b396a71cdcee798681f329",
+      "amount": "100 TXM",
+      "from": "drill-user",
+      "to": "custody"
+    }
+  ],
+  "mintEvents": [
+    {
+      "bridgeEventId": "0xcd8fe5b61f1aa2c5c9a67156b17e510d514c495cc41badf34857cb4de38a48a4",
+      "amount": "100 wTXM",
+      "recipient": "0x15a8A0A259417ba0fFE92488FF09D458BE6ef9EB",
+      "evmTx": "0x81baf866ebbad8ffd46153b04db2c26718db545b6cc6ad665349c4697cc2d6b3"
+    }
+  ],
+  "burnEvents": [
+    {
+      "bridgeEventId": "0xff6db5838dbb8150dfa63f51eb11be6f7c8101cbb482369583b978612c20e623",
+      "amount": "50 wTXM",
+      "requester": "0x15a8A0A259417ba0fFE92488FF09D458BE6ef9EB",
+      "evmTx": "0x95f00fe62d1a16a09b2404b3e7ced849a5da1aaba3b4da87d015cf5f8e315552"
+    }
+  ],
+  "custodyOutflows": [
+    {
+      "amount": "50 TXM",
+      "to": "txm1qq9a5drilltest000000000000000",
+      "status": "PENDING_OPERATOR_RELEASE"
+    }
+  ],
+  "summary": {
+    "totalMinted": "100 wTXM",
+    "totalBurned": "50 wTXM",
+    "circulatingSupply": "100.0 wTXM",
+    "custodyBalance": "50 TXM (should match circulating supply)",
+    "match": "MISMATCH"
+  },
+  "drillLog": [
+    {
+      "step": "deposit+mint",
+      "tensoriumTxid": "0xa6a3e67812f5440f324eb1cd1652810fe8e68e2895b396a71cdcee798681f329",
+      "bridgeEventId": "0xcd8fe5b61f1aa2c5c9a67156b17e510d514c495cc41badf34857cb4de38a48a4",
+      "recipient": "0x15a8A0A259417ba0fFE92488FF09D458BE6ef9EB",
+      "amount": "100 wTXM",
+      "evmTx": "0x81baf866ebbad8ffd46153b04db2c26718db545b6cc6ad665349c4697cc2d6b3",
+      "gasUsed": "74105",
+      "timestamp": "2026-06-01T06:39:02.118Z"
+    },
+    {
+      "step": "burn+release",
+      "destinationTensoriumAddr": "txm1qq9a5drilltest000000000000000",
+      "amount": "50 wTXM burned",
+      "bridgeEventId": "0xff6db5838dbb8150dfa63f51eb11be6f7c8101cbb482369583b978612c20e623",
+      "evmTx": "0x95f00fe62d1a16a09b2404b3e7ced849a5da1aaba3b4da87d015cf5f8e315552",
+      "gasUsed": "77610",
+      "operatorAction": "release 50 TXM to txm1qq9a5drilltest000000000000000",
+      "timestamp": "2026-06-01T06:39:10.616Z"
+    },
+    {
+      "step": "pause-drill",
+      "pauseTx": "0x16f84325f0aa7773a6bd991048dc4cc366ab66f4d0d9ba2654091e87b2f628df",
+      "mintBlockedWhilePaused": true,
+      "unpauseTx": "0xe5c1b48f879f9a8cffb6bed75f9e31ea0a2235dd4cf412d9c339c2e4f0f37f6f",
+      "timestamp": "2026-06-01T06:39:22.279Z"
+    }
+  ]
+}
