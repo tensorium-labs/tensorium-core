@@ -2,7 +2,7 @@
 
 A Proof-of-Work blockchain built in Rust — public GPU-first testnet, CUDA mining, and mainnet-candidate bootstrap.
 
-> **Status:** Public testnet plus mainnet-candidate preparation. The current DigitalOcean VPS is the temporary MC host until a dedicated VPS migration is ready.
+> **Status:** Public CPU-minable testnet plus mainnet-candidate preparation. The current DigitalOcean VPS is the temporary MC host until a dedicated VPS migration is ready.
 > Chain: `tensorium-testnet-0` | Ticker: `TXM` | P2P port: `23333` | RPC port: `23332`
 
 [![Telegram](https://img.shields.io/badge/Telegram-Community-blue?logo=telegram)](https://t.me/+QOsnpSdhDGZkZGQ1)
@@ -28,7 +28,16 @@ The installer downloads binaries, creates a wallet, inits the chain (instant —
 
 Or download directly from [Releases](https://github.com/tensorium-labs/tensorium-core/releases).
 
-### GPU Mining (Required at Difficulty 36)
+### Mining Modes
+
+The public testnet was reset on 2026-06-01 for easier onboarding and faucet
+operations. It is currently CPU-minable at 20-bit difficulty with 10-block
+coinbase maturity.
+
+Mainnet-candidate remains GPU-first and should be treated separately from the
+easier public testnet.
+
+### GPU Mining (Mainnet-Candidate / High-Difficulty Testnet)
 
 ```bash
 # Pre-built binary (sm_86 = RTX 3000/4000 series)
@@ -60,7 +69,8 @@ Tensorium is a Proof-of-Work Layer 1 blockchain focused on open mining, transpar
 - Block time: 60 seconds
 - Initial reward: 15.23557865 TXM/block
 - Halving: every 1,051,200 blocks (~2 years), 10 eras over 20 years
-- Testnet PoW: SHA256d at GPU-first difficulty 36
+- Testnet PoW: SHA256d at 20-bit public onboarding difficulty as of 2026-06-01
+- Mainnet-candidate PoW: SHA256d, GPU-first launch posture
 - Current phase: Phase 8 infrastructure; the existing DigitalOcean VPS is used as the temporary mainnet-candidate host, with dedicated VPS migration planned later
 
 ### Pool Fee Policy Draft
@@ -112,7 +122,7 @@ export MINER_ADDR=$(cargo run -p txmwallet -- getnewaddress 2>/dev/null)
 # 4. start CPU miner
 cargo run -p txmminer -- 127.0.0.1:23332 "$MINER_ADDR"
 
-# 5. check balance (after 101+ blocks for coinbase maturity)
+# 5. check balance (after 10+ blocks on current public testnet)
 cargo run -p txmwallet -- balance
 ```
 
