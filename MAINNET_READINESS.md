@@ -11,7 +11,7 @@ This document tracks what must be true before Tensorium mainnet-candidate chain 
 
 - Active public testnet: `tensorium-testnet-0`, reset 2026-06-01 to 20-bit difficulty with 10-block maturity for CPU mining, faucet funding, and wallet onboarding
 - Mainnet-candidate code: `v0.3.1-mainnet-candidate` — genesis hardcoded, MC daemon complete
-- MC genesis: nonce `56_167_663_277`, hash `0000000000d61e99b9e2530609632b399d0f0b538c2d54daa1dddbfe28ea08dc`
+- MC genesis: nonce `114_103_168_481`, hash `000000000063ab6f057a16376b1712e709719126ad977a3d4be23f83b89f0392` (v2 — with 1M founder allocation)
 - MC commands: `tensorium-node mainnet-candidate rpc/p2p-listen/sync/init`
 - Public services: website, docs, whitepaper, explorer, testnet seed node
 
@@ -24,7 +24,7 @@ This document tracks what must be true before Tensorium mainnet-candidate chain 
 | Consensus audit | DONE | Tokenomics, emission, difficulty, fork-choice/reorg, timestamp, coinbase, double-spend, RPC bind safety, P2P cap, ban-list fix, connection limit, TCP timeouts — 54 unit tests passing. Soak/integration test: Phase 8 item. |
 | Founder wallet | DONE | Founder address `txm18c3t652j0x0sanux3dhse8fqgrqpsdzx97358d`, pool treasury `txm10wa2dazhn2yqwwxkm4aegvzjq55hj9m2jlznt9` generated 2026-05-31. |
 | Founder lock policy | DONE | Social/manual 24-month lock documented; no L1 enforcement. Disclosure required in whitepaper before mainnet. |
-| Mainnet genesis | DONE | Nonce `56_167_663_277` mined RTX 5090 (2.28 GH/s, 24.6s, 2026-05-31). Hash: `0000000000d61e99b9e2530609632b399d0f0b538c2d54daa1dddbfe28ea08dc`. Hardcoded in binary. |
+| Mainnet genesis | DONE | Nonce `114_103_168_481` mined RTX 3060 (0.56 GH/s, 855s, 2026-06-01). Hash: `000000000063ab6f057a16376b1712e709719126ad977a3d4be23f83b89f0392`. Genesis v2 includes 1M TXM founder allocation.. Hardcoded in binary. |
 | Storage migration decision | DEFERRED | JSON state acceptable for mainnet-candidate. Binary/DB migration planned for future version. |
 | Peer discovery | DONE | Built-in static seed list (`157.230.44.162:23333`) added to node binary for testnet; mainnet-candidate DNS seed now live at `seed.tensoriumlabs.com:33333`. |
 | Mining pool path | DONE | tensorium-pool reference pool implemented (HTTP proxy, 5% fee, payout ledger). |
@@ -525,8 +525,8 @@ Execution checklist: see `PHASE9A_EXECUTION_CHECKLIST.md`.
 
 ### Mainnet-Candidate Genesis (Reference)
 
-- **Nonce:** `56_167_663_277`
-- **Hash:** `0000000000d61e99b9e2530609632b399d0f0b538c2d54daa1dddbfe28ea08dc`
+- **Nonce:** `114_103_168_481`
+- **Hash:** `000000000063ab6f057a16376b1712e709719126ad977a3d4be23f83b89f0392`
 - **Timestamp:** `1_780_272_000` (2026-06-01 00:00:00 UTC)
 - **Mined:** RTX 5090, CUDA, 2.28 GH/s, 24.6 seconds (2026-05-31)
 - **Verified:** GPU server (142.188.39.36) + VPS (157.230.44.162) → identical hash
