@@ -48,6 +48,38 @@ impl Transaction {
         }
     }
 
+    /// Genesis-only coinbase: mining reward to `miner` PLUS founder allocation
+    /// to `founder_addr`. Only used at height 0 when founder_address is set.
+    /// The payload is identical to a normal coinbase so `is_coinbase()` returns true.
+    pub fn genesis_coinbase(
+        reward_atoms: u64,
+        miner: &str,
+        founder_atoms: u64,
+        founder_addr: &str,
+    ) -> Self {
+        let payload = format!("coinbase:0:{reward_atoms}:{miner}").into_bytes();
+        let mut outputs = Vec::new();
+        if reward_atoms > 0 {
+            outputs.push(TxOutput {
+                value_atoms: reward_atoms,
+                address: miner.to_owned(),
+            });
+        }
+        if founder_atoms > 0 && !founder_addr.is_empty() {
+            outputs.push(TxOutput {
+                value_atoms: founder_atoms,
+                address: founder_addr.to_owned(),
+            });
+        }
+        let id = transaction_id(&[], &outputs, &payload);
+        Self {
+            id,
+            inputs: Vec::new(),
+            outputs,
+            payload,
+        }
+    }
+
     pub fn is_coinbase(&self) -> bool {
         self.inputs.is_empty() && self.payload.starts_with(b"coinbase:")
     }
