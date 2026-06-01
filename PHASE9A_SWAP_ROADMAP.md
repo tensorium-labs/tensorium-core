@@ -75,6 +75,7 @@ Success condition:
 Goal:
 
 - choose the first operational bridge trust model
+- detailed decision record: `PHASE9A_BRIDGE_MODEL_DECISION.md`
 
 Options:
 
