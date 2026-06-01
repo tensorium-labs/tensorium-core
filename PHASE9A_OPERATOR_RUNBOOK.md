@@ -26,6 +26,7 @@ Before accepting public flow:
 - bridge controller is deployed
 - pause path is tested
 - ledger template exists
+- bridge policy exists
 - public docs exist
 - one end-to-end internal drill succeeded
 
@@ -38,6 +39,13 @@ Minimum role split:
 - multisig signer set
 
 One person should not perform every sensitive action alone.
+
+Supporting docs:
+
+- `PHASE9A_BRIDGE_POLICY.md`
+- `PHASE9A_BRIDGE_LEDGER_FORMAT.md`
+- `templates/phase9a-bridge-ledger-template.csv`
+- `templates/phase9a-reconciliation-note-template.md`
 
 ## Deposit Runbook: TXM -> wTXM
 

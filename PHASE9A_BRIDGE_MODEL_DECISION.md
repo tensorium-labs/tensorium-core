@@ -160,6 +160,7 @@ Before public bridge launch, the team must have:
 
 Supporting docs:
 
+- `PHASE9A_BRIDGE_POLICY.md`
 - `PHASE9A_BRIDGE_LEDGER_FORMAT.md`
 - `PHASE9A_OPERATOR_RUNBOOK.md`
 
