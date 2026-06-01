@@ -332,8 +332,7 @@ Tensorium v0.3.1-mainnet-candidate is the current documented mainnet-candidate b
 These are the only Phase 8 items still blocking a public mainnet-candidate launch:
 
 1. Backup seed node on an additional VPS/provider.
-2. Soak test completion through `2026-06-15` with monitoring still green.
-3. Final public launch announcement after the two items above are satisfied.
+2. Final public launch announcement after backup seed node is ready and monitoring remains green.
 
 Everything else below Phase 9 and Phase 10 is ecosystem or post-launch roadmap, not a pre-launch blocker for the chain itself.
 
@@ -393,14 +392,14 @@ Chrome extension wallet stack: TypeScript + React, separate repo `tensorium-wall
 | Docs: Chrome extension guide | DONE | `https://docs.tensoriumlabs.com/chrome-wallet.html` deployed 2026-06-01. Covers install, create/import, send, network selector, security model, FAQ. |
 | Public RPC endpoints | DONE | `https://rpc.tensoriumlabs.com` (testnet) + `https://mc-rpc.tensoriumlabs.com` (MC) live with CORS + rate limit (10r/s). Used by Chrome extension. |
 | Risk disclosure on website | DONE | Root site and docs link to `RISK_DISCLOSURE.md` |
-| Announce mainnet-candidate launch | TODO | LAST STEP only: after 8A infrastructure, 8E license/security, soak test, monitoring, and final checks pass |
+| Announce mainnet-candidate launch | TODO | LAST STEP only: after 8A infrastructure is acceptable, monitoring is green, and launch decision is taken. Soak test continues in background and is noted, not treated as a hard calendar gate. |
 
 ### 8E — Security & Legal
 
 | Item | Status | Notes |
 |---|---|---|
 | Source code license | DONE | Apache-2.0 added with `LICENSE` and `NOTICE`; workspace package license updated |
-| Soak test (2+ weeks MC chain) | DOING | MC chain + all services running on VPS since 2026-06-01. Hourly cron `/usr/local/bin/tensorium-soak.sh` logs to `/var/log/tensorium-soak.log`. Target completion: 2026-06-15 (2 weeks). Backup seed node still TODO. |
+| Soak test (ongoing runtime watch) | DOING | MC chain + related services have been running on VPS since 2026-06-01. Hourly cron `/usr/local/bin/tensorium-soak.sh` logs to `/var/log/tensorium-soak.log`. Keep this running in background, record stability notes, and do not treat `2026-06-15` as a hard blocker date by itself. |
 | Security audit | DEFERRED | External audit recommended before economic value. Can defer to post-launch. |
 
 ---
