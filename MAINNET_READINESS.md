@@ -422,6 +422,8 @@ TXM needs a way to be bought and sold. Three options by complexity:
 2. Bridge to BSC → wTXM → PancakeSwap (wide exposure)
 3. Native atomic swap after scripting layer (Phase 10)
 
+Execution roadmap: see `PHASE9A_SWAP_ROADMAP.md`.
+
 ### 9B — Explorer Improvements
 
 | Feature | Priority |
