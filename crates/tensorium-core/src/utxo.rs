@@ -91,7 +91,14 @@ impl UtxoSet {
             .transactions
             .first()
             .ok_or(UtxoError::MissingCoinbase)?;
-        if coinbase.total_output_atoms() > reward_at_height(params, block.header.height) {
+        // Genesis block (height 0) may include the founder allocation on top of
+        // the normal mining reward. All other blocks are bounded by reward only.
+        let max_coinbase_atoms = if block.header.height == 0 && !params.founder_address.is_empty() {
+            reward_at_height(params, 0).saturating_add(params.founder_allocation_atoms)
+        } else {
+            reward_at_height(params, block.header.height)
+        };
+        if coinbase.total_output_atoms() > max_coinbase_atoms {
             return Err(UtxoError::CoinbaseOutputTooHigh);
         }
 

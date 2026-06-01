@@ -9,6 +9,11 @@ pub const TOTAL_SUPPLY_ATOMS: u64 = TOTAL_SUPPLY_COINS * COIN;
 pub const FOUNDER_ALLOCATION_ATOMS: u64 = FOUNDER_ALLOCATION_COINS * COIN;
 pub const MINING_ALLOCATION_ATOMS: u64 = MINING_ALLOCATION_COINS * COIN;
 
+/// Founder wallet address for the mainnet-candidate genesis allocation.
+/// Receives FOUNDER_ALLOCATION_ATOMS in the genesis coinbase.
+/// Published before genesis — see MAINNET_READINESS.md.
+pub const MC_FOUNDER_ADDRESS: &str = "txm18c3t652j0x0sanux3dhse8fqgrqpsdzx97358d";
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub enum ChainNetwork {
     Testnet,
@@ -25,6 +30,9 @@ pub struct ConsensusParams {
     pub total_supply_atoms: u64,
     pub founder_allocation_atoms: u64,
     pub mining_allocation_atoms: u64,
+    /// Address that receives founder_allocation_atoms in the genesis coinbase.
+    /// Empty string means no genesis founder allocation (testnet behaviour).
+    pub founder_address: &'static str,
     pub initial_reward_atoms: u64,
     pub initial_leading_zero_bits: u8,
     pub min_leading_zero_bits: u8,
@@ -50,6 +58,7 @@ impl ConsensusParams {
             total_supply_atoms: TOTAL_SUPPLY_ATOMS,
             founder_allocation_atoms: FOUNDER_ALLOCATION_ATOMS,
             mining_allocation_atoms: MINING_ALLOCATION_ATOMS,
+            founder_address: "",  // testnet has no genesis founder allocation
             initial_reward_atoms: 1_523_557_865,
             // Difficulty reset 2026-06-01: lowered from 36 → 20 bits for CPU testnet faucet mining.
             // Chain was reset on same date. MC diff (40 bits) still higher than testnet.
@@ -74,6 +83,7 @@ impl ConsensusParams {
             total_supply_atoms: TOTAL_SUPPLY_ATOMS,
             founder_allocation_atoms: FOUNDER_ALLOCATION_ATOMS,
             mining_allocation_atoms: MINING_ALLOCATION_ATOMS,
+            founder_address: MC_FOUNDER_ADDRESS,
             initial_reward_atoms: 1_523_557_865,
             initial_leading_zero_bits: 40,
             min_leading_zero_bits: 32,
@@ -109,6 +119,7 @@ pub const TEST_PARAMS: ConsensusParams = ConsensusParams {
     initial_leading_zero_bits: 8,
     min_leading_zero_bits: 4,
     max_leading_zero_bits: 16,
+    founder_address: "",
     ..ConsensusParams::testnet()
 };
 

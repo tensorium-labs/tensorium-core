@@ -38,9 +38,11 @@ const DEFAULT_MC_P2P_BIND: &str = "0.0.0.0:33333";
 /// All nodes MUST use this exact value to share the same genesis block.
 const MC_GENESIS_TIMESTAMP: u64 = 1_780_272_000;
 /// Genesis nonce for the mainnet-candidate chain.
-/// Mined via CUDA on RTX 5090 at 2.28 GH/s in 24.6 seconds (2026-05-31).
-/// Genesis hash: 0000000000d61e99b9e2530609632b399d0f0b538c2d54daa1dddbfe28ea08dc
-const MC_GENESIS_NONCE: u64 = 56_167_663_277;
+/// GENESIS v2 — includes 1,000,000 TXM founder allocation at txm18c3t652j0x0sanux3dhse8fqgrqpsdzx97358d
+/// Merkle root changed from v1 (no founder alloc). MUST re-mine with GPU before launch.
+/// Previous v1 nonce (no founder alloc): 56_167_663_277 — INVALID for this binary.
+/// Run: tensorium-node mine-genesis [threads]   to find the new nonce.
+const MC_GENESIS_NONCE: u64 = 0; // PLACEHOLDER — set after GPU mining
 const P2P_PROTOCOL_VERSION: u32 = 1;
 /// Maximum blocks returned per GetBlocks response.
 const SYNC_BATCH_SIZE: usize = 50;
@@ -290,13 +292,18 @@ fn mine_genesis_multithreaded(threads: usize) -> Result<u64, String> {
     use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
     // Build the actual genesis block header with the real merkle root.
-    // The merkle root depends on the coinbase transaction (miner="genesis", height=0).
-    // This must match exactly what init_genesis_nonce constructs, otherwise the
-    // found nonce will fail PoW validation when the state is initialized.
+    // The merkle root depends on the genesis coinbase (miner="genesis", height=0)
+    // INCLUDING the founder allocation output.
+    // This must match exactly what init_genesis_nonce constructs.
     let header_template = {
         let params = &MAINNET_CANDIDATE;
         let reward = reward_at_height(params, 0);
-        let coinbase = Transaction::coinbase(0, reward, "genesis");
+        let coinbase = Transaction::genesis_coinbase(
+            reward,
+            "genesis",
+            params.founder_allocation_atoms,
+            params.founder_address,
+        );
         let real_merkle = compute_merkle_root(&[coinbase]);
         BlockHeader {
             version: 1,
