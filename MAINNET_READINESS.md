@@ -361,7 +361,10 @@ Chrome extension wallet stack: TypeScript + React, separate repo `tensorium-wall
 |---|---|---|
 | Pool website | DONE | `https://pooltxm.tensoriumlabs.com` deployed on testnet VPS — Next.js + TypeScript frontend for `tensorium-pool`: stats, miner lookup, payout history, connect guide |
 | Pool fee disclosure | DONE | Shows 5% fee, treasury address, gross reward, pool fee, and net payout before miners connect |
-| Testnet faucet | TODO | `faucet.tensoriumlabs.com` — 1x per address per 24h, send small testnet TXM for testing |
+| Testnet faucet | DONE | `https://faucet.tensoriumlabs.com` — Node.js, pm2, nginx SSL. 10 TXM/request, 24h cooldown. Testnet only (no mainnet faucet). Funded 2026-06-01 after testnet reset: difficulty 20 bits, maturity 10 blocks. |
+| Bridge landing | DONE | `https://bridge.tensoriumlabs.com` — landing + roadmap page. Functional bridge (wTXM BSC) planned Phase 9A. |
+| OTC board | DONE | `https://otc.tensoriumlabs.com` — peer-to-peer trading board, community-managed via Telegram. |
+| Status page | DONE | `https://status.tensoriumlabs.com` — live service health, auto-refresh 60s, pulls from RPC API. |
 
 ### 8D — Docs & Community
 
