@@ -1174,7 +1174,10 @@ const DEFAULT_SEEDS: &[&str] = &["157.230.44.162:23333"];
 /// Built-in mainnet-candidate seed nodes. Used when TENSORIUM_MC_PEERS is unset and
 /// TENSORIUM_NO_DEFAULT_SEEDS is not set. Resolves via DNS so future VPS migrations
 /// only require a DNS record update, not a binary release.
-const MC_DEFAULT_SEEDS: &[&str] = &["seed.tensoriumlabs.com:33333"];
+const MC_DEFAULT_SEEDS: &[&str] = &[
+    "seed.tensoriumlabs.com:33333",
+    "seed2.tensoriumlabs.com:33333",
+];
 
 fn configured_peers() -> Vec<String> {
     let raw = env::var("TENSORIUM_PEERS").unwrap_or_default();
