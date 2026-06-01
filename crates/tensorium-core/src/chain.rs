@@ -51,11 +51,14 @@ impl ConsensusParams {
             founder_allocation_atoms: FOUNDER_ALLOCATION_ATOMS,
             mining_allocation_atoms: MINING_ALLOCATION_ATOMS,
             initial_reward_atoms: 1_523_557_865,
-            initial_leading_zero_bits: 36,
-            min_leading_zero_bits: 28,
-            max_leading_zero_bits: 48,
+            // Difficulty reset 2026-06-01: lowered from 36 → 20 bits for CPU testnet faucet mining.
+            // Chain was reset on same date. MC diff (40 bits) still higher than testnet.
+            initial_leading_zero_bits: 20,
+            min_leading_zero_bits: 8,
+            max_leading_zero_bits: 36,
             difficulty_adjustment_window: 60,
-            coinbase_maturity_blocks: 100,
+            // Maturity lowered from 100 → 10 for faster testnet faucet funding.
+            coinbase_maturity_blocks: 10,
             max_future_block_time_seconds: 2 * 60 * 60,
             max_block_bytes: 1_000_000,
         }
@@ -84,11 +87,10 @@ impl ConsensusParams {
 }
 
 // ── CONSENSUS FREEZE ──────────────────────────────────────────────────────
-// TESTNET parameters are FROZEN as of Phase 6 (2025-05-31).
-// Do NOT change TESTNET fields without a chain reset and version bump.
-// Difficulty 36 bits — requires GPU mining (RTX 3060+)
-// Genesis nonce: see main.rs GENESIS_NONCE_36 (pre-mined via CUDA on RTX 3060)
-// These parameters are locked for the GPU-first testnet phase.
+// TESTNET parameters — chain reset 2026-06-01.
+// Difficulty lowered to 20 bits for CPU-minable testnet faucet funding.
+// Maturity lowered to 10 blocks for faster faucet operation.
+// MC diff (40 bits) remains higher. MC is unaffected by this change.
 pub const TESTNET: ConsensusParams = ConsensusParams::testnet();
 
 // MAINNET_CANDIDATE parameters are FROZEN as of Phase 7E (2026-05-31).
@@ -138,7 +140,7 @@ mod tests {
         assert_eq!(TESTNET.target_block_seconds, 60);
         assert_eq!(TESTNET.max_halving_eras, 10);
         assert_eq!(TESTNET.initial_reward_atoms, 1_523_557_865);
-        assert_eq!(TESTNET.coinbase_maturity_blocks, 100);
+        assert_eq!(TESTNET.coinbase_maturity_blocks, 10);
         assert_eq!(TESTNET.max_future_block_time_seconds, 2 * 60 * 60);
         assert_supply_split(TESTNET);
     }
