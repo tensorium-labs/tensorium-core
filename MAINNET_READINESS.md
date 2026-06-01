@@ -372,7 +372,7 @@ Chrome extension wallet stack: TypeScript + React, separate repo `tensorium-wall
 | Docs: MC node guide | DONE | Added `mainnet-candidate rpc/p2p-listen/sync` commands and MC genesis metadata |
 | Project identity email | DONE | `dev@tensoriumlabs.com` mailbox created on VPS with Postfix/Dovecot TLS; DNS MX/SPF/DMARC verified publicly |
 | DKIM email signing | DONE | OpenDKIM installed, Postfix signing verified locally, and public DNS selector `txm20260531` verified with `opendkim-testkey` |
-| GitHub organization identity | TODO | Create Tensorium-owned GitHub org/account before license/final public launch; migrate links from `rygroup-dev` after ready |
+| GitHub organization identity | BLOCKED | Target org `tensorium-labs` is available, but GitHub org creation requires owner web flow. Added `GITHUB_MIGRATION.md`; transfer repos after org exists |
 | Docs: Chrome extension guide | TODO | After wallet extension built |
 | Risk disclosure on website | DONE | Root site and docs link to `RISK_DISCLOSURE.md` |
 | Announce mainnet-candidate launch | TODO | LAST STEP only: after 8A infrastructure, 8E license/security, soak test, monitoring, and final checks pass |
@@ -381,7 +381,7 @@ Chrome extension wallet stack: TypeScript + React, separate repo `tensorium-wall
 
 | Item | Status | Notes |
 |---|---|---|
-| Source code license | TODO | Currently UNLICENSED. Choose MIT or Apache 2.0 before launch. |
+| Source code license | DONE | Apache-2.0 added with `LICENSE` and `NOTICE`; workspace package license updated |
 | Soak test (2+ weeks MC chain) | TODO | Run MC chain with 2+ nodes for 2+ weeks before public announcement. |
 | Security audit | DEFERRED | External audit recommended before economic value. Can defer to post-launch. |
 

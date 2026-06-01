@@ -87,7 +87,7 @@ The founder commits to a **voluntary 24-month lock** starting from mainnet genes
 ## 6. Open Source
 
 - Source code: [https://github.com/rygroup-dev/tensorium-core](https://github.com/rygroup-dev/tensorium-core)
-- License: UNLICENSED (proprietary, not yet open-source). A license will be determined before mainnet launch.
+- License: Apache-2.0.
 - The code is publicly readable for review and audit purposes.
 
 ---
