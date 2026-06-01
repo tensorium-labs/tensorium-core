@@ -3,6 +3,11 @@ pragma solidity ^0.8.24;
 
 interface ITensoriumBridgeController {
     event OperatorUpdated(address indexed operator, bool allowed);
+    event PauserUpdated(
+        address indexed previousPauser,
+        address indexed newPauser
+    );
+    event MaxPerTxUpdated(uint256 previousMax, uint256 newMax);
     event BridgePaused(address indexed by);
     event BridgeUnpaused(address indexed by);
     event DepositMinted(
@@ -18,13 +23,30 @@ interface ITensoriumBridgeController {
         uint256 amount
     );
 
+    error NotOperator();
+    error NotPauser();
+    error InvalidToken();
+    error InvalidRecipient();
+    error InvalidAmount();
+    error InvalidTensoriumAddress();
+    error BridgeEventAlreadyProcessed();
+    error ExceedsMaxPerTx();
+
     function owner() external view returns (address);
+    function pendingOwner() external view returns (address);
     function token() external view returns (address);
     function paused() external view returns (bool);
+    function withdrawalNonce() external view returns (uint256);
+    function maxPerTx() external view returns (uint256);
+    function pauser() external view returns (address);
     function operators(address account) external view returns (bool);
     function processedEventIds(bytes32 bridgeEventId) external view returns (bool);
 
+    function transferOwnership(address newOwner) external;
+    function acceptOwnership() external;
     function setOperator(address account, bool allowed) external;
+    function setPauser(address newPauser) external;
+    function setMaxPerTx(uint256 newMax) external;
     function pause() external;
     function unpause() external;
 
@@ -36,7 +58,6 @@ interface ITensoriumBridgeController {
     ) external;
 
     function requestWithdrawalToTensorium(
-        bytes32 bridgeEventId,
         string calldata tensoriumAddress,
         uint256 amount
     ) external;
