@@ -19,7 +19,7 @@ Last updated: 2026-06-01
 - [x] Create Solidity interface skeletons
 - [x] Define operator role vs owner role separation
 - [x] Define pause control path
-- [ ] Review contract ownership transfer path
+- [x] Review contract ownership transfer path
 
 ## Phase 9A.2 — Policy And Operations
 
@@ -86,11 +86,16 @@ Already done in docs:
 - [x] operator runbook
 - [x] templates
 
+Already done in implementation:
+
+- [x] contracts (WrappedTensorium + TensoriumBridgeController — production-ready rewrite)
+- [x] 20 tests passing (Ownable2Step, pauser role, maxPerTx cap, auto-generated bridgeEventId)
+- [x] deployment script with MULTISIG_ADDRESS enforcement
+
 Still not done:
 
 - [ ] signer set selection
 - [ ] custody assignment
-- [ ] contracts
 - [ ] test deployment
 - [ ] internal drill
 - [ ] public bridge opening
