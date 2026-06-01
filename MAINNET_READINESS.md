@@ -389,7 +389,7 @@ Chrome extension wallet stack: TypeScript + React, separate repo `tensorium-wall
 | Working order | DONE | Future flow: local edit -> local checks -> push `tensorium-labs` -> VPS deploy/sync -> smoke checks |
 | Temporary mainnet-candidate host | DECIDED | Use current DigitalOcean VPS first; local + GitHub remain source of truth so migration to Hetzner/dedicated VPS is straightforward later. |
 | Docs: Chrome extension guide | DONE | `https://docs.tensoriumlabs.com/chrome-wallet.html` deployed 2026-06-01. Covers install, create/import, send, network selector, security model, FAQ. |
-| Public RPC endpoints | DONE | `https://rpc.tensoriumlabs.com` (testnet) + `https://mc-rpc.tensoriumlabs.com` (MC) live with CORS + rate limit (10r/s). Used by Chrome extension. |
+| Public RPC endpoints | DONE | `https://rpc.tensoriumlabs.com` (testnet) + `https://mc-rpc.tensoriumlabs.com` (MC) live with CORS + rate limit (10r/s). Used by Chrome extension. Current posture: DO remains primary public RPC host; Vultr backup seed stays seed-only until public RPC split/failover is explicitly activated. See `PUBLIC_RPC_POSTURE.md`. |
 | Risk disclosure on website | DONE | Root site and docs link to `RISK_DISCLOSURE.md` |
 | Announce mainnet-candidate launch | TODO | LAST STEP only: after 8A infrastructure is acceptable, monitoring is green, and launch decision is taken. Soak test continues in background and is noted, not treated as a hard calendar gate. |
 
