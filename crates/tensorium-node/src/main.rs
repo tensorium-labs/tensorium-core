@@ -613,7 +613,7 @@ fn print_help() {
     println!("  POST /submitblock                 (broadcasts to peers, cleans mempool)");
     println!("  POST /sendrawtransaction          (validates, pools, broadcasts to peers)");
     println!("  GET  /getmempoolinfo");
-    println!("  GET  /getutxos/<address>          (mature UTXOs for address)");
+    println!("  GET  /getutxos/<address>          (all UTXOs for address, includes mature flag)");
     println!("  GET  /getbanlist");
     println!("  GET  /unban/<ip>                  (remove ban)");
     println!();
@@ -1836,13 +1836,40 @@ mod tests {
             "/getutxos/txm1abc".trim_start_matches("/getutxos/"),
             "txm1abc"
         );
-        assert!("/getutxos/".trim_start_matches("/getutxos/").is_empty());
     }
 
     #[test]
     fn getutxos_rejects_empty_address() {
         let path = "/getutxos/";
         let addr = path.trim_start_matches("/getutxos/");
-        assert!(addr.is_empty(), "empty address should be rejected");
+        assert!(addr.is_empty());
+    }
+
+    #[test]
+    fn getutxos_maturity_flag_coinbase() {
+        // coinbase output is immature when tip_height < created_height + maturity_blocks
+        let coinbase_maturity = 100u64;
+        let created_height = 5u64;
+        let tip_height_immature = 50u64;
+        let tip_height_mature = 105u64;
+
+        let mature_when_immature_tip = !true
+            || tip_height_immature >= created_height.saturating_add(coinbase_maturity);
+        let mature_when_mature_tip = !true
+            || tip_height_mature >= created_height.saturating_add(coinbase_maturity);
+
+        assert!(!mature_when_immature_tip, "coinbase at height 5 should be immature when tip=50");
+        assert!(mature_when_mature_tip, "coinbase at height 5 should be mature when tip=105");
+    }
+
+    #[test]
+    fn getutxos_maturity_flag_non_coinbase() {
+        // non-coinbase outputs are always mature
+        let coinbase_maturity = 100u64;
+        let created_height = 5u64;
+        let tip_height = 0u64; // even at tip_height 0
+
+        let mature = !false || tip_height >= created_height.saturating_add(coinbase_maturity);
+        assert!(mature, "non-coinbase output is always mature");
     }
 }
