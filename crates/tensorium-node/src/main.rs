@@ -220,13 +220,13 @@ fn run() -> Result<(), String> {
                     )?;
                 }
                 "sync" => {
-                    let peers = configured_peers();
+                    let peers = configured_mc_peers();
                     let peer = args
                         .get(3)
                         .map(String::as_str)
                         .or_else(|| peers.first().map(|s| s.as_str()))
                         .ok_or_else(|| {
-                            "usage: tensorium-node mainnet-candidate sync <peer>".to_owned()
+                            "usage: tensorium-node mainnet-candidate sync <peer>  (or set TENSORIUM_MC_PEERS; disable seeds with TENSORIUM_NO_DEFAULT_SEEDS=1)".to_owned()
                         })?;
                     sync_from_peer(peer, &mc_state_path_from_env(), &MAINNET_CANDIDATE)?;
                 }
@@ -651,6 +651,8 @@ fn print_help_mc() {
     println!("  TENSORIUM_MC_STATE    mc state file, default {DEFAULT_MC_STATE_PATH}");
     println!("  TENSORIUM_MC_MEMPOOL  mc mempool file, default {DEFAULT_MC_MEMPOOL_PATH}");
     println!("  TENSORIUM_MC_BANS     mc ban list file, default {DEFAULT_MC_BAN_PATH}");
+    println!("  TENSORIUM_MC_PEERS    comma-separated mc peers (overrides built-in seeds)");
+    println!("  TENSORIUM_NO_DEFAULT_SEEDS=1  disable built-in seed list for mc and testnet");
 }
 
 // ---------------------------------------------------------------------------
@@ -1162,6 +1164,11 @@ fn broadcast_tx_to_peers(tx: &Transaction, state: &ChainState, params: &Consensu
 /// TENSORIUM_NO_DEFAULT_SEEDS is not set.
 const DEFAULT_SEEDS: &[&str] = &["157.230.44.162:23333"];
 
+/// Built-in mainnet-candidate seed nodes. Used when TENSORIUM_MC_PEERS is unset and
+/// TENSORIUM_NO_DEFAULT_SEEDS is not set. Resolves via DNS so future VPS migrations
+/// only require a DNS record update, not a binary release.
+const MC_DEFAULT_SEEDS: &[&str] = &["seed.tensoriumlabs.com:33333"];
+
 fn configured_peers() -> Vec<String> {
     let raw = env::var("TENSORIUM_PEERS").unwrap_or_default();
     let manual: Vec<String> = raw
@@ -1178,6 +1185,23 @@ fn configured_peers() -> Vec<String> {
         return vec![];
     }
     DEFAULT_SEEDS.iter().map(|s| s.to_string()).collect()
+}
+
+fn configured_mc_peers() -> Vec<String> {
+    let raw = env::var("TENSORIUM_MC_PEERS").unwrap_or_default();
+    let manual: Vec<String> = raw
+        .split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_owned)
+        .collect();
+    if !manual.is_empty() {
+        return manual;
+    }
+    if env::var("TENSORIUM_NO_DEFAULT_SEEDS").is_ok() {
+        return vec![];
+    }
+    MC_DEFAULT_SEEDS.iter().map(|s| s.to_string()).collect()
 }
 
 // ---------------------------------------------------------------------------
