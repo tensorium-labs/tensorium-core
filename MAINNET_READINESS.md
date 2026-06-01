@@ -1,7 +1,7 @@
 # Mainnet Readiness
 
 Status: **Phase 7 COMPLETE** — v0.3.1-mainnet-candidate released. MC daemon operational. Mainnet-candidate chain NOT yet publicly launched — pre-launch checklist (Phase 8) in progress.
-Last updated: 2026-05-31
+Last updated: 2026-06-01
 
 This document tracks what must be true before Tensorium mainnet-candidate chain launches publicly.
 
@@ -9,7 +9,7 @@ This document tracks what must be true before Tensorium mainnet-candidate chain 
 
 **Phase 7 DONE.** All Phase 7 sprints (7A–7E) completed 2026-05-31.
 
-- Active public testnet: `tensorium-testnet-0`, diff 36 bits, release `v0.2.0-testnet`
+- Active public testnet: `tensorium-testnet-0`, reset 2026-06-01 to 20-bit difficulty with 10-block maturity for CPU mining, faucet funding, and wallet onboarding
 - Mainnet-candidate code: `v0.3.1-mainnet-candidate` — genesis hardcoded, MC daemon complete
 - MC genesis: nonce `56_167_663_277`, hash `0000000000d61e99b9e2530609632b399d0f0b538c2d54daa1dddbfe28ea08dc`
 - MC commands: `tensorium-node mainnet-candidate rpc/p2p-listen/sync/init`
@@ -26,7 +26,7 @@ This document tracks what must be true before Tensorium mainnet-candidate chain 
 | Founder lock policy | DONE | Social/manual 24-month lock documented; no L1 enforcement. Disclosure required in whitepaper before mainnet. |
 | Mainnet genesis | DONE | Nonce `56_167_663_277` mined RTX 5090 (2.28 GH/s, 24.6s, 2026-05-31). Hash: `0000000000d61e99b9e2530609632b399d0f0b538c2d54daa1dddbfe28ea08dc`. Hardcoded in binary. |
 | Storage migration decision | DEFERRED | JSON state acceptable for mainnet-candidate. Binary/DB migration planned for future version. |
-| Peer discovery | DONE | Built-in static seed list (`157.230.44.162:23333`) added to node binary; opt-out via `TENSORIUM_NO_DEFAULT_SEEDS=1`. DNS seed deferred to mainnet. |
+| Peer discovery | DONE | Built-in static seed list (`157.230.44.162:23333`) added to node binary for testnet; mainnet-candidate DNS seed now live at `seed.tensoriumlabs.com:33333`. |
 | Mining pool path | DONE | tensorium-pool reference pool implemented (HTTP proxy, 5% fee, payout ledger). |
 | Pool fee policy | DONE | Pool treasury address generated (`txm10wa2dazhn2yqwwxkm4aegvzjq55hj9m2jlznt9`); payout accounting implemented; `pooltxm.tensoriumlabs.com` discloses 5% fee before miners connect. |
 | Node/pool role boundaries | DONE | Documented in this file; testnet colocates with isolation; mainnet-candidate scaling plan documented. |
@@ -42,7 +42,7 @@ This document tracks what must be true before Tensorium mainnet-candidate chain 
 - [x] Confirm initial reward: 15.23557865 TXM per block.
 - [x] Confirm halving interval: 1,051,200 blocks.
 - [x] Confirm max halving eras: 10.
-- [x] Confirm coinbase maturity: 100 blocks.
+- [x] Confirm mainnet-candidate coinbase maturity: 100 blocks.
 - [x] Confirm mainnet candidate chain ID.
 - [x] Confirm mainnet initial difficulty.
 - [x] Confirm min/max difficulty bounds.
@@ -325,7 +325,7 @@ Solo mining (fee-free): miners point `txmminer` directly at `tensorium-node` RPC
 
 ## Current Decision
 
-Tensorium v0.3.0-mainnet-candidate is released. Phase 7 (7A–7E) is complete.
+Tensorium v0.3.1-mainnet-candidate is the current documented mainnet-candidate baseline. Phase 7 (7A–7E) is complete.
 
 ## Phase 8 — Pre-Launch Checklist
 
@@ -461,7 +461,7 @@ TXM needs a way to be bought and sold. Three options by complexity:
 **Infrastructure — Phase 8:**
 - [x] Temporary MC seed VPS decision: use existing DigitalOcean VPS first
 - [ ] Dedicated MC VPS migration after temporary launch
-- [ ] DNS seed
+- [x] DNS seed
 - [ ] MC P2P sync test
 - [ ] Backup seed node
 - [x] Block explorer, monitoring, backup
@@ -472,12 +472,13 @@ TXM needs a way to be bought and sold. Three options by complexity:
 
 **Mining Ecosystem — Phase 8-9:**
 - [x] Pool website (pooltxm.tensoriumlabs.com)
-- [ ] Testnet faucet
+- [x] Testnet faucet
 - [x] Mining guide, pool reference implementation
 
 **Trading & Liquidity — Phase 9:**
-- [ ] OTC trading board
-- [ ] Bridge to BSC + wTXM
+- [x] OTC trading board
+- [x] Bridge landing / roadmap
+- [ ] Functional bridge to BSC + wTXM
 - [ ] DEX listing (PancakeSwap)
 - [ ] CEX listing
 

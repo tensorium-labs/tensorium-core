@@ -1,7 +1,7 @@
 # Known Issues — Tensorium Testnet
 
-Status: Public Testnet GPU-first (Phase 6 complete, Phase 7 preparation started)
-Last updated: 2026-05-31
+Status: Public testnet active, mainnet-candidate pre-launch checklist in progress
+Last updated: 2026-06-01
 
 ---
 
@@ -26,13 +26,13 @@ Last updated: 2026-05-31
 
 ---
 
-### KI-003: No automatic peer discovery
+### KI-003: No peer exchange; discovery still depends on static seeds
 
 **Severity:** Medium
 **Component:** tensorium-node P2P
-**Description:** Peer connections are configured entirely via `TENSORIUM_PEERS` environment variable. There is no DNS seed, peer exchange (PEX), or automatic discovery. New nodes must be pointed at a known seed node manually.
-**Workaround:** Set `TENSORIUM_PEERS=157.230.44.162:23333` and use `tensorium-node sync 157.230.44.162:23333` for initial sync.
-**Fix planned:** Phase 7 readiness — DNS seeds and/or documented seed list.
+**Description:** Nodes now have built-in default seeds, and the mainnet-candidate chain has a DNS seed, but there is still no peer exchange (PEX) or richer discovery layer. If the published seeds are unreachable, operators still need manual peer configuration.
+**Workaround:** Default seeds should work in normal cases. If not, set `TENSORIUM_PEERS` manually and run `tensorium-node sync <peer>` against a healthy node.
+**Fix planned:** Post-launch networking hardening — add better peer discovery and redundancy beyond static seeds.
 
 ---
 
@@ -88,7 +88,6 @@ Last updated: 2026-05-31
 
 These are known limitations that are intentional for testnet and will be addressed before mainnet:
 
-- No mining pool support — Phase 7 readiness
-- No peer exchange / DNS seeds — Phase 7 readiness
+- No peer exchange (PEX) / richer peer discovery beyond static seeds
 - No security audit — required before mainnet
-- No rate limiting on RPC — testnet only, RPC should be localhost-bound
+- Public RPC still relies on nginx rate limiting and localhost-only node binds
