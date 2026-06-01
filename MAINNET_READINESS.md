@@ -336,9 +336,9 @@ Phase 7 is complete. Phase 8 covers everything required before the mainnet-candi
 | Item | Status | Notes |
 |---|---|---|
 | MC RPC/P2P daemon | DONE | `mainnet-candidate rpc/p2p-listen/sync` operational (commit 9286304) |
-| Mainnet-candidate seed VPS | TODO | Current testnet VPS (157.230.44.162) must NOT be reused as mainnet seed. Need dedicated VPS: minimum 4 vCPU, 8 GB RAM, 100 GB NVMe SSD. |
-| MC seed node deployed | TODO | Deploy `tensorium-node mainnet-candidate init` + `rpc` + `p2p-listen` on new VPS |
-| DNS seed | TODO | `seed.tensoriumlabs.com` A record → MC seed VPS IP; implement DNS seed support in node or document static seed list update |
+| Mainnet-candidate seed VPS | TEMP DECISION | Use existing DigitalOcean VPS (157.230.44.162) as the temporary MC/mainnet-candidate host. Dedicated VPS migration remains planned after launch pressure is lower. |
+| MC seed node deployed | TODO | Deploy `tensorium-node mainnet-candidate init` + `rpc` + `p2p-listen` on the current VPS first, then migrate to a dedicated VPS later. |
+| DNS seed | TODO | `seed.tensoriumlabs.com` A record → current VPS during temporary phase; update to dedicated VPS IP after migration. |
 | MC P2P sync test | TODO | Run 2+ independent MC nodes and verify they sync to same chain tip |
 | Backup seed node | TODO | At least one additional MC seed node (different provider/region) |
 | Firewall + SSL on MC VPS | TODO | UFW: SSH, 80, 443, P2P 33333; certbot for any web endpoint on new VPS |
@@ -375,6 +375,7 @@ Chrome extension wallet stack: TypeScript + React, separate repo `tensorium-wall
 | GitHub project identity | DONE | `tensorium-labs` GitHub user namespace created; repos created under Tensorium namespace; local remotes and public links migrated from `rygroup-dev` |
 | Legacy GitHub repos | DONE | Old `rygroup-dev/tensorium-core` and `rygroup-dev/tensorium-pool-website` set back to private after migration |
 | Working order | DONE | Future flow: local edit -> local checks -> push `tensorium-labs` -> VPS deploy/sync -> smoke checks |
+| Temporary mainnet-candidate host | DECIDED | Use current DigitalOcean VPS first; local + GitHub remain source of truth so migration to Hetzner/dedicated VPS is straightforward later. |
 | Docs: Chrome extension guide | TODO | After wallet extension built |
 | Risk disclosure on website | DONE | Root site and docs link to `RISK_DISCLOSURE.md` |
 | Announce mainnet-candidate launch | TODO | LAST STEP only: after 8A infrastructure, 8E license/security, soak test, monitoring, and final checks pass |
@@ -453,7 +454,8 @@ TXM needs a way to be bought and sold. Three options by complexity:
 - [x] Genesis block mined, MC params frozen, MC daemon complete
 
 **Infrastructure — Phase 8:**
-- [ ] MC seed VPS (new, dedicated)
+- [x] Temporary MC seed VPS decision: use existing DigitalOcean VPS first
+- [ ] Dedicated MC VPS migration after temporary launch
 - [ ] DNS seed
 - [ ] MC P2P sync test
 - [ ] Backup seed node
@@ -485,7 +487,7 @@ TXM needs a way to be bought and sold. Three options by complexity:
 - [ ] Storage migration (RocksDB)
 
 **Community & Legal:**
-- [ ] Open source license (MIT/Apache 2.0)
+- [x] Open source license (Apache-2.0)
 - [ ] Telegram public, Discord, Twitter/X
 - [ ] Security audit external
 
@@ -500,9 +502,15 @@ TXM needs a way to be bought and sold. Three options by complexity:
 - **Verified:** GPU server (142.188.39.36) + VPS (157.230.44.162) → identical hash
 - **Command:** `tensorium-node mainnet-candidate init` (no args needed)
 
-### VPS Recommendation for Mainnet-Candidate Seed Node
+### VPS Plan for Mainnet-Candidate Seed Node
 
-Current testnet VPS (157.230.44.162) should stay as testnet-only. A dedicated MC seed node VPS should be:
+Temporary decision: use the existing DigitalOcean VPS (`157.230.44.162`) as the
+first mainnet-candidate host. Local Git and the `tensorium-labs` GitHub
+repositories are the source of truth, so a later migration is operationally
+simple: clone from GitHub, copy env/secret files, rebuild services, sync
+state/backups if required, then switch DNS.
+
+A later dedicated MC seed node VPS should be:
 
 | Spec | Minimum | Recommended |
 |---|---|---|
@@ -517,10 +525,10 @@ Ports to open: SSH (22), HTTP (80), HTTPS (443), MC P2P (33333). RPC stays on lo
 
 ### Priority Order for Phase 8
 
-1. **New VPS + MC node** (8A) — cannot launch without a stable seed node
-2. **DNS seed** (8A) — enables auto-discovery for new nodes
-3. **MC P2P sync test** (8A) — confirm chain works before public
-4. **Docs update** (8C) — whitepaper + pool guide + MC node guide
-5. **Chrome extension wallet** (8B) — high impact for community onboarding
-6. **License** (8D) — must be decided before public launch
-7. **Soak test** (8D) — 2+ weeks MC chain running before announcement
+1. **Current VPS MC node** (8A) — deploy mainnet-candidate services on the existing DO VPS first
+2. **DNS seed** (8A) — point to the current VPS during the temporary phase
+3. **MC P2P sync test** (8A) — confirm chain works before public announcement
+4. **Chrome extension wallet** (8B) — high impact for community onboarding
+5. **Faucet / user onboarding** (8C) — useful for testnet and early MC testing
+6. **Soak test** (8E) — keep MC chain running and monitored before wider announcement
+7. **Dedicated VPS migration** — move to Hetzner/dedicated host when ready without changing source control flow

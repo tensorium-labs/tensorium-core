@@ -46,6 +46,17 @@ Use this order for all future Tensorium work:
 4. Deploy/sync the VPS from the `tensorium-labs` remote.
 5. Run VPS/service smoke checks and update local progress docs.
 
+Current VPS decision:
+
+- Use the existing DigitalOcean VPS as the temporary mainnet-candidate host.
+- Treat local Git + `tensorium-labs` GitHub as the source of truth.
+- When a new dedicated VPS is ready, migrate by cloning from
+  `tensorium-labs`, copying only the required env/secret files, rebuilding,
+  syncing state/backups as needed, then switching DNS.
+- Until migration, every production-style update follows:
+  local edit -> local checks -> push `tensorium-labs` -> deploy to current VPS
+  -> smoke check services.
+
 Do not put raw VPS passwords, mailbox passwords, API keys, or GitHub tokens in
 Git-tracked files or project notes. Use root-only files or rotate credentials
 after temporary use.
