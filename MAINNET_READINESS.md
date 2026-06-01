@@ -349,7 +349,7 @@ Phase 7 is complete. Phase 8 covers everything required before the mainnet-candi
 | Item | Status | Notes |
 |---|---|---|
 | CLI wallet works on MC chain | DONE | `txmwallet` unchanged; works with any address format |
-| Chrome extension wallet | TODO | Browser wallet — TypeScript+React, `chrome.storage.local`, connect to node RPC, network selector |
+| Chrome extension wallet | DONE | `tensorium-wallet-extension` repo live at https://github.com/tensorium-labs/tensorium-wallet-extension — TypeScript+React MV3, `chrome.storage.local`, secp256k1+SHA256d, 20/20 tests, Apache-2.0 |
 | Mobile wallet | DEFERRED | iOS/Android — post-launch |
 | Web wallet | DEFERRED | In-browser without extension — post-launch |
 
@@ -376,7 +376,7 @@ Chrome extension wallet stack: TypeScript + React, separate repo `tensorium-wall
 | Legacy GitHub repos | DONE | Old `rygroup-dev/tensorium-core` and `rygroup-dev/tensorium-pool-website` set back to private after migration |
 | Working order | DONE | Future flow: local edit -> local checks -> push `tensorium-labs` -> VPS deploy/sync -> smoke checks |
 | Temporary mainnet-candidate host | DECIDED | Use current DigitalOcean VPS first; local + GitHub remain source of truth so migration to Hetzner/dedicated VPS is straightforward later. |
-| Docs: Chrome extension guide | TODO | After wallet extension built |
+| Docs: Chrome extension guide | TODO | Wallet extension built and published; guide TODO |
 | Risk disclosure on website | DONE | Root site and docs link to `RISK_DISCLOSURE.md` |
 | Announce mainnet-candidate launch | TODO | LAST STEP only: after 8A infrastructure, 8E license/security, soak test, monitoring, and final checks pass |
 
@@ -462,7 +462,7 @@ TXM needs a way to be bought and sold. Three options by complexity:
 - [x] Block explorer, monitoring, backup
 
 **Wallet & UX — Phase 8-9:**
-- [ ] Chrome extension wallet
+- [x] Chrome extension wallet
 - [ ] Mobile wallet (Phase 10)
 
 **Mining Ecosystem — Phase 8-9:**
@@ -528,7 +528,7 @@ Ports to open: SSH (22), HTTP (80), HTTPS (443), MC P2P (33333). RPC stays on lo
 1. **Current VPS MC node** (8A) — deploy mainnet-candidate services on the existing DO VPS first
 2. **DNS seed** (8A) — point to the current VPS during the temporary phase
 3. **MC P2P sync test** (8A) — confirm chain works before public announcement
-4. **Chrome extension wallet** (8B) — high impact for community onboarding
+4. **Chrome extension wallet** (8B) — DONE: `tensorium-wallet-extension` published, Apache-2.0, 20/20 tests
 5. **Faucet / user onboarding** (8C) — useful for testnet and early MC testing
 6. **Soak test** (8E) — keep MC chain running and monitored before wider announcement
 7. **Dedicated VPS migration** — move to Hetzner/dedicated host when ready without changing source control flow
