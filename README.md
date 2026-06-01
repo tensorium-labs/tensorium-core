@@ -9,12 +9,12 @@ A Proof-of-Work blockchain built in Rust — public GPU-first testnet, CUDA mini
 [![Website](https://img.shields.io/badge/Website-tensoriumlabs.com-black)](https://tensoriumlabs.com)
 [![Docs](https://img.shields.io/badge/Docs-docs.tensoriumlabs.com-7c3aed)](https://docs.tensoriumlabs.com)
 [![Explorer](https://img.shields.io/badge/Explorer-Live-green)](https://explorer.tensoriumlabs.com)
-[![Release](https://img.shields.io/badge/Release-v0.2.0--testnet-orange)](https://github.com/rygroup-dev/tensorium-core/releases/tag/v0.2.0-testnet)
+[![Release](https://img.shields.io/badge/Release-v0.2.0--testnet-orange)](https://github.com/tensorium-labs/tensorium-core/releases/tag/v0.2.0-testnet)
 
 ## Install (Linux x86_64)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/rygroup-dev/tensorium-core/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/tensorium-labs/tensorium-core/main/install.sh | bash
 ```
 
 The installer downloads binaries, creates a wallet, inits the chain (instant — no CPU mining), syncs from the seed node, and optionally sets up systemd services.
@@ -26,7 +26,7 @@ The installer downloads binaries, creates a wallet, inits the chain (instant —
 | `txmminer-cuda` | **GPU miner** — NVIDIA CUDA, RTX 3000/4000/5000+ |
 | `txmwallet` | Wallet CLI |
 
-Or download directly from [Releases](https://github.com/rygroup-dev/tensorium-core/releases).
+Or download directly from [Releases](https://github.com/tensorium-labs/tensorium-core/releases).
 
 ### GPU Mining (Required at Difficulty 36)
 
@@ -88,7 +88,7 @@ For safety, the node and pool should be separate trust boundaries. A testnet may
 ## Build
 
 ```bash
-git clone https://github.com/rygroup-dev/tensorium-core.git
+git clone https://github.com/tensorium-labs/tensorium-core.git
 cd tensorium-core
 cargo build --release
 cargo test
@@ -271,7 +271,7 @@ Ban duration: 1 hour. Persisted to `tensorium-testnet-banlist.json`.
 |---|---|
 | 🌐 Website | [tensoriumlabs.com](https://tensoriumlabs.com) — project homepage |
 | 💬 Telegram | [t.me/+QOsnpSdhDGZkZGQ1](https://t.me/+QOsnpSdhDGZkZGQ1) — chat, mining help, announcements |
-| 🐛 Issues | [github.com/rygroup-dev/tensorium-core/issues](https://github.com/rygroup-dev/tensorium-core/issues) — bug reports and feature requests |
+| 🐛 Issues | [github.com/tensorium-labs/tensorium-core/issues](https://github.com/tensorium-labs/tensorium-core/issues) — bug reports and feature requests |
 | 📖 Docs | [docs.tensoriumlabs.com](https://docs.tensoriumlabs.com) — node setup, mining guide, RPC reference |
 | 📄 Whitepaper | [whitepaper.tensoriumlabs.com](https://whitepaper.tensoriumlabs.com) — technical design and tokenomics |
 | 🔍 Explorer | [explorer.tensoriumlabs.com](https://explorer.tensoriumlabs.com) — live chain data |

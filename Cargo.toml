@@ -11,7 +11,7 @@ resolver = "2"
 [workspace.package]
 edition = "2021"
 license = "Apache-2.0"
-repository = "https://github.com/rygroup-dev/tensorium-core"
+repository = "https://github.com/tensorium-labs/tensorium-core"
 rust-version = "1.76"
 
 [workspace.dependencies]

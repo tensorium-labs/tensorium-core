@@ -3,10 +3,10 @@ set -euo pipefail
 
 # ---------------------------------------------------------------------------
 # Tensorium Testnet Installer
-# Usage:  curl -fsSL https://raw.githubusercontent.com/rygroup-dev/tensorium-core/main/install.sh | bash
+# Usage:  curl -fsSL https://raw.githubusercontent.com/tensorium-labs/tensorium-core/main/install.sh | bash
 # ---------------------------------------------------------------------------
 
-REPO="rygroup-dev/tensorium-core"
+REPO="tensorium-labs/tensorium-core"
 VERSION="v0.1.0-testnet"
 SEED_NODE="157.230.44.162"
 RPC_PORT="23332"

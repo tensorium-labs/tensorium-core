@@ -4,15 +4,15 @@ Thank you for your interest in contributing to Tensorium.
 
 ## Ways to Contribute
 
-- **Report bugs** — open a [Bug Report](https://github.com/rygroup-dev/tensorium-core/issues/new?template=bug_report.yml)
-- **Report mining problems** — open a [Mining Problem](https://github.com/rygroup-dev/tensorium-core/issues/new?template=mining_problem.yml)
-- **Suggest features** — open a [Feature Request](https://github.com/rygroup-dev/tensorium-core/issues/new?template=feature_request.yml)
+- **Report bugs** — open a [Bug Report](https://github.com/tensorium-labs/tensorium-core/issues/new?template=bug_report.yml)
+- **Report mining problems** — open a [Mining Problem](https://github.com/tensorium-labs/tensorium-core/issues/new?template=mining_problem.yml)
+- **Suggest features** — open a [Feature Request](https://github.com/tensorium-labs/tensorium-core/issues/new?template=feature_request.yml)
 - **Submit a PR** — for small fixes, open a PR directly; for larger changes, open an issue first to discuss
 
 ## Development Setup
 
 ```bash
-git clone https://github.com/rygroup-dev/tensorium-core.git
+git clone https://github.com/tensorium-labs/tensorium-core.git
 cd tensorium-core
 cargo build
 cargo test

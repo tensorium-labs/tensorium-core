@@ -86,7 +86,7 @@ The founder commits to a **voluntary 24-month lock** starting from mainnet genes
 
 ## 6. Open Source
 
-- Source code: [https://github.com/rygroup-dev/tensorium-core](https://github.com/rygroup-dev/tensorium-core)
+- Source code: [https://github.com/tensorium-labs/tensorium-core](https://github.com/tensorium-labs/tensorium-core)
 - License: Apache-2.0.
 - The code is publicly readable for review and audit purposes.
 
@@ -98,7 +98,7 @@ The founder commits to a **voluntary 24-month lock** starting from mainnet genes
 - Docs: [https://docs.tensoriumlabs.com](https://docs.tensoriumlabs.com)
 - Explorer: [https://explorer.tensoriumlabs.com](https://explorer.tensoriumlabs.com)
 - Telegram: [https://t.me/+QOsnpSdhDGZkZGQ1](https://t.me/+QOsnpSdhDGZkZGQ1)
-- GitHub Issues: [https://github.com/rygroup-dev/tensorium-core/issues](https://github.com/rygroup-dev/tensorium-core/issues)
+- GitHub Issues: [https://github.com/tensorium-labs/tensorium-core/issues](https://github.com/tensorium-labs/tensorium-core/issues)
 
 ---
 
