@@ -290,5 +290,84 @@ describe("Phase 9A bridge contracts", function () {
       await controller.connect(pendingOwner).acceptOwnership();
       expect(await controller.owner()).to.equal(pendingOwner.address);
     });
+
+    it("mint with zero recipient reverts InvalidRecipient", async function () {
+      const { operator, controller } = await deployFixture();
+      await expect(
+        controller.connect(operator).mintFromTensoriumDeposit(
+          ethers.id("d-zero-recipient"),
+          ethers.id("t-zero-recipient"),
+          ethers.ZeroAddress,
+          ethers.parseEther("1")
+        )
+      ).to.be.revertedWithCustomError(controller, "InvalidRecipient");
+    });
+
+    it("mint with zero amount reverts InvalidAmount", async function () {
+      const { operator, user, controller } = await deployFixture();
+      await expect(
+        controller.connect(operator).mintFromTensoriumDeposit(
+          ethers.id("d-zero-amt"),
+          ethers.id("t-zero-amt"),
+          user.address,
+          0n
+        )
+      ).to.be.revertedWithCustomError(controller, "InvalidAmount");
+    });
+
+    it("withdrawal with empty tensoriumAddress reverts InvalidTensoriumAddress", async function () {
+      const { controller, user } = await deployFixture();
+      await expect(
+        controller.connect(user).requestWithdrawalToTensorium("", ethers.parseEther("1"))
+      ).to.be.revertedWithCustomError(controller, "InvalidTensoriumAddress");
+    });
+
+    it("withdrawal with zero amount reverts InvalidAmount", async function () {
+      const { controller, user } = await deployFixture();
+      await expect(
+        controller.connect(user).requestWithdrawalToTensorium("txm1qqtest", 0n)
+      ).to.be.revertedWithCustomError(controller, "InvalidAmount");
+    });
+
+    it("withdrawal with insufficient wTXM balance reverts", async function () {
+      const { controller, user } = await deployFixture();
+      await expect(
+        controller.connect(user).requestWithdrawalToTensorium(
+          "txm1qqtest",
+          ethers.parseEther("1")
+        )
+      ).to.be.reverted;
+    });
+  });
+});
+
+describe("Direct bridge role isolation", function () {
+  async function deployFixture() {
+    const [owner, stranger] = await ethers.getSigners();
+    const WrappedTensorium = await ethers.getContractFactory("WrappedTensorium");
+    const token = await WrappedTensorium.deploy("Wrapped Tensorium", "wTXM", owner.address);
+    await token.waitForDeployment();
+    return { owner, stranger, token };
+  }
+
+  it("direct bridgeMint by non-controller reverts NotBridgeController", async function () {
+    const { stranger, token } = await deployFixture();
+    await expect(
+      token.connect(stranger).bridgeMint(stranger.address, ethers.parseEther("1"))
+    ).to.be.revertedWithCustomError(token, "NotBridgeController");
+  });
+
+  it("direct bridgeBurnFrom by non-controller reverts NotBridgeController", async function () {
+    const { stranger, token } = await deployFixture();
+    await expect(
+      token.connect(stranger).bridgeBurnFrom(stranger.address, ethers.parseEther("1"))
+    ).to.be.revertedWithCustomError(token, "NotBridgeController");
+  });
+
+  it("setBridgeController to zero address reverts InvalidBridgeController", async function () {
+    const { owner, token } = await deployFixture();
+    await expect(
+      token.connect(owner).setBridgeController(ethers.ZeroAddress)
+    ).to.be.revertedWithCustomError(token, "InvalidBridgeController");
   });
 });
