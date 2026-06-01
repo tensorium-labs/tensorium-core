@@ -278,6 +278,12 @@ Ban duration: 1 hour. Persisted to `tensorium-testnet-banlist.json`.
 
 ---
 
+## License
+
+Tensorium Core is licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE).
+
+---
+
 ## Safety
 
 - Keep RPC bound to `127.0.0.1` — never expose it directly to the internet.
