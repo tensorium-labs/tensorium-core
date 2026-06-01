@@ -61,11 +61,11 @@ Last updated: 2026-06-01
 
 ## Phase 9A.6 — Launch Preparation
 
-- [ ] Publish custody address
-- [ ] Publish bridge FAQ and risk disclosure
-- [ ] Publish current limits and confirmation thresholds
-- [ ] Publish bridge hours / review expectations
-- [ ] Publish incident/status communication path
+- [x] Publish custody address (txm13ydx0hc8g3e07qfcecznt0u3jcw6y386e28qhq — bridge.tensoriumlabs.com)
+- [x] Publish bridge FAQ and risk disclosure (bridge.tensoriumlabs.com)
+- [x] Publish current limits and confirmation thresholds (10K wTXM/tx, 6 blocks ~12 min)
+- [x] Publish bridge hours / review expectations (~15 min auto relayer)
+- [x] Publish incident/status communication path (status.tensoriumlabs.com + Telegram)
 
 ## Phase 9A.7 — First Public Opening
 
@@ -95,6 +95,11 @@ Already done in implementation:
 - [x] 20 tests passing (Ownable2Step, pauser role, maxPerTx cap, auto-generated bridgeEventId)
 - [x] deployment script with MULTISIG_ADDRESS enforcement
 - [x] test deployment live on Optimism Sepolia (2026-06-01)
+- [x] contracts live on Optimism mainnet (2026-06-01)
+  - WrappedTensorium: 0x2e71FD45530FAe75B6b427F3e71A0CDEB146C20e
+  - TensoriumBridgeController: 0x4b31C557AD64609B975610812273BF82F1475384
+- [x] bridge relayer live on VPS (pm2: tensorium-bridge-relayer)
+- [x] Phase 9A.6 Launch Preparation DONE
 
 Still not done:
 
