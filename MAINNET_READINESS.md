@@ -373,6 +373,8 @@ Chrome extension wallet stack: TypeScript + React, separate repo `tensorium-wall
 | Project identity email | DONE | `dev@tensoriumlabs.com` mailbox created on VPS with Postfix/Dovecot TLS; DNS MX/SPF/DMARC verified publicly |
 | DKIM email signing | DONE | OpenDKIM installed, Postfix signing verified locally, and public DNS selector `txm20260531` verified with `opendkim-testkey` |
 | GitHub project identity | DONE | `tensorium-labs` GitHub user namespace created; repos created under Tensorium namespace; local remotes and public links migrated from `rygroup-dev` |
+| Legacy GitHub repos | DONE | Old `rygroup-dev/tensorium-core` and `rygroup-dev/tensorium-pool-website` set back to private after migration |
+| Working order | DONE | Future flow: local edit -> local checks -> push `tensorium-labs` -> VPS deploy/sync -> smoke checks |
 | Docs: Chrome extension guide | TODO | After wallet extension built |
 | Risk disclosure on website | DONE | Root site and docs link to `RISK_DISCLOSURE.md` |
 | Announce mainnet-candidate launch | TODO | LAST STEP only: after 8A infrastructure, 8E license/security, soak test, monitoring, and final checks pass |
