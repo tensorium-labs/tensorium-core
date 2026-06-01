@@ -339,7 +339,7 @@ Phase 7 is complete. Phase 8 covers everything required before the mainnet-candi
 | Mainnet-candidate seed VPS | TEMP DECISION | Use existing DigitalOcean VPS (157.230.44.162) as the temporary MC/mainnet-candidate host. Dedicated VPS migration remains planned after launch pressure is lower. |
 | MC seed node deployed | DONE | `tensorium-node mainnet-candidate init` + systemd `tensorium-mc-rpc` (127.0.0.1:33332) + `tensorium-mc-p2p` (0.0.0.0:33333) live on VPS 157.230.44.162 since 2026-06-01. |
 | DNS seed | DONE | `seed.tensoriumlabs.com` A → 157.230.44.162 (user confirmed 2026-06-01). `MC_DEFAULT_SEEDS=["seed.tensoriumlabs.com:33333"]` hardcoded in node binary (commit `40f723d`). |
-| MC P2P sync test | TODO | Run 2+ independent MC nodes and verify they sync to same chain tip |
+| MC P2P sync test | DONE | 2026-06-01: second MC node initialized with isolated state file, synced from `seed.tensoriumlabs.com:33333`, matched genesis tip/height (`0`), and served P2P on `:33334` for verification. Repeat after non-genesis MC activity during soak if chain height increases. |
 | Backup seed node | TODO | At least one additional MC seed node (different provider/region) |
 | Firewall + SSL on MC VPS | DONE | UFW 33333/tcp open; `rpc.tensoriumlabs.com` + `mc-rpc.tensoriumlabs.com` nginx HTTPS proxies live with Let's Encrypt certs (2026-06-01). |
 | Monitor for MC node | DONE | `tensorium-monitor.sh` checks mc_rpc (height), mc_p2p, pub_rpc (https), mc_pub_rpc (https), faucet; all green 2026-06-01. Hourly soak log `/var/log/tensorium-soak.log`. |
@@ -462,7 +462,7 @@ TXM needs a way to be bought and sold. Three options by complexity:
 - [x] Temporary MC seed VPS decision: use existing DigitalOcean VPS first
 - [ ] Dedicated MC VPS migration after temporary launch
 - [x] DNS seed
-- [ ] MC P2P sync test
+- [x] MC P2P sync test
 - [ ] Backup seed node
 - [x] Block explorer, monitoring, backup
 
