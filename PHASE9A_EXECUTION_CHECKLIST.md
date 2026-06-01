@@ -46,9 +46,9 @@ Last updated: 2026-06-01
   - TensoriumBridgeController: `0x4b31C557AD64609B975610812273BF82F1475384`
   - Deployed: 2026-06-01, network: op-sepolia (chainId 11155420)
 - [x] Transfer ownership to test multisig (deployer EOA for Sepolia, acceptOwnership done)
-- [ ] Create sample custody flow for test TXM handling
-- [ ] Prepare operator hot address with limited role
-- [ ] Create first test ledger entries
+- [x] Create sample custody flow for test TXM handling (completed via Phase 9A.5 drill)
+- [x] Prepare operator hot address with limited role (deployer set as operator via setOperator)
+- [x] Create first test ledger entries (drill-phase9a5-reconciliation.json)
 
 ## Phase 9A.5 — Internal Drill
 
@@ -101,10 +101,15 @@ Already done in implementation:
 - [x] bridge relayer live on VPS (pm2: tensorium-bridge-relayer)
 - [x] Phase 9A.6 Launch Preparation DONE
 
+Infrastructure:
+
+- [x] DO VPS (157.230.44.162) — MC RPC + P2P + testnet + pool + bridge relayer
+- [x] Vultr VPS (139.180.137.144) — MC RPC + P2P backup seed node running
+- [x] MC P2P sync test — both nodes at genesis, `already up to date` confirmed 2026-06-01
+- [x] Soak test running — STATUS: OK since 2026-06-01, target done 2026-06-15
+
 Still not done:
 
-- [ ] signer set selection
-- [ ] custody assignment
-- [ ] test deployment
-- [ ] internal drill
-- [ ] public bridge opening
+- [ ] signer set selection (Phase 9A.0)
+- [ ] custody key assignment (Phase 9A.0)
+- [ ] public bridge opening (Phase 9A.7, waiting for soak test 2026-06-15)
