@@ -447,7 +447,7 @@ Execution checklist: see `PHASE9A_EXECUTION_CHECKLIST.md`.
 
 ### 9C — SDK & Developer Tools
 
-- `tensorium-sdk-js` — npm package: query balance, sign+broadcast TX, Node.js + browser
+- `tensorium-sdk-js` — code complete, tests/build/pack pass locally, pushed to GitHub; npm publish currently blocked by npm auth policy requiring 2FA-compatible automation token
 - `tensorium-sdk-py` — pip package: same as JS, for scripting/automation
 - RPC API reference docs at `docs.tensoriumlabs.com/api`
 - Example dApp using SDK
@@ -504,6 +504,7 @@ Execution checklist: see `PHASE9A_EXECUTION_CHECKLIST.md`.
 
 **Developer — Phase 9:**
 - [ ] SDK JS/Python
+  Current status: JS SDK code ready; npm publish blocked on npm token/2FA policy. Python SDK not started.
 - [ ] Public REST API docs
 - [ ] Developer onboarding guide
 
