@@ -208,7 +208,7 @@ Scaling recommendation:
 Mainnet candidate recommendation:
 
 - [x] Seed node: `tensorium-node`, no private payout keys.
-- [ ] Backup seed node: independent node for redundancy.
+- [x] Backup seed node: independent node for redundancy.
 - [x] Pool service: pool API/stratum, share accounting, payout scheduler.
 - [ ] Explorer service: indexer and web UI with read-only RPC access.
 - [ ] Cold storage: founder wallet and treasury reserve.
@@ -225,7 +225,7 @@ Wallet separation:
 Phase 7C update (2026-05-31):
 
 - [ ] Mainnet seed node prepared separately from testnet. *(deferred — requires new VPS decision)*
-- [ ] Backup seed node prepared. *(deferred — to be added as traffic grows)*
+- [x] Backup seed node prepared. *(Vultr `txm-mc-seed-1`, `139.180.137.144`, deployed 2026-06-01 with MC RPC/P2P, sync, firewall, monitoring, and soak cron.)*
 - [x] Node, pool, explorer, and treasury roles isolated or explicitly documented for testnet.
 - [x] Backup node plan documented. *(Stage 1 testnet single VPS acceptable; Stage 2 adds backup node)*
 - [x] RPC bound to localhost only. *(127.0.0.1:23332, enforced by default)*
@@ -331,8 +331,7 @@ Tensorium v0.3.1-mainnet-candidate is the current documented mainnet-candidate b
 
 These are the only Phase 8 items still blocking a public mainnet-candidate launch:
 
-1. Backup seed node on an additional VPS/provider.
-2. Final public launch announcement after backup seed node is ready and monitoring remains green.
+1. Final public launch announcement after infrastructure and monitoring review.
 
 Everything else below Phase 9 and Phase 10 is ecosystem or post-launch roadmap, not a pre-launch blocker for the chain itself.
 
@@ -349,7 +348,7 @@ Phase 7 is complete. Phase 8 covers everything required before the mainnet-candi
 | MC seed node deployed | DONE | `tensorium-node mainnet-candidate init` + systemd `tensorium-mc-rpc` (127.0.0.1:33332) + `tensorium-mc-p2p` (0.0.0.0:33333) live on VPS 157.230.44.162 since 2026-06-01. |
 | DNS seed | DONE | `seed.tensoriumlabs.com` A → 157.230.44.162 (user confirmed 2026-06-01). `MC_DEFAULT_SEEDS=["seed.tensoriumlabs.com:33333"]` hardcoded in node binary (commit `40f723d`). |
 | MC P2P sync test | DONE | 2026-06-01: second MC node initialized with isolated state file, synced from `seed.tensoriumlabs.com:33333`, matched genesis tip/height (`0`), and served P2P on `:33334` for verification. Repeat after non-genesis MC activity during soak if chain height increases. |
-| Backup seed node | TODO | At least one additional MC seed node (different provider/region). Execution runbook: `BACKUP_SEED_NODE_RUNBOOK.md`. |
+| Backup seed node | DONE | Vultr `txm-mc-seed-1` (`139.180.137.144`) deployed 2026-06-01 as a second-provider MC seed node. `tensorium-mc-rpc` + `tensorium-mc-p2p` active, sync matches primary seed at height `0`, firewall open for `33333/tcp`, monitoring + soak cron installed. Runbook: `BACKUP_SEED_NODE_RUNBOOK.md`. |
 | Firewall + SSL on MC VPS | DONE | UFW 33333/tcp open; `rpc.tensoriumlabs.com` + `mc-rpc.tensoriumlabs.com` nginx HTTPS proxies live with Let's Encrypt certs (2026-06-01). |
 | Monitor for MC node | DONE | `tensorium-monitor.sh` checks mc_rpc (height), mc_p2p, pub_rpc (https), mc_pub_rpc (https), faucet; all green 2026-06-01. Hourly soak log `/var/log/tensorium-soak.log`. |
 | Testnet auto-miner | DONE | `tensorium-automine.service` runs `txmminer 127.0.0.1:23332` continuously. Blocks mined every few seconds at 20-bit diff. All faucet/wallet txs confirm immediately. |
@@ -472,7 +471,7 @@ TXM needs a way to be bought and sold. Three options by complexity:
 - [ ] Dedicated MC VPS migration after temporary launch
 - [x] DNS seed
 - [x] MC P2P sync test
-- [ ] Backup seed node
+- [x] Backup seed node
 - [x] Block explorer, monitoring, backup
 
 **Wallet & UX — Phase 8-9:**
