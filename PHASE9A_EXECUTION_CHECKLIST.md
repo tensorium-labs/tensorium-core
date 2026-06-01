@@ -27,17 +27,17 @@ Last updated: 2026-06-01
 - [x] Bridge ledger format written
 - [x] Operator runbook written
 - [x] Reconciliation template written
-- [ ] Incident log location defined
-- [ ] Signer rotation procedure written
-- [ ] Lost-key procedure written
+- [x] Incident log location defined (PHASE9A_INCIDENT_LOG.md)
+- [x] Signer rotation procedure written (PHASE9A_SIGNER_ROTATION.md)
+- [x] Lost-key procedure written (PHASE9A_LOST_KEY.md)
 
 ## Phase 9A.3 — User Flow Design
 
-- [ ] Define deposit request UX
-- [ ] Define how user submits destination Optimism address
-- [ ] Define withdrawal request UX
-- [ ] Define bridge status page shape
-- [ ] Define public risk disclosure text
+- [x] Define deposit request UX (bridge.tensoriumlabs.com — form + step-by-step)
+- [x] Define how user submits destination Optimism address (form on bridge page + Telegram txid submission)
+- [x] Define withdrawal request UX (bridge page — requestWithdrawalToTensorium instructions)
+- [x] Define bridge status page shape (status.tensoriumlabs.com — live service status)
+- [x] Define public risk disclosure text (bridge.tensoriumlabs.com — risk disclosure section)
 
 ## Phase 9A.4 — Test Deployment
 
