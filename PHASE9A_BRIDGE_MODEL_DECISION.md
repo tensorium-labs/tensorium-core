@@ -158,6 +158,11 @@ Before public bridge launch, the team must have:
 - an emergency pause procedure
 - a public incident/status communication path
 
+Supporting docs:
+
+- `PHASE9A_BRIDGE_LEDGER_FORMAT.md`
+- `PHASE9A_OPERATOR_RUNBOOK.md`
+
 ## Ledger Requirements
 
 Every bridge action should be traceable across both chains.
