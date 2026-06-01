@@ -41,8 +41,11 @@ Last updated: 2026-06-01
 
 ## Phase 9A.4 — Test Deployment
 
-- [ ] Deploy bridge contracts to Optimism Sepolia
-- [ ] Transfer ownership to test multisig
+- [x] Deploy bridge contracts to Optimism Sepolia
+  - WrappedTensorium: `0x2e71FD45530FAe75B6b427F3e71A0CDEB146C20e`
+  - TensoriumBridgeController: `0x4b31C557AD64609B975610812273BF82F1475384`
+  - Deployed: 2026-06-01, network: op-sepolia (chainId 11155420)
+- [x] Transfer ownership to test multisig (deployer EOA for Sepolia, acceptOwnership done)
 - [ ] Create sample custody flow for test TXM handling
 - [ ] Prepare operator hot address with limited role
 - [ ] Create first test ledger entries
@@ -91,6 +94,7 @@ Already done in implementation:
 - [x] contracts (WrappedTensorium + TensoriumBridgeController — production-ready rewrite)
 - [x] 20 tests passing (Ownable2Step, pauser role, maxPerTx cap, auto-generated bridgeEventId)
 - [x] deployment script with MULTISIG_ADDRESS enforcement
+- [x] test deployment live on Optimism Sepolia (2026-06-01)
 
 Still not done:
 
