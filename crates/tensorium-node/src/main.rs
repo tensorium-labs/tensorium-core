@@ -39,10 +39,9 @@ const DEFAULT_MC_P2P_BIND: &str = "0.0.0.0:33333";
 const MC_GENESIS_TIMESTAMP: u64 = 1_780_272_000;
 /// Genesis nonce for the mainnet-candidate chain.
 /// GENESIS v2 — includes 1,000,000 TXM founder allocation at txm18c3t652j0x0sanux3dhse8fqgrqpsdzx97358d
-/// Merkle root changed from v1 (no founder alloc). MUST re-mine with GPU before launch.
-/// Previous v1 nonce (no founder alloc): 56_167_663_277 — INVALID for this binary.
-/// Run: tensorium-node mine-genesis [threads]   to find the new nonce.
-const MC_GENESIS_NONCE: u64 = 0; // PLACEHOLDER — set after GPU mining
+/// Mined on RTX 3060 (VastAI) at 0.56 GH/s in 855 s (2026-06-01).
+/// Merkle root: 2997b957adc7c9f563569a2024a6e8f8816e34aafb6f96edb71871ae36542279
+const MC_GENESIS_NONCE: u64 = 114_103_168_481;
 const P2P_PROTOCOL_VERSION: u32 = 1;
 /// Maximum blocks returned per GetBlocks response.
 const SYNC_BATCH_SIZE: usize = 50;
