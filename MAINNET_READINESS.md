@@ -371,7 +371,7 @@ Chrome extension wallet stack: TypeScript + React, separate repo `tensorium-wall
 | Pool website | DONE | `https://pooltxm.tensoriumlabs.com` deployed on testnet VPS — Next.js + TypeScript frontend for `tensorium-pool`: stats, miner lookup, payout history, connect guide |
 | Pool fee disclosure | DONE | Shows 5% fee, treasury address, gross reward, pool fee, and net payout before miners connect |
 | Testnet faucet | DONE | `https://faucet.tensoriumlabs.com` — Node.js, pm2, nginx SSL. 10 TXM/request, 24h cooldown. Testnet only (no mainnet faucet). Funded 2026-06-01 after testnet reset: difficulty 20 bits, maturity 10 blocks. |
-| Bridge landing | DONE | `https://bridge.tensoriumlabs.com` — landing + roadmap page. Functional bridge (wTXM BSC) planned Phase 9A. |
+| Bridge landing | DONE | `https://bridge.tensoriumlabs.com` — landing + roadmap page. Functional bridge (wTXM on an EVM L2, current direction: Optimism) planned Phase 9A. |
 | OTC board | DONE | `https://otc.tensoriumlabs.com` — peer-to-peer trading board, community-managed via Telegram. |
 | Status page | DONE | `https://status.tensoriumlabs.com` — live service health, auto-refresh 60s, pulls from RPC API. |
 
@@ -414,12 +414,12 @@ TXM needs a way to be bought and sold. Three options by complexity:
 | Option | Complexity | Timeline |
 |---|---|---|
 | OTC/P2P trading board (`swap.tensoriumlabs.com`) | Low | 1-2 weeks |
-| Bridge to BSC + PancakeSwap listing (wTXM) | High | 2-3 months |
+| Bridge to Optimism + OP DEX listing (wTXM) | High | 2-3 months |
 | Native atomic swap (HTLC) | Very high | Requires Phase 10B |
 
 **Recommended sequence:**
 1. OTC trading board first (fast, P2P listing, no smart contracts)
-2. Bridge to BSC → wTXM → PancakeSwap (wide exposure)
+2. Bridge to Optimism → wTXM → OP DEX liquidity (wide exposure)
 3. Native atomic swap after scripting layer (Phase 10)
 
 Execution roadmap: see `PHASE9A_SWAP_ROADMAP.md`.
@@ -488,8 +488,8 @@ Execution roadmap: see `PHASE9A_SWAP_ROADMAP.md`.
 **Trading & Liquidity — Phase 9:**
 - [x] OTC trading board
 - [x] Bridge landing / roadmap
-- [ ] Functional bridge to BSC + wTXM
-- [ ] DEX listing (PancakeSwap)
+- [ ] Functional bridge to Optimism + wTXM
+- [ ] DEX listing (Optimism DEX)
 - [ ] CEX listing
 
 **Developer — Phase 9:**
