@@ -32,14 +32,22 @@ Near-term Phase 9A path:
 
 ## Recommended Chain For First Bridge
 
-Recommended first destination: BSC
+Recommended first destination: Optimism
 
 Why:
 
-- low user friction
-- wide wallet support
-- easy DEX access
-- cheaper than Ethereum mainnet for the first rollout
+- stays inside a mature Ethereum L2 environment
+- gives a cleaner long-term path if Tensorium later wants broader OP Superchain
+  interoperability
+- official Optimism bridge and Superchain token standards are mature enough to
+  use as architectural reference points
+- lower-friction first step than trying to design a native Tensorium DEX
+
+Important note:
+
+- if a future Pearl integration depends specifically on Arbitrum-native flow,
+  Arbitrum remains the closest alternative candidate
+- for the current roadmap, the working direction is OP-first, not BSC-first
 
 ## Scope Split
 
@@ -87,15 +95,15 @@ Why:
 Minimum design:
 
 - TXM is locked or custody-tracked on Tensorium side
-- `wTXM` is minted on BSC side
+- `wTXM` is minted on Optimism side
 - redemption burns `wTXM` and releases TXM back on Tensorium
 - mint/burn actions require operator confirmation
 
-### Phase 9A.3 — EVM Side Contract Package
+### Phase 9A.3 — OP Side Contract Package
 
 Goal:
 
-- deploy minimal `wTXM` token and bridge controller contracts
+- deploy minimal `wTXM` token and bridge controller contracts on Optimism
 
 Required contracts:
 
@@ -122,7 +130,7 @@ Minimum workflow:
 
 1. user sends TXM to a published bridge deposit address
 2. operator watches Tensorium chain for confirmed deposit
-3. operator mints equivalent `wTXM` on BSC
+3. operator mints equivalent `wTXM` on Optimism
 4. user burns `wTXM` for withdrawal
 5. operator verifies burn event and releases TXM on Tensorium
 
@@ -141,17 +149,18 @@ Goal:
 
 Recommended first venue:
 
-- PancakeSwap pool on BSC
+- Uniswap or Velodrome on Optimism
 
 Pair recommendation:
 
-- `wTXM / USDT` or `wTXM / WBNB`
+- `wTXM / USDT`
+- `wTXM / WETH`
 
 Decision bias:
 
 - `wTXM / USDT` is easier for casual price comprehension
-- `wTXM / WBNB` may be easier to seed operationally if treasury already holds
-  BNB-side assets
+- `wTXM / WETH` is cleaner if treasury wants to stay closer to Ethereum L2
+  liquidity rather than BNB-side assets
 
 ### Phase 9A.6 — User Surface
 
@@ -188,10 +197,10 @@ Recommended order:
 3. ERC-20 + bridge contract design
 4. operator ledger / reconciliation design
 5. bridge docs + risk docs
-6. test deployment on BSC testnet
+6. test deployment on Optimism Sepolia
 7. internal end-to-end deposit / mint / burn / redeem test
 8. main deployment
-9. PancakeSwap liquidity bootstrap
+9. Optimism DEX liquidity bootstrap
 
 ## Launch Gates For Phase 9A
 
@@ -211,6 +220,7 @@ If the team wants the fastest realistic liquidity path:
 
 - launch Tensorium chain first
 - keep OTC active immediately after launch
-- use BSC as the first bridge target
+- use Optimism as the first bridge target
 - use multisig-controlled `wTXM`
-- list `wTXM` on PancakeSwap before attempting any native Tensorium DEX
+- list `wTXM` on an established Optimism DEX before attempting any native
+  Tensorium DEX
