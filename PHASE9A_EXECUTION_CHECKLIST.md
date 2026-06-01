@@ -17,8 +17,8 @@ Last updated: 2026-06-01
 - [x] Define `wTXM` ERC-20 contract shape
 - [x] Define bridge controller contract shape
 - [x] Create Solidity interface skeletons
-- [ ] Define operator role vs owner role separation
-- [ ] Define pause control path
+- [x] Define operator role vs owner role separation
+- [x] Define pause control path
 - [ ] Review contract ownership transfer path
 
 ## Phase 9A.2 — Policy And Operations
@@ -80,6 +80,8 @@ Already done in docs:
 - [x] bridge model decision
 - [x] bridge policy
 - [x] contract specs
+- [x] initial contract scaffold
+- [x] basic local contract tests
 - [x] ledger format
 - [x] operator runbook
 - [x] templates

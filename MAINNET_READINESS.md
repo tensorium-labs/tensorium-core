@@ -428,6 +428,7 @@ Bridge policy: see `PHASE9A_BRIDGE_POLICY.md`.
 `wTXM` contract spec: see `PHASE9A_WTXM_CONTRACT_SPEC.md`.
 Bridge controller spec: see `PHASE9A_BRIDGE_CONTROLLER_SPEC.md`.
 Contracts implementation plan: see `contracts/PHASE9A_CONTRACTS_IMPLEMENTATION_PLAN.md`.
+Initial Hardhat workspace and local tests live under `contracts/`.
 Signer/custody layout: see `PHASE9A_SIGNER_CUSTODY_LAYOUT.md`.
 Bridge ledger format: see `PHASE9A_BRIDGE_LEDGER_FORMAT.md`.
 Bridge operator runbook: see `PHASE9A_OPERATOR_RUNBOOK.md`.

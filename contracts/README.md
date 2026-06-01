@@ -7,14 +7,18 @@ Current scope:
 
 - Solidity interface skeletons for `wTXM`
 - Solidity interface skeletons for the Tensorium bridge controller
+- initial Hardhat workspace for local compile/test
+- initial contract implementations and tests
 - implementation planning notes
 
 Current status:
 
-- no Foundry/Hardhat toolchain is wired into this repo yet
-- this folder is meant to anchor the contract surface before implementation
+- Hardhat is wired locally inside this folder
+- this folder now anchors both the contract surface and the first local EVM
+  toolchain
+- local compile and basic tests pass
 
 Recommended next step:
 
-- choose Foundry or Hardhat
-- turn the interface skeletons into compile-tested implementations
+- extend the initial contracts beyond the first local passing tests
+- add deployment config for Optimism Sepolia

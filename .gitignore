@@ -17,3 +17,6 @@ node_data/
 /node2/
 .openclaw/
 .claude/
+contracts/node_modules/
+contracts/cache/
+contracts/artifacts/
