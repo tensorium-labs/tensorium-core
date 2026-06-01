@@ -1,44 +1,41 @@
 # Tensorium GitHub Migration
 
-Target organization: `tensorium-labs`
+Target namespace: `tensorium-labs`
 
-Status: the namespace is available, but GitHub organization creation must be
-completed once through GitHub's web flow by the owner account. GitHub does not
-currently expose normal organization creation through `gh org` or the public
-REST API used by this workspace.
+Status: `tensorium-labs` is a GitHub user account controlled by the project.
+The old `rygroup-dev` repositories were not transferred through GitHub's
+transfer API because GitHub reported the target repository names as taken. The
+migration path used instead is to create fresh repositories under
+`tensorium-labs`, push the full local Git history, then update remotes and
+public links.
 
-## Recommended Setup
+## Account Setup
 
-- Organization name: `tensorium-labs`
+- Username: `tensorium-labs`
 - Display name: `Tensorium Labs`
 - Public email: `dev@tensoriumlabs.com`
 - Website: `https://tensoriumlabs.com`
-- Billing plan: Free is enough for public repositories.
-- Require 2FA for owners and maintainers.
+- Enable 2FA before final public launch.
 
-## Repositories To Transfer
+## Repositories
 
-- `rygroup-dev/tensorium-core` -> `tensorium-labs/tensorium-core`
-- `rygroup-dev/tensorium-pool-website` -> `tensorium-labs/tensorium-pool-website`
+- `https://github.com/tensorium-labs/tensorium-core`
+- `https://github.com/tensorium-labs/tensorium-pool-website`
 
-## After Organization Exists
+## Local Remotes
 
-Transfer with GitHub CLI/API or GitHub web UI, then update local remotes:
+Local remotes should point to the Tensorium namespace:
 
 ```bash
 git -C /root/.openclaw/workspace/tensorium-core remote set-url origin https://github.com/tensorium-labs/tensorium-core.git
 git -C /root/.openclaw/workspace/tensorium-pool-website remote set-url origin https://github.com/tensorium-labs/tensorium-pool-website.git
 ```
 
-Then update public links in:
+## Public Links
 
-- `README.md`
-- `CONTRIBUTING.md`
-- `RISK_DISCLOSURE.md`
-- `install.sh`
-- `CHANGELOG.md`
-- `Cargo.toml`
-- `myProject_PoW.md`
+Public links in README, CONTRIBUTING, RISK_DISCLOSURE, install script,
+CHANGELOG, Cargo metadata, pool website README, and blueprint should point to
+`github.com/tensorium-labs`.
 
 Do not announce launch date during this migration. Launch date remains the last
 step after readiness gates, soak test, monitoring, and final checks.

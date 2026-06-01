@@ -372,7 +372,7 @@ Chrome extension wallet stack: TypeScript + React, separate repo `tensorium-wall
 | Docs: MC node guide | DONE | Added `mainnet-candidate rpc/p2p-listen/sync` commands and MC genesis metadata |
 | Project identity email | DONE | `dev@tensoriumlabs.com` mailbox created on VPS with Postfix/Dovecot TLS; DNS MX/SPF/DMARC verified publicly |
 | DKIM email signing | DONE | OpenDKIM installed, Postfix signing verified locally, and public DNS selector `txm20260531` verified with `opendkim-testkey` |
-| GitHub organization identity | BLOCKED | Target org `tensorium-labs` is available, but GitHub org creation requires owner web flow. Added `GITHUB_MIGRATION.md`; transfer repos after org exists |
+| GitHub project identity | DONE | `tensorium-labs` GitHub user namespace created; repos created under Tensorium namespace; local remotes and public links migrated from `rygroup-dev` |
 | Docs: Chrome extension guide | TODO | After wallet extension built |
 | Risk disclosure on website | DONE | Root site and docs link to `RISK_DISCLOSURE.md` |
 | Announce mainnet-candidate launch | TODO | LAST STEP only: after 8A infrastructure, 8E license/security, soak test, monitoring, and final checks pass |

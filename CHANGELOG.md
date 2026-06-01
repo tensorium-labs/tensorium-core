@@ -74,7 +74,7 @@ All notable changes to Tensorium are documented in this file.
 - Explorer: `explorer.tensoriumlabs.com`
 - Docs: `docs.tensoriumlabs.com`
 - Whitepaper: `whitepaper.tensoriumlabs.com`
-- Install script: `curl -fsSL https://raw.githubusercontent.com/rygroup-dev/tensorium-core/main/install.sh | bash`
+- Install script: `curl -fsSL https://raw.githubusercontent.com/tensorium-labs/tensorium-core/main/install.sh | bash`
 
 ---
 
