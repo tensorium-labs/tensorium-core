@@ -425,6 +425,8 @@ TXM needs a way to be bought and sold. Three options by complexity:
 Execution roadmap: see `PHASE9A_SWAP_ROADMAP.md`.
 Bridge trust model decision: see `PHASE9A_BRIDGE_MODEL_DECISION.md`.
 Bridge policy: see `PHASE9A_BRIDGE_POLICY.md`.
+`wTXM` contract spec: see `PHASE9A_WTXM_CONTRACT_SPEC.md`.
+Bridge controller spec: see `PHASE9A_BRIDGE_CONTROLLER_SPEC.md`.
 Signer/custody layout: see `PHASE9A_SIGNER_CUSTODY_LAYOUT.md`.
 Bridge ledger format: see `PHASE9A_BRIDGE_LEDGER_FORMAT.md`.
 Bridge operator runbook: see `PHASE9A_OPERATOR_RUNBOOK.md`.

@@ -14,8 +14,8 @@ Last updated: 2026-06-01
 
 ## Phase 9A.1 — Contracts
 
-- [ ] Define `wTXM` ERC-20 contract shape
-- [ ] Define bridge controller contract shape
+- [x] Define `wTXM` ERC-20 contract shape
+- [x] Define bridge controller contract shape
 - [ ] Define operator role vs owner role separation
 - [ ] Define pause control path
 - [ ] Review contract ownership transfer path
@@ -78,6 +78,7 @@ Already done in docs:
 - [x] roadmap
 - [x] bridge model decision
 - [x] bridge policy
+- [x] contract specs
 - [x] ledger format
 - [x] operator runbook
 - [x] templates
