@@ -192,3 +192,8 @@ If the team wants the safest realistic launch posture:
 - keep daily caps active
 - treat anything large as manual review
 - do not promise instant bridging
+
+Supporting docs:
+
+- `PHASE9A_SIGNER_CUSTODY_LAYOUT.md`
+- `PHASE9A_EXECUTION_CHECKLIST.md`
