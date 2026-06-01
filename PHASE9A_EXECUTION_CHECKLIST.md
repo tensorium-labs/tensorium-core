@@ -52,12 +52,12 @@ Last updated: 2026-06-01
 
 ## Phase 9A.5 — Internal Drill
 
-- [ ] Drill one test deposit end-to-end
-- [ ] Drill one test mint end-to-end
-- [ ] Drill one test burn end-to-end
-- [ ] Drill one test release end-to-end
-- [ ] Run reconciliation after the drill
-- [ ] Verify pause path during a simulated incident
+- [x] Drill one test deposit end-to-end
+- [x] Drill one test mint end-to-end
+- [x] Drill one test burn end-to-end
+- [x] Drill one test release end-to-end (WithdrawalRequested event emitted, operator notified)
+- [x] Run reconciliation after the drill (supply balanced, saved to deployments/drill-phase9a5-reconciliation.json)
+- [x] Verify pause path during a simulated incident (mint blocked ✓, unpause works ✓)
 
 ## Phase 9A.6 — Launch Preparation
 
