@@ -1,8 +1,8 @@
 # Tensorium Core
 
-A Proof-of-Work blockchain built in Rust — public GPU-first testnet, CUDA mining, mainnet-candidate preparation.
+A Proof-of-Work blockchain built in Rust — public GPU-first testnet, CUDA mining, and mainnet-candidate bootstrap.
 
-> **Status:** Public testnet — coins have no monetary value, bugs welcome via Issues.
+> **Status:** Public testnet plus mainnet-candidate preparation. The current DigitalOcean VPS is the temporary MC host until a dedicated VPS migration is ready.
 > Chain: `tensorium-testnet-0` | Ticker: `TXM` | P2P port: `23333` | RPC port: `23332`
 
 [![Telegram](https://img.shields.io/badge/Telegram-Community-blue?logo=telegram)](https://t.me/+QOsnpSdhDGZkZGQ1)
@@ -61,15 +61,15 @@ Tensorium is a Proof-of-Work Layer 1 blockchain focused on open mining, transpar
 - Initial reward: 15.23557865 TXM/block
 - Halving: every 1,051,200 blocks (~2 years), 10 eras over 20 years
 - Testnet PoW: SHA256d at GPU-first difficulty 36
-- Current phase: Phase 7 preparation; mainnet is not ready until audit, founder policy, monitoring, and final disclosure are complete
+- Current phase: Phase 8 infrastructure; the existing DigitalOcean VPS is used as the temporary mainnet-candidate host, with dedicated VPS migration planned later
 
 ### Pool Fee Policy Draft
 
 Tensorium consensus does not include a hidden miner tax.
 
-The current Phase 7 draft allows an official/reference mining pool to charge a transparent `5%` pool fee. This fee would be handled by pool payout accounting, sent to a published pool treasury/development wallet, and shown before miners connect. Solo miners who submit blocks directly to their own node are not charged this pool fee by the protocol.
+The current Phase 8 policy allows an official/reference mining pool to charge a transparent `5%` pool fee. This fee is handled by pool payout accounting, sent to a published pool treasury/development wallet, and shown before miners connect. Solo miners who submit blocks directly to their own node are not charged this pool fee by the protocol.
 
-For safety, the node and pool should be separate trust boundaries. A testnet may colocate them on one VPS to stay lightweight, as long as processes, folders, env files, logs, and wallet files are isolated. As the network grows, adding more nodes is good for redundancy, sync health, and decentralization; mainnet candidate infrastructure should add backup seed nodes and split high-risk services when needed.
+For safety, the node and pool should be separate trust boundaries. The temporary mainnet-candidate setup may colocate services on the current VPS to keep operations moving, as long as processes, folders, env files, logs, and wallet files are isolated. As the network grows, adding more nodes is good for redundancy, sync health, and decentralization; mainnet-candidate infrastructure should add backup seed nodes and split high-risk services when needed.
 
 ---
 
