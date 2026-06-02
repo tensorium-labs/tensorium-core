@@ -376,31 +376,30 @@ int main(int argc, char *argv[]) {
     static BlockTemplate last_tmpl;
     memset(&last_tmpl, 0, sizeof(last_tmpl));
 
+    // Fetch initial template
+    while (g_running && !get_block_template(host, port, miner_addr, &tmpl)) {
+        fprintf(stderr, "Failed to get template — retrying in 3s\n");
+        sleep(3);
+    }
+    memcpy(&last_tmpl, &tmpl, sizeof(tmpl));
+    printf("mining  height=%llu  bits=%u  blocks=%d  threads=%d\n",
+           (unsigned long long)tmpl.height, tmpl.difficulty_bits,
+           cuda_blocks, cuda_threads);
+    fflush(stdout);
+
+    // Timer: refresh template every TEMPLATE_REFRESH_SEC seconds
+    #define TEMPLATE_REFRESH_SEC 10
+    struct timespec last_refresh;
+    clock_gettime(CLOCK_MONOTONIC, &last_refresh);
+
+    uint64_t total_hashes = 0;
+    struct timespec rate_t0;
+    clock_gettime(CLOCK_MONOTONIC, &rate_t0);
+
     while (g_running) {
-        // Get block template
-        if (!get_block_template(host, port, miner_addr, &tmpl)) {
-            fprintf(stderr, "Failed to get template — retrying in 3s\n");
-            sleep(3);
-            continue;
-        }
-
-        // New height → reset nonce
-        if (tmpl.height != last_tmpl.height ||
-            memcmp(tmpl.previous_hash, last_tmpl.previous_hash, 32) != 0) {
-            start_nonce = 0;
-            printf("mining  height=%llu  bits=%u  blocks=%d  threads=%d\n",
-                   (unsigned long long)tmpl.height, tmpl.difficulty_bits,
-                   cuda_blocks, cuda_threads);
-            fflush(stdout);
-            memcpy(&last_tmpl, &tmpl, sizeof(tmpl));
-        }
-
         // Build 112-byte header (nonce=0, will be set by kernel)
         uint8_t header112[112] = {0};
         build_header(&tmpl, 0, header112);
-
-        struct timespec t0, t1;
-        clock_gettime(CLOCK_MONOTONIC, &t0);
 
         uint64_t winning_nonce = 0;
         int found = launch_mining_kernel(
@@ -408,57 +407,74 @@ int main(int argc, char *argv[]) {
             cuda_blocks, cuda_threads, iters, &winning_nonce
         );
 
-        clock_gettime(CLOCK_MONOTONIC, &t1);
-        double elapsed = (t1.tv_sec - t0.tv_sec) + (t1.tv_nsec - t0.tv_nsec) / 1e9;
-        double hashrate = total_nonces_per_launch / elapsed;
+        total_hashes += total_nonces_per_launch;
+        start_nonce  += total_nonces_per_launch;
 
         if (found) {
-            // Submit
-            printf("✓  height=%llu  nonce=%llu  %.3fs  ",
+            struct timespec now; clock_gettime(CLOCK_MONOTONIC, &now);
+            double elapsed = (now.tv_sec - rate_t0.tv_sec) +
+                             (now.tv_nsec - rate_t0.tv_nsec) / 1e9;
+            double hashrate = total_hashes / elapsed;
+            printf("✓  height=%llu  nonce=%llu  ",
                    (unsigned long long)tmpl.height,
-                   (unsigned long long)winning_nonce, elapsed);
-
-            if (hashrate >= 1e9)       printf("%.2f GH/s\n", hashrate / 1e9);
-            else if (hashrate >= 1e6)  printf("%.2f MH/s\n", hashrate / 1e6);
-            else if (hashrate >= 1e3)  printf("%.2f KH/s\n", hashrate / 1e3);
-            else                        printf("%.0f H/s\n", hashrate);
+                   (unsigned long long)winning_nonce);
+            if (hashrate >= 1e9)      printf("%.2f GH/s\n", hashrate / 1e9);
+            else if (hashrate >= 1e6) printf("%.2f MH/s\n", hashrate / 1e6);
+            else                       printf("%.2f KH/s\n", hashrate / 1e3);
             fflush(stdout);
 
-            if (!submit_block(host, port, tmpl.template_json, winning_nonce)) {
-                fprintf(stderr, "  ✗ block rejected (stale) — getting fresh template\n");
+            if (!submit_block(host, port, tmpl.template_json, winning_nonce))
+                fprintf(stderr, "  ✗ block rejected (stale)\n");
+
+            // Fresh template after submit
+            if (get_block_template(host, port, miner_addr, &tmpl)) {
+                if (tmpl.height != last_tmpl.height ||
+                    memcmp(tmpl.previous_hash, last_tmpl.previous_hash, 32) != 0) {
+                    printf("mining  height=%llu  bits=%u\n",
+                           (unsigned long long)tmpl.height, tmpl.difficulty_bits);
+                    fflush(stdout);
+                    memcpy(&last_tmpl, &tmpl, sizeof(tmpl));
+                }
             }
             start_nonce = 0;
-
-            // Get fresh template after submitting
-            get_block_template(host, port, miner_addr, &tmpl);
-            memcpy(&last_tmpl, &tmpl, sizeof(tmpl));
+            total_hashes = 0;
+            clock_gettime(CLOCK_MONOTONIC, &rate_t0);
+            clock_gettime(CLOCK_MONOTONIC, &last_refresh);
         } else {
-            // Not found in this batch — advance nonce range
-            start_nonce += total_nonces_per_launch;
-
-            // Print hashrate periodically (every 5 launches)
+            // Print hashrate periodically
             static int tick = 0;
-            if (++tick % 5 == 0) {
-                if (hashrate >= 1e9)      printf("\r  %.2f GH/s  nonce_base=%llu   ",
-                    hashrate/1e9, (unsigned long long)start_nonce);
-                else if (hashrate >= 1e6) printf("\r  %.2f MH/s  nonce_base=%llu   ",
-                    hashrate/1e6, (unsigned long long)start_nonce);
-                else                       printf("\r  %.2f KH/s  nonce_base=%llu   ",
-                    hashrate/1e3, (unsigned long long)start_nonce);
+            if (++tick % 200 == 0) {
+                struct timespec now; clock_gettime(CLOCK_MONOTONIC, &now);
+                double elapsed = (now.tv_sec - rate_t0.tv_sec) +
+                                 (now.tv_nsec - rate_t0.tv_nsec) / 1e9;
+                double hashrate = total_hashes / elapsed;
+                if (hashrate >= 1e9)
+                    printf("\r  %.2f GH/s  nonce=%llu   ",
+                           hashrate/1e9, (unsigned long long)start_nonce);
+                else
+                    printf("\r  %.2f MH/s  nonce=%llu   ",
+                           hashrate/1e6, (unsigned long long)start_nonce);
                 fflush(stdout);
             }
 
-            // Refresh template periodically to pick up new blocks
-            static int template_tick = 0;
-            if (++template_tick % 20 == 0) {
+            // Timer-based template refresh (every TEMPLATE_REFRESH_SEC seconds)
+            struct timespec now; clock_gettime(CLOCK_MONOTONIC, &now);
+            double since_refresh = (now.tv_sec - last_refresh.tv_sec) +
+                                   (now.tv_nsec - last_refresh.tv_nsec) / 1e9;
+            if (since_refresh >= TEMPLATE_REFRESH_SEC) {
                 BlockTemplate fresh;
                 if (get_block_template(host, port, miner_addr, &fresh)) {
+                    clock_gettime(CLOCK_MONOTONIC, &last_refresh);
                     if (fresh.height != tmpl.height ||
                         memcmp(fresh.previous_hash, tmpl.previous_hash, 32) != 0) {
                         memcpy(&tmpl, &fresh, sizeof(tmpl));
                         memcpy(&last_tmpl, &fresh, sizeof(fresh));
                         start_nonce = 0;
-                        printf("\n  New block detected, refreshed template\n");
+                        total_hashes = 0;
+                        clock_gettime(CLOCK_MONOTONIC, &rate_t0);
+                        printf("\n  New block detected — height=%llu\n",
+                               (unsigned long long)tmpl.height);
+                        fflush(stdout);
                     }
                 }
             }
