@@ -1,5 +1,5 @@
 name: Bug Report
-description: Report a bug in tensorium-node, txmminer, or txmwallet
+description: Report a bug in tensorium-node, txmminer-cuda, txmminer, or txmwallet
 title: "[Bug] "
 labels: ["bug", "needs-triage"]
 body:
@@ -7,7 +7,7 @@ body:
     attributes:
       value: |
         Thanks for reporting a bug. Please fill in as much detail as possible.
-        **Testnet only** — do not report issues related to mainnet or real funds.
+        Report issues against the live mainnet-first stack. Include exact runtime context if funds or production hosts are involved.
 
   - type: dropdown
     id: component
@@ -16,7 +16,8 @@ body:
       description: Which binary is affected?
       options:
         - tensorium-node
-        - txmminer
+        - txmminer-cuda (GPU miner)
+        - txmminer (CPU dev/diagnostic)
         - txmwallet
         - install.sh
         - Other
@@ -27,8 +28,8 @@ body:
     id: version
     attributes:
       label: Version
-      description: Which release? (e.g. v0.1.1-testnet)
-      placeholder: v0.1.1-testnet
+      description: Which release? (e.g. v0.3.1-mainnet-candidate)
+      placeholder: v0.3.1-mainnet-candidate
     validations:
       required: true
 
@@ -56,9 +57,9 @@ body:
       label: Steps to reproduce
       description: Exact commands/steps to reproduce the issue.
       placeholder: |
-        1. Run `tensorium-node init`
-        2. Run `tensorium-node rpc`
-        3. Run `txmminer 127.0.0.1:23332 txm1...`
+        1. Run `tensorium-node mainnet-candidate init`
+        2. Run `tensorium-node mainnet-candidate rpc`
+        3. Run `txmminer-cuda 127.0.0.1:33332 txm1...` (or `txmminer` for dev/diagnostic)
         4. See error: ...
     validations:
       required: true

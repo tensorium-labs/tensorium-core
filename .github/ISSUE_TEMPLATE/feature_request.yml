@@ -9,11 +9,11 @@ body:
       label: Area
       options:
         - Consensus / Protocol
-        - Mining (txmminer)
+        - GPU Mining (txmminer-cuda)
+        - CPU Mining dev/diagnostic (txmminer)
         - Wallet (txmwallet)
         - Node / RPC
         - P2P Networking
-        - GPU Mining (Phase 6)
         - Documentation
         - Explorer
         - Other
