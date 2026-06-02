@@ -49,7 +49,7 @@ extern "C" int        launch_mining_kernel_ctx(
 // ── Config ────────────────────────────────────────────────────────────────────
 
 #define RPC_RECV_BUF   (1 << 20)   // 1 MB receive buffer
-#define ITERS_DEFAULT  (1 << 26)   // 64M total nonces per launch (32 iters × 2M threads)
+#define ITERS_DEFAULT  (1 << 30)   // 1B total nonces per launch (512 iters × 2M threads)
 #define BLOCKS_DEFAULT  8192
 #define THREADS_DEFAULT 256
 #define HEADER_TEMPLATE_MAX 192
