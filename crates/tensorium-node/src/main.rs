@@ -18,6 +18,7 @@ use tensorium_core::{
     chain::{ConsensusParams, MAINNET_CANDIDATE, TESTNET},
     emission::reward_at_height,
     pow::header_meets_work,
+    script::standard::{extract_address, p2pkh_from_address},
     Block, ChainState, Hash256, Mempool, StateError, UtxoSet,
 };
 
@@ -1644,13 +1645,21 @@ fn handle_rpc_stream(
                     &RpcError::new("missing address: GET /getutxos/<address>"),
                 );
             }
+            let script = match p2pkh_from_address(address) {
+                Ok(s) => s,
+                Err(_) => return write_json_response(
+                    stream,
+                    400,
+                    &RpcError::new("invalid address: GET /getutxos/<address>"),
+                ),
+            };
             let state = load_state(state_path)?;
             let utxos = build_utxo_set(&state, params)?;
             let tip_height = state.height().unwrap_or(0);
             let entries: Vec<serde_json::Value> = utxos
                 .entries
                 .iter()
-                .filter(|(_, entry)| entry.output.address == address)
+                .filter(|(_, entry)| entry.output.script_pubkey == script)
                 .map(|(outpoint, entry)| {
                     let mature = !entry.coinbase
                         || tip_height
@@ -1662,6 +1671,7 @@ fn handle_rpc_stream(
                         "txid_bytes": outpoint.txid.0.to_vec(),
                         "output_index": outpoint.output_index,
                         "value_atoms": entry.output.value_atoms,
+                        "address": extract_address(&entry.output.script_pubkey).unwrap_or_default(),
                         "coinbase": entry.coinbase,
                         "created_height": entry.created_height,
                         "mature": mature,
