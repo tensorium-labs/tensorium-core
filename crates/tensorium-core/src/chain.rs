@@ -31,7 +31,7 @@ pub struct ConsensusParams {
     pub founder_allocation_atoms: u64,
     pub mining_allocation_atoms: u64,
     /// Address that receives founder_allocation_atoms in the genesis coinbase.
-    /// Empty string means no genesis founder allocation (testnet behaviour).
+    /// Empty string means no founder allocation is assigned for that network.
     pub founder_address: &'static str,
     pub initial_reward_atoms: u64,
     pub initial_leading_zero_bits: u8,
@@ -58,15 +58,15 @@ impl ConsensusParams {
             total_supply_atoms: TOTAL_SUPPLY_ATOMS,
             founder_allocation_atoms: FOUNDER_ALLOCATION_ATOMS,
             mining_allocation_atoms: MINING_ALLOCATION_ATOMS,
-            founder_address: "",  // testnet has no genesis founder allocation
+            founder_address: "",  // no genesis founder allocation on this network
             initial_reward_atoms: 1_523_557_865,
-            // Difficulty reset 2026-06-01: lowered from 36 → 20 bits for CPU testnet faucet mining.
-            // Chain was reset on same date. MC diff (40 bits) still higher than testnet.
+            // Legacy low-difficulty network retained for CPU development and migration drills.
+            // Mainnet candidate remains GPU-first at 40 bits.
             initial_leading_zero_bits: 20,
             min_leading_zero_bits: 8,
             max_leading_zero_bits: 36,
             difficulty_adjustment_window: 60,
-            // Maturity lowered from 100 → 10 for faster testnet faucet funding.
+            // Short maturity retained for the low-difficulty development network.
             coinbase_maturity_blocks: 10,
             max_future_block_time_seconds: 2 * 60 * 60,
             max_block_bytes: 1_000_000,
@@ -97,10 +97,8 @@ impl ConsensusParams {
 }
 
 // ── CONSENSUS FREEZE ──────────────────────────────────────────────────────
-// TESTNET parameters — chain reset 2026-06-01.
-// Difficulty lowered to 20 bits for CPU-minable testnet faucet funding.
-// Maturity lowered to 10 blocks for faster faucet operation.
-// MC diff (40 bits) remains higher. MC is unaffected by this change.
+// Low-difficulty development-network parameters retained for tests and migration drills.
+// MC diff (40 bits) remains higher and is unaffected by this configuration.
 pub const TESTNET: ConsensusParams = ConsensusParams::testnet();
 
 // MAINNET_CANDIDATE parameters are FROZEN as of Phase 7E (2026-05-31).
@@ -157,7 +155,7 @@ mod tests {
     }
 
     #[test]
-    fn mainnet_candidate_tokenomics_match_testnet_supply_plan() {
+    fn mainnet_candidate_tokenomics_match_reference_supply_plan() {
         assert_eq!(MAINNET_CANDIDATE.chain_id, "tensorium-mainnet-candidate-0");
         assert_eq!(
             MAINNET_CANDIDATE.target_block_seconds,
@@ -176,7 +174,7 @@ mod tests {
     }
 
     #[test]
-    fn mainnet_is_gpu_first_harder_than_testnet() {
+    fn mainnet_is_gpu_first_harder_than_reference_network() {
         assert!(MAINNET_CANDIDATE.initial_leading_zero_bits > TESTNET.initial_leading_zero_bits);
         assert!(MAINNET_CANDIDATE.min_leading_zero_bits > TESTNET.min_leading_zero_bits);
         assert!(MAINNET_CANDIDATE.max_leading_zero_bits > TESTNET.max_leading_zero_bits);

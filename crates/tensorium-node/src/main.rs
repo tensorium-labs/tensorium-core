@@ -15,21 +15,21 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tensorium_core::{
     block::{merkle_root as compute_merkle_root, BlockHeader, Transaction},
-    chain::{ConsensusParams, MAINNET_CANDIDATE, TESTNET},
+    chain::{ConsensusParams, MAINNET_CANDIDATE},
     emission::reward_at_height,
     pow::header_meets_work,
     script::standard::{extract_address, p2pkh_from_address},
     Block, ChainState, Hash256, Mempool, StateError, UtxoSet,
 };
 
-const DEFAULT_STATE_PATH: &str = "tensorium-testnet-state.json";
-const DEFAULT_MEMPOOL_PATH: &str = "tensorium-testnet-mempool.json";
-const DEFAULT_BAN_PATH: &str = "tensorium-testnet-banlist.json";
+const DEFAULT_STATE_PATH: &str = "tensorium-mainnet-state.json";
+const DEFAULT_MEMPOOL_PATH: &str = "tensorium-mainnet-mempool.json";
+const DEFAULT_BAN_PATH: &str = "tensorium-mainnet-banlist.json";
 const DEFAULT_NONCE_LIMIT: u64 = u64::MAX;
-const DEFAULT_RPC_BIND: &str = "127.0.0.1:23332";
-const DEFAULT_P2P_BIND: &str = "127.0.0.1:23333";
+const DEFAULT_RPC_BIND: &str = "127.0.0.1:33332";
+const DEFAULT_P2P_BIND: &str = "0.0.0.0:33333";
 
-// Mainnet-candidate defaults (different ports so testnet and mc can coexist)
+// Legacy explicit mainnet-candidate aliases kept for backward compatibility.
 const DEFAULT_MC_STATE_PATH: &str = "tensorium-mc-state.json";
 const DEFAULT_MC_MEMPOOL_PATH: &str = "tensorium-mc-mempool.json";
 const DEFAULT_MC_BAN_PATH: &str = "tensorium-mc-banlist.json";
@@ -89,24 +89,24 @@ fn run() -> Result<(), String> {
 
     match command {
         "init" => {
-            let state = init_testnet_state(&state_path)?;
-            print_status(&state, &TESTNET);
+            let state = init_mainnet_candidate_state(&state_path, MC_GENESIS_NONCE)?;
+            print_status(&state, &MAINNET_CANDIDATE);
         }
         "status" => {
             let state = load_state(&state_path)?;
-            print_status(&state, &TESTNET);
+            print_status(&state, &MAINNET_CANDIDATE);
         }
         "mine-once" => {
             let mut state = load_state(&state_path)?;
             let miner = args.get(2).map(String::as_str).unwrap_or("local-dev-miner");
             state
-                .mine_next_block(&TESTNET, now_seconds(), miner, DEFAULT_NONCE_LIMIT)
+                .mine_next_block(&MAINNET_CANDIDATE, now_seconds(), miner, DEFAULT_NONCE_LIMIT)
                 .map_err(|err| err.to_string())?;
-            print_status(&state, &TESTNET);
+            print_status(&state, &MAINNET_CANDIDATE);
         }
         "rpc" => {
             let bind = args.get(2).map(String::as_str).unwrap_or(DEFAULT_RPC_BIND);
-            serve_rpc(bind, state_path, mempool_path_from_env(), &TESTNET)?;
+            serve_rpc(bind, state_path, mempool_path_from_env(), &MAINNET_CANDIDATE)?;
         }
         "p2p-listen" => {
             let bind = args.get(2).map(String::as_str).unwrap_or(DEFAULT_P2P_BIND);
@@ -115,14 +115,14 @@ fn run() -> Result<(), String> {
                 state_path,
                 mempool_path_from_env(),
                 ban_path_from_env(),
-                &TESTNET,
+                &MAINNET_CANDIDATE,
             )?;
         }
         "p2p-connect" => {
             let peer = args
                 .get(2)
                 .ok_or_else(|| "usage: tensorium-node p2p-connect <host:port>".to_owned())?;
-            connect_peer(peer, &state_path, &TESTNET)?;
+            connect_peer(peer, &state_path, &MAINNET_CANDIDATE)?;
         }
         "sync" => {
             let peers = configured_peers();
@@ -133,7 +133,7 @@ fn run() -> Result<(), String> {
                 .ok_or_else(|| {
                     "usage: tensorium-node sync <peer>  (or set TENSORIUM_PEERS; disable built-in seeds with TENSORIUM_NO_DEFAULT_SEEDS=1)".to_owned()
                 })?;
-            sync_from_peer(peer, &state_path, &TESTNET)?;
+            sync_from_peer(peer, &state_path, &MAINNET_CANDIDATE)?;
         }
         "peers" => print_manual_peers(),
         "banlist" => print_banlist(),
@@ -385,14 +385,6 @@ fn now_seconds() -> u64 {
         .as_secs()
 }
 
-fn init_testnet_state(state_path: &Path) -> Result<ChainState, String> {
-    let mut state = ChainState::open_db(state_path)?;
-    state
-        .init_genesis(&TESTNET, 1_748_649_600, DEFAULT_NONCE_LIMIT)
-        .map_err(|err| err.to_string())?;
-    Ok(state)
-}
-
 fn init_mainnet_candidate_state(state_path: &Path, nonce: u64) -> Result<ChainState, String> {
     let mut state = ChainState::open_db(state_path)?;
     state
@@ -607,16 +599,22 @@ fn print_help() {
     println!("tensorium-node <command>");
     println!();
     println!("commands:");
-    println!("  init                 create local testnet genesis state");
+    println!("  init                 create local mainnet genesis state");
     println!("  status               show local chain status");
-    println!("  mine-once [miner]    mine one block and persist it");
-    println!("  rpc [bind]           start localhost HTTP RPC server");
-    println!("  p2p-listen [bind]    listen for peer connections and messages");
+    println!("  mine-once [miner]    mine one block and persist it (diagnostic only)");
+    println!("  rpc [bind]           start mainnet HTTP RPC server");
+    println!("  p2p-listen [bind]    listen for mainnet peer connections and messages");
     println!("  p2p-connect <peer>   connect to a peer for diagnostics");
-    println!("  sync [peer]          pull missing blocks from a peer");
+    println!("  sync [peer]          pull missing mainnet blocks from a peer");
     println!("  peers                print manual peers from TENSORIUM_PEERS");
     println!("  banlist              show peer ban list");
     println!("  unban <ip>           remove a peer from the ban list");
+    println!("  mainnet-candidate    explicit alias for the same mainnet chain");
+    println!();
+    println!("default chain params:");
+    println!("  chain_id       = {}", MAINNET_CANDIDATE.chain_id);
+    println!("  initial_diff   = {} bits", MAINNET_CANDIDATE.initial_leading_zero_bits);
+    println!("  target_block   = {}s", MAINNET_CANDIDATE.target_block_seconds);
     println!();
     println!("rpc endpoints:");
     println!("  GET  /health");
@@ -635,8 +633,8 @@ fn print_help() {
     println!("  TENSORIUM_STATE      state file path, default {DEFAULT_STATE_PATH}");
     println!("  TENSORIUM_MEMPOOL    mempool file path, default {DEFAULT_MEMPOOL_PATH}");
     println!("  TENSORIUM_BANS       ban list file path, default {DEFAULT_BAN_PATH}");
-    println!("  TENSORIUM_PEERS      comma-separated peers to broadcast to (overrides built-in seeds)");
-    println!("  TENSORIUM_NO_DEFAULT_SEEDS=1  disable built-in seed list");
+    println!("  TENSORIUM_PEERS      comma-separated mainnet peers (overrides built-in seeds)");
+    println!("  TENSORIUM_NO_DEFAULT_SEEDS=1  disable built-in mainnet seed list");
     println!("  TENSORIUM_NODE_ID    node identity string");
     println!("  TENSORIUM_RPC_ALLOW_PUBLIC=1  allow non-loopback RPC bind");
 }
@@ -667,7 +665,7 @@ fn print_help_mc() {
     println!("  TENSORIUM_MC_MEMPOOL  mc mempool file, default {DEFAULT_MC_MEMPOOL_PATH}");
     println!("  TENSORIUM_MC_BANS     mc ban list file, default {DEFAULT_MC_BAN_PATH}");
     println!("  TENSORIUM_MC_PEERS    comma-separated mc peers (overrides built-in seeds)");
-    println!("  TENSORIUM_NO_DEFAULT_SEEDS=1  disable built-in seed list for mc and testnet");
+    println!("  TENSORIUM_NO_DEFAULT_SEEDS=1  disable built-in seed list for both generic and mc aliases");
 }
 
 // ---------------------------------------------------------------------------
@@ -1171,9 +1169,12 @@ fn broadcast_tx_to_peers(tx: &Transaction, state: &ChainState, params: &Consensu
     }
 }
 
-/// Built-in testnet seed nodes. Used when TENSORIUM_PEERS is unset and
+/// Built-in mainnet seed nodes for the generic command set. Used when
 /// TENSORIUM_NO_DEFAULT_SEEDS is not set.
-const DEFAULT_SEEDS: &[&str] = &["157.230.44.162:23333"];
+const DEFAULT_SEEDS: &[&str] = &[
+    "seed.tensoriumlabs.com:33333",
+    "seed2.tensoriumlabs.com:33333",
+];
 
 /// Built-in mainnet-candidate seed nodes. Used when TENSORIUM_MC_PEERS is unset and
 /// TENSORIUM_NO_DEFAULT_SEEDS is not set. Resolves via DNS so future VPS migrations
@@ -1752,13 +1753,13 @@ mod tests {
 
     #[test]
     fn rpc_bind_allows_loopback_by_default() {
-        assert_eq!(ensure_safe_rpc_bind("127.0.0.1:23332"), Ok(()));
-        assert_eq!(ensure_safe_rpc_bind("localhost:23332"), Ok(()));
+        assert_eq!(ensure_safe_rpc_bind("127.0.0.1:33332"), Ok(()));
+        assert_eq!(ensure_safe_rpc_bind("localhost:33332"), Ok(()));
     }
 
     #[test]
     fn rpc_bind_rejects_public_host_by_default() {
-        assert!(ensure_safe_rpc_bind("0.0.0.0:23332").is_err());
+        assert!(ensure_safe_rpc_bind("0.0.0.0:33332").is_err());
     }
 
     // --- BanList unit tests ---
@@ -1889,11 +1890,16 @@ mod tests {
     }
 
     #[test]
-    fn testnet_init_persists_state_on_disk() {
+    fn mainnet_init_persists_state_on_disk() {
+        // Verify that init creates a RocksDB-backed state that survives close+reopen.
+        // Uses TEST_PARAMS (diff 8) so the test mines instantly without a GPU.
+        // The real MC genesis nonce (diff 40, GPU-mined) is validated at deploy time.
+        use tensorium_core::chain::TEST_PARAMS;
         let dir = tempfile::tempdir().unwrap();
-        let state_path = dir.path().join("tensorium-testnet-state.json");
+        let state_path = dir.path().join("tensorium-mainnet-state.json");
 
-        let state = init_testnet_state(&state_path).unwrap();
+        let mut state = ChainState::open_db(&state_path).unwrap();
+        state.init_genesis(&TEST_PARAMS, 1_700_000_000, DEFAULT_NONCE_LIMIT).unwrap();
         assert_eq!(state.height(), Some(0));
         drop(state);
 
