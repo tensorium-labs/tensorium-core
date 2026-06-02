@@ -358,7 +358,7 @@ Phase 7 is complete. Phase 8 covers everything required before the mainnet-candi
 | Item | Status | Notes |
 |---|---|---|
 | CLI wallet works on MC chain | DONE | `txmwallet` unchanged; works with any address format |
-| Chrome extension wallet | DONE | `tensorium-wallet-extension` repo live at https://github.com/tensorium-labs/tensorium-wallet-extension — TypeScript+React MV3, `chrome.storage.local`, secp256k1+SHA256d, 20/20 tests, Apache-2.0 |
+| Chrome extension wallet | DONE | `tensorium-wallet-extension` v0.1.1 — TypeScript+React MV3, `chrome.storage.local`, secp256k1+SHA256d, 20/20 tests, Apache-2.0. GitHub release live with manual install ZIP. Chrome Web Store submission under review. |
 | Mobile wallet | DEFERRED | iOS/Android — post-launch |
 | Web wallet | DEFERRED | In-browser without extension — post-launch |
 

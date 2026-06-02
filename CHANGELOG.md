@@ -2,9 +2,33 @@
 
 All notable changes to Tensorium are documented in this file.
 
+## [v0.3.1-mainnet-candidate] — 2026-06-01
+
+**Status: Genesis hardcoded. MC daemon operational. Phase 8 infrastructure complete. Soak test running.**
+
+### Added
+- **MC genesis hardcoded** — nonce `114_103_168_481` mined on RTX 5090 (2.28 GH/s, 24.6s); hash `000000000063ab6f057a16376b1712e709719126ad977a3d4be23f83b89f0392`; includes 1M TXM founder allocation in genesis output. `tensorium-node mainnet-candidate init` requires no argument.
+- **MC RPC/P2P daemon** — `ConsensusParams` threaded through all node functions; subcommands `mainnet-candidate rpc [bind]`, `mainnet-candidate p2p-listen [bind]`, `mainnet-candidate sync [peer]`; env vars `TENSORIUM_MC_MEMPOOL`, `TENSORIUM_MC_BANS` (commit `9286304`)
+- **Backup seed node** — Vultr `txm-mc-seed-1` (`139.180.137.144`) deployed as second-provider MC seed; runbook at `BACKUP_SEED_NODE_RUNBOOK.md`
+- **DNS seed** — `MC_DEFAULT_SEEDS = ["seed.tensoriumlabs.com:33333"]` in node binary; `seed.tensoriumlabs.com` A→`157.230.44.162` (commit `40f723d`)
+- **Public RPC proxies** — `rpc.tensoriumlabs.com` (testnet →23332) and `mc-rpc.tensoriumlabs.com` (MC →33332) via nginx with CORS + rate-limit (`10r/s`) and Let's Encrypt TLS
+- **Chrome wallet extension** — `tensorium-wallet-extension` v0.1.1; TypeScript + React MV3; secp256k1+SHA256d; create/import/send/history/settings; 20/20 tests; Apache-2.0; GitHub release live with manual install ZIP
+- **Testnet faucet** — `https://faucet.tensoriumlabs.com`; 10 TXM/request, 24h cooldown; testnet reset to 20-bit diff / 10-block maturity for CPU mining
+- **`tensorium-sdk-js`** — JS/TS SDK for TXM chain; code complete, tests/build/pack pass; npm publish pending token/2FA policy resolution
+- **Pool website** — `https://pooltxm.tensoriumlabs.com` deployed; Next.js frontend with stats, miner lookup, payout history, 5% fee disclosure
+- **Community subdomains** — `bridge.tensoriumlabs.com`, `otc.tensoriumlabs.com`, `status.tensoriumlabs.com`, `faucet.tensoriumlabs.com` all live with HTTPS
+- **Project email** — `dev@tensoriumlabs.com` with Postfix/Dovecot TLS; MX/SPF/DMARC/DKIM verified
+- **GitHub migration** — repos live under `tensorium-labs` namespace; legacy `rygroup-dev` repos set to private
+
+### Fixed
+- Testnet reset 2026-06-01: difficulty 36→20 bits, coinbase maturity 100→10 blocks for CPU-minable onboarding
+- `txmwallet` binary updated with new maturity setting and deployed to VPS
+
+---
+
 ## [v0.3.0-mainnet-candidate] — 2026-05-31
 
-**Status: Mainnet-candidate release. Testnet remains active. Mainnet-candidate chain NOT yet launched — genesis nonce pending GPU mining.**
+**Status: Mainnet-candidate code complete. Genesis mining pending at time of release; hardcoded in v0.3.1.**
 
 ### Added
 - **`tensorium-pool`** reference mining pool (`crates/tensorium-pool`)

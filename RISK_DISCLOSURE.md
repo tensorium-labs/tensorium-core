@@ -1,7 +1,7 @@
 # Risk Disclosure
 
-**Tensorium (TXM) — Mainnet-Candidate Release v0.3.0**
-**Published: 2026-05-31**
+**Tensorium (TXM) — Mainnet-Candidate Release v0.3.1**
+**Published: 2026-06-01**
 
 Please read this document carefully before running a node, mining, or acquiring TXM tokens.
 
@@ -12,9 +12,8 @@ Please read this document carefully before running a node, mining, or acquiring 
 Tensorium is a **mainnet-candidate** blockchain. It is **not yet in production mainnet**. The current public chain is a GPU-first testnet (`tensorium-testnet-0`) for community testing and GPU mining evaluation.
 
 - Testnet tokens have **no monetary value**.
-- Mainnet-candidate launch requires GPU mining of the genesis block (40-bit difficulty).
-- The mainnet-candidate genesis timestamp is tentatively set to **2026-06-01 00:00:00 UTC**, but may change.
-- **No launch date is announced.** A launch date will only be set after this document and all items in `MAINNET_READINESS.md` are finalized.
+- The mainnet-candidate genesis block has been mined (nonce `114_103_168_481`, hash `000000000063ab6f057a16376b1712e709719126ad977a3d4be23f83b89f0392`, timestamp `2026-06-01 00:00:00 UTC`). The chain is in soak-test phase.
+- **No public launch date is announced.** A launch announcement will only be made after monitoring, soak test, and final infrastructure checks pass.
 
 ---
 
@@ -66,9 +65,8 @@ The founder commits to a **voluntary 24-month lock** starting from mainnet genes
 - Other GPU architectures may require compiling from source.
 
 ### Network
-- Peer discovery uses a built-in static seed list (`157.230.44.162:23333`). If the seed node goes offline, new nodes cannot auto-connect without manually specifying a peer.
-- DNS seed support is planned but not yet implemented.
-- The testnet operates on a single seed node. Network decentralization requires community participation.
+- Peer discovery uses a built-in static seed list and DNS seed (`seed.tensoriumlabs.com:33333` for mainnet-candidate, `157.230.44.162:23333` for testnet). If all seed nodes go offline, new nodes cannot auto-connect without manually specifying a peer.
+- A backup seed node (`139.180.137.144`, Vultr) is operational for the mainnet-candidate. Network decentralization still requires broader community participation.
 
 ---
 
