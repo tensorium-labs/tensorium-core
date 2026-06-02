@@ -1,5 +1,16 @@
 # RocksDB Storage Migration — Implementation Plan
 
+**Status:** Completed on 2026-06-02.
+
+**Verification summary:**
+- `cargo test --workspace` passes after the RocksDB migration was threaded through `tensorium-core`, `tensorium-node`, and `txmwallet`.
+- Local smoke test confirmed `tensorium-node init` now creates `tensorium-testnet-state.db/` persistently and `status` can reopen it.
+- Local RPC smoke test against `/getblock/0` returned in ~22.56 ms on the migrated backend.
+
+**Post-plan fix applied during verification:**
+- `txmwallet` was still reading legacy JSON `ChainState` and iterating `state.blocks`; it now follows the same JSON -> RocksDB auto-migration path and uses `canonical_blocks_iter()`.
+- `tensorium-node init` and `mainnet-candidate init` were still creating tempdir-only state via `ChainState::new()`; both now initialize persistent RocksDB state via `ChainState::open_db(...)`.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Replace `state.json` flat-file storage with RocksDB — same public API, O(1) memory, ~1KB write per block instead of 215MB.
@@ -1089,18 +1100,18 @@ git commit -m "feat(node): replace load_state/save_state with RocksDB, fix field
 
 **Files:** none (verification only)
 
-- [ ] **Verify cargo test --workspace passes cleanly:**
+- [x] **Verify cargo test --workspace passes cleanly:**
 
 ```bash
 cargo test --workspace 2>&1 | tail -5
 ```
 
-Expected:
+Observed:
 ```
-test result: ok. N passed; 0 failed; 0 ignored
+test result: ok. 64 passed; 0 failed; 0 ignored
 ```
 
-- [ ] **Check disk layout after running a test node:**
+- [x] **Check disk layout after running a test node:**
 
 ```bash
 # Dry-run: init testnet with existing state.json backup
@@ -1109,11 +1120,12 @@ cargo run -p tensorium-node -- init 2>&1 | head -10
 ls -lh tensorium-testnet-state.*
 ```
 
-Expected:
-- `tensorium-testnet-state.db/` directory created
-- `tensorium-testnet-state.json` still present (migration renames to `.json.migrated`)
+Observed:
+- `tensorium-testnet-state.db/` directory created in a temp workspace
+- `tensorium-node status` successfully reopened the same DB and reported height `0`
+- Fresh init creates the `.db/` directly; JSON rename only happens on legacy-file migration
 
-- [ ] **Benchmark: time a getblock call with the new binary vs old:**
+- [x] **Benchmark: time a getblock call with the new binary vs old:**
 
 ```bash
 # Start node in background
@@ -1126,9 +1138,13 @@ time curl -s http://127.0.0.1:23332/getblock/100 | python3 -m json.tool | head -
 kill %1
 ```
 
-Expected: response in < 50ms (vs 2–4s before)
+Observed: local `/getblock/0` RPC returned in ~22.56 ms.
 
-- [ ] **Final commit with test results:**
+- [x] **Final commit with test results:**
+
+Note: verification uncovered and fixed two follow-on issues outside the original file map:
+- `crates/txmwallet/src/main.rs` still assumed JSON `ChainState`
+- `crates/tensorium-node/src/main.rs` `init` paths still used tempdir state
 
 ```bash
 git add -A

@@ -150,7 +150,8 @@ impl ChainState {
         self.db.get_cf(cf, &hash.0).expect("DB read").map(|b| decode_block(&b))
     }
 
-    pub(crate) fn get_block_by_height(&self, height: u64) -> Option<Block> {
+    /// Return the canonical block at `height`, if present.
+    pub fn get_block_by_height(&self, height: u64) -> Option<Block> {
         let canonical_cf = self.db.cf_handle(CF_CANONICAL).expect("canonical CF");
         let blocks_cf    = self.db.cf_handle(CF_BLOCKS).expect("blocks CF");
         let hash_bytes = self.db.get_cf(canonical_cf, &encode_height(height)).ok()??;

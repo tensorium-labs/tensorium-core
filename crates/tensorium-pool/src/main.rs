@@ -36,6 +36,7 @@ fn run() -> Result<(), String> {
         Some("serve") | None => serve(),
         Some("stats") => cmd_stats(),
         Some("accounting") => cmd_accounting(),
+        Some("custody") => cmd_custody(),
         Some("pending") => {
             let addr = args
                 .get(2)
@@ -65,6 +66,10 @@ struct PoolState {
     node_rpc: String,
     /// Pool treasury wallet address — used as coinbase recipient.
     treasury_address: String,
+    /// Operational hot wallet address used to pay miners.
+    payout_hot_wallet: Option<String>,
+    /// Soft cap for the hot wallet balance, in atoms.
+    payout_hot_wallet_max_atoms: Option<u64>,
     /// Path to the persistent payout ledger JSON.
     ledger_path: PathBuf,
     /// Payout ledger (loaded from disk, persisted on each accepted block).
@@ -75,11 +80,19 @@ struct PoolState {
 }
 
 impl PoolState {
-    fn new(node_rpc: String, treasury_address: String, ledger_path: PathBuf) -> Self {
+    fn new(
+        node_rpc: String,
+        treasury_address: String,
+        payout_hot_wallet: Option<String>,
+        payout_hot_wallet_max_atoms: Option<u64>,
+        ledger_path: PathBuf,
+    ) -> Self {
         let ledger = PayoutLedger::load(&ledger_path);
         Self {
             node_rpc,
             treasury_address,
+            payout_hot_wallet,
+            payout_hot_wallet_max_atoms,
             ledger_path,
             ledger,
             last_miner_for_height: HashMap::new(),
@@ -118,6 +131,10 @@ fn serve() -> Result<(), String> {
     let treasury = env::var("TENSORIUM_POOL_TREASURY").map_err(|_| {
         "TENSORIUM_POOL_TREASURY env var required (pool treasury wallet address)".to_owned()
     })?;
+    let payout_hot_wallet = env::var("TENSORIUM_POOL_PAYOUT_HOT_WALLET").ok();
+    let payout_hot_wallet_max_atoms = env::var("TENSORIUM_POOL_PAYOUT_HOT_MAX_ATOMS")
+        .ok()
+        .and_then(|s| s.parse::<u64>().ok());
     let ledger_path = PathBuf::from(
         env::var("TENSORIUM_POOL_LEDGER").unwrap_or_else(|_| DEFAULT_LEDGER_PATH.to_owned()),
     );
@@ -126,6 +143,16 @@ fn serve() -> Result<(), String> {
     println!("  bind         = {bind}");
     println!("  node_rpc     = {node_rpc}");
     println!("  treasury     = {treasury}");
+    println!(
+        "  payout_hot   = {}",
+        payout_hot_wallet.as_deref().unwrap_or("<not configured>")
+    );
+    println!(
+        "  payout_cap   = {}",
+        payout_hot_wallet_max_atoms
+            .map(|v| v.to_string())
+            .unwrap_or_else(|| "<not configured>".to_owned())
+    );
     println!("  ledger       = {}", ledger_path.display());
     println!("  pool_fee     = {}%", accounting::POOL_FEE_BPS / 100);
     println!();
@@ -135,6 +162,8 @@ fn serve() -> Result<(), String> {
     let state = Arc::new(Mutex::new(PoolState::new(
         node_rpc,
         treasury,
+        payout_hot_wallet,
+        payout_hot_wallet_max_atoms,
         ledger_path,
     )));
 
@@ -186,6 +215,7 @@ fn handle_connection(
         }
         ("GET", "/pool/stats") => handle_pool_stats(&mut stream, &state),
         ("GET", "/pool/accounting") => handle_pool_accounting(&mut stream, &state),
+        ("GET", "/pool/custody") => handle_pool_custody(&mut stream, &state),
         ("GET", path) if path.starts_with("/pool/pending/") => {
             let addr = path.trim_start_matches("/pool/pending/");
             handle_pool_pending(&mut stream, addr, &state)
@@ -351,6 +381,17 @@ fn handle_pool_accounting(
     write_response(stream, 200, &body)
 }
 
+fn handle_pool_custody(stream: &mut TcpStream, state: &Arc<Mutex<PoolState>>) -> Result<(), String> {
+    let s = state.lock().unwrap();
+    let body = json!({
+        "treasury_address": s.treasury_address,
+        "payout_hot_wallet": s.payout_hot_wallet,
+        "payout_hot_wallet_max_atoms": s.payout_hot_wallet_max_atoms,
+        "ledger_path": s.ledger_path,
+    });
+    write_response(stream, 200, &body.to_string())
+}
+
 fn handle_pool_pending(
     stream: &mut TcpStream,
     miner_address: &str,
@@ -378,6 +419,29 @@ fn cmd_stats() -> Result<(), String> {
 fn cmd_accounting() -> Result<(), String> {
     let ledger = load_ledger_from_env();
     println!("{}", serde_json::to_string_pretty(&ledger.entries).unwrap());
+    Ok(())
+}
+
+fn cmd_custody() -> Result<(), String> {
+    let treasury = env::var("TENSORIUM_POOL_TREASURY")
+        .unwrap_or_else(|_| "<not configured>".to_owned());
+    let payout_hot_wallet = env::var("TENSORIUM_POOL_PAYOUT_HOT_WALLET")
+        .unwrap_or_else(|_| "<not configured>".to_owned());
+    let payout_hot_wallet_max_atoms = env::var("TENSORIUM_POOL_PAYOUT_HOT_MAX_ATOMS")
+        .unwrap_or_else(|_| "<not configured>".to_owned());
+    let ledger_path = env::var("TENSORIUM_POOL_LEDGER")
+        .unwrap_or_else(|_| DEFAULT_LEDGER_PATH.to_owned());
+
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&json!({
+            "treasury_address": treasury,
+            "payout_hot_wallet": payout_hot_wallet,
+            "payout_hot_wallet_max_atoms": payout_hot_wallet_max_atoms,
+            "ledger_path": ledger_path,
+        }))
+        .unwrap()
+    );
     Ok(())
 }
 
@@ -416,6 +480,7 @@ fn print_help() {
     println!("  serve         start pool HTTP server (default)");
     println!("  stats         print ledger summary");
     println!("  accounting    print full payout ledger");
+    println!("  custody       print configured treasury/hot-wallet metadata");
     println!("  pending <addr>     pending payout for miner");
     println!("  mark-paid <addr>   mark miner payouts as sent");
     println!();
@@ -423,13 +488,15 @@ fn print_help() {
     println!("  TENSORIUM_POOL_BIND      pool listen address, default {DEFAULT_POOL_BIND}");
     println!("  TENSORIUM_NODE_RPC       upstream node RPC, default {DEFAULT_NODE_RPC}");
     println!("  TENSORIUM_POOL_TREASURY  pool treasury wallet address (required)");
+    println!("  TENSORIUM_POOL_PAYOUT_HOT_WALLET   operational payout hot wallet address");
+    println!("  TENSORIUM_POOL_PAYOUT_HOT_MAX_ATOMS  soft cap for payout hot wallet balance");
     println!("  TENSORIUM_POOL_LEDGER    payout ledger JSON path, default {DEFAULT_LEDGER_PATH}");
     println!();
     println!("pool fee: {}%  ({} bps)", accounting::POOL_FEE_BPS / 100, accounting::POOL_FEE_BPS);
     println!();
     println!("miners: point txmminer/txmminer-cuda at pool bind address instead of node RPC.");
     println!("example:");
-    println!("  TENSORIUM_POOL_TREASURY=txm1treasury... tensorium-pool serve");
+    println!("  TENSORIUM_POOL_TREASURY=txm1treasury... TENSORIUM_POOL_PAYOUT_HOT_WALLET=txm1hot... tensorium-pool serve");
     println!("  txmminer <pool_host:23336> <miner_wallet_address>");
 }
 
@@ -498,4 +565,3 @@ fn send_http(rpc: &str, request: &str) -> Result<String, String> {
     }
     Ok(body.to_owned())
 }
-
