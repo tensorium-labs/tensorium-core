@@ -7,7 +7,7 @@ use crate::{
     block::{Block, OutPoint, Transaction, TxOutput},
     chain::ConsensusParams,
     emission::reward_at_height,
-    wallet::verify_transaction_input,
+    script::vm::{execute, ScriptContext},
 };
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -76,8 +76,13 @@ impl UtxoSet {
             {
                 return Err(UtxoError::ImmatureCoinbaseSpend);
             }
-            verify_transaction_input(tx, input, &entry.output.address)
+            let ctx = ScriptContext {
+                sig_hash: tx.signature_hash(),
+                block_height: tip_height,
+            };
+            let ok = execute(&input.signature_script, &entry.output.script_pubkey, &ctx)
                 .map_err(|_| UtxoError::InvalidSignature)?;
+            if !ok { return Err(UtxoError::InvalidSignature); }
         }
         Ok(())
     }
@@ -116,13 +121,22 @@ impl UtxoSet {
                 {
                     return Err(UtxoError::ImmatureCoinbaseSpend);
                 }
-                verify_transaction_input(tx, input, &spent.output.address)
+                let ctx = ScriptContext {
+                    sig_hash: tx.signature_hash(),
+                    block_height: block.header.height,
+                };
+                let ok = execute(&input.signature_script, &spent.output.script_pubkey, &ctx)
                     .map_err(|_| UtxoError::InvalidSignature)?;
+                if !ok { return Err(UtxoError::InvalidSignature); }
             }
         }
 
         for tx in &block.transactions {
             for (index, output) in tx.outputs.iter().enumerate() {
+                // OP_RETURN outputs are unspendable — never add to UTXO set
+                if output.script_pubkey.first() == Some(&crate::script::OP_RETURN) {
+                    continue;
+                }
                 self.entries.insert(
                     OutPoint {
                         txid: tx.id,
@@ -147,6 +161,7 @@ mod tests {
         block::{merkle_root, BlockHeader, Transaction, TxInput, TxOutput},
         chain::TEST_PARAMS,
         hash::Hash256,
+        script::standard::p2pkh_from_address,
         state::ChainState,
         wallet::WalletKeypair,
     };
@@ -192,7 +207,7 @@ mod tests {
             }],
             vec![TxOutput {
                 value_atoms: 100,
-                address: keypair.address.as_str().to_owned(),
+                script_pubkey: p2pkh_from_address(keypair.address.as_str()).unwrap(),
             }],
         );
         keypair.sign_transaction(&mut spend).unwrap();

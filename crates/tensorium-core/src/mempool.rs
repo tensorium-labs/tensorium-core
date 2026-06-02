@@ -117,6 +117,7 @@ mod tests {
         block::{Block, BlockHeader, OutPoint, Transaction, TxInput, TxOutput},
         chain::{TESTNET, TEST_PARAMS},
         hash::Hash256,
+        script::standard::p2pkh_from_address,
         utxo::{UtxoEntry, UtxoSet},
         wallet::WalletKeypair,
     };
@@ -151,7 +152,7 @@ mod tests {
             }],
             vec![TxOutput {
                 value_atoms: 1,
-                address: "txm1test".to_owned(),
+                script_pubkey: vec![0x00],
             }],
         );
         mp.pending.insert(tx.id.to_hex(), tx.clone());
@@ -210,7 +211,7 @@ mod tests {
             UtxoEntry {
                 output: TxOutput {
                     value_atoms: 100,
-                    address: keypair.address.as_str().to_owned(),
+                    script_pubkey: p2pkh_from_address(keypair.address.as_str()).unwrap(),
                 },
                 created_height: 0,
                 coinbase: false,
@@ -224,7 +225,7 @@ mod tests {
             }],
             vec![TxOutput {
                 value_atoms: 60,
-                address: "txm1receivera".to_owned(),
+                script_pubkey: vec![0x00],
             }],
         );
         keypair.sign_transaction(&mut first).unwrap();
@@ -236,7 +237,7 @@ mod tests {
             }],
             vec![TxOutput {
                 value_atoms: 40,
-                address: "txm1receiverb".to_owned(),
+                script_pubkey: vec![0x00],
             }],
         );
         keypair.sign_transaction(&mut second).unwrap();
