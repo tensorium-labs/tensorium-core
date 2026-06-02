@@ -1,5 +1,7 @@
 # Pool Payout Runbook
 
+> **Pool treasury address, custody address, and bridge Safe:** see `CANONICAL_ASSET_METADATA.md`.
+
 This runbook defines how the reference pool handles custody separation between:
 
 - founder cold wallet
