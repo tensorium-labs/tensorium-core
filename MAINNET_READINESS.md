@@ -17,6 +17,36 @@ This document tracks what must be true before Tensorium mainnet-candidate chain 
 
 **Mainnet launched 2026-06-02. All Phase 8 gates passed. Phase 9A bridge live. Phase 9B/9C/9D done. CEX outreach sent.**
 
+## Post-Launch Execution Order
+
+Immediate next phases are tracked in:
+
+- `docs/superpowers/plans/2026-06-02-post-launch-mainnet-phases.md`
+- `RESTORE_RUNBOOK.md` (Phase 10A artifact)
+
+Recommended order:
+
+1. Phase 10A — Recovery & Restore
+2. Phase 10B — Explorer Durability
+3. Phase 10C — Pool Custody & Payout Separation
+4. Phase 10D — Public RPC & Ops Hardening
+5. Phase 10E — Data Provider & Listing Readiness
+
+Phase 10 status:
+
+- **COMPLETE** on 2026-06-02
+- Handoff prompt for next implementation pass: `docs/superpowers/prompts/2026-06-02-claude-code-phase11-handoff.md`
+
+Phase 10D artifacts now live in:
+
+- `PUBLIC_RPC_HARDENING_RUNBOOK.md`
+- `PUBLIC_RPC_POSTURE.md`
+- `templates/nginx-public-rpc.conf`
+
+Phase 10E artifact:
+
+- `CANONICAL_ASSET_METADATA.md`
+
 ## Blocking Gates
 
 | Gate | Status | Notes |
@@ -25,7 +55,7 @@ This document tracks what must be true before Tensorium mainnet-candidate chain 
 | Founder wallet | DONE | Founder address `txm18c3t652j0x0sanux3dhse8fqgrqpsdzx97358d`, pool treasury `txm10wa2dazhn2yqwwxkm4aegvzjq55hj9m2jlznt9` generated 2026-05-31. |
 | Founder lock policy | DONE | Social/manual 24-month lock documented; no L1 enforcement. Disclosure required in whitepaper before mainnet. |
 | Mainnet genesis | DONE | Nonce `114_103_168_481` mined RTX 3060 (0.56 GH/s, 855s, 2026-06-01). Hash: `000000000063ab6f057a16376b1712e709719126ad977a3d4be23f83b89f0392`. Genesis v2 includes 1M TXM founder allocation.. Hardcoded in binary. |
-| Storage migration decision | DEFERRED | JSON state acceptable for mainnet-candidate. Binary/DB migration planned for future version. |
+| Storage migration decision | DONE | RocksDB migration shipped on 2026-06-02. Legacy `state.json` files now auto-migrate to `*.db/` on first open. |
 | Peer discovery | DONE | Built-in static seed list (`157.230.44.162:23333`) added to node binary for testnet; mainnet-candidate DNS seed now live at `seed.tensoriumlabs.com:33333`. |
 | Mining pool path | DONE | tensorium-pool reference pool implemented (HTTP proxy, 5% fee, payout ledger). |
 | Pool fee policy | DONE | Pool treasury address generated (`txm10wa2dazhn2yqwwxkm4aegvzjq55hj9m2jlznt9`); payout accounting implemented; `pooltxm.tensoriumlabs.com` discloses 5% fee before miners connect. |
@@ -210,14 +240,14 @@ Mainnet candidate recommendation:
 - [x] Seed node: `tensorium-node`, no private payout keys.
 - [x] Backup seed node: independent node for redundancy.
 - [x] Pool service: pool API/stratum, share accounting, payout scheduler.
-- [ ] Explorer service: indexer and web UI with read-only RPC access.
+- [x] Explorer service: indexer and web UI with read-only RPC access.
 - [ ] Cold storage: founder wallet and treasury reserve.
 
 Wallet separation:
 
 - [x] Founder cold wallet is separate from pool treasury.
 - [x] Pool treasury wallet receives fee revenue and has a published address.
-- [ ] Pool payout hot wallet is limited and operational only.
+- [x] Pool payout hot wallet is limited and operational only. *(policy + runbook documented; runtime metadata exposed in pool service)*
 - [ ] Explorer/docs infrastructure has no private keys.
 
 ## Infrastructure Checklist
@@ -237,6 +267,7 @@ Phase 7C update (2026-05-31):
 - [x] Docs and whitepaper updated for mainnet candidate. *(docs.tensoriumlabs.com, whitepaper.tensoriumlabs.com)*
 - [x] SSL renewal verified. *(certbot auto-renew active; monitor shows 89 days remaining)*
 - [x] External monitoring configured. *(tensorium-monitor.sh every 10 min; logs /var/log/tensorium-monitor.log)*
+- [x] Public RPC fronting policy documented. *(localhost-only node RPC + nginx template + incident runbook committed in Phase 10D)*
 
 ### Peer Discovery
 
@@ -247,7 +278,7 @@ Phase 7C update (2026-05-31):
 
 ### Backup and Monitoring
 
-- Backup: `/usr/local/bin/tensorium-backup.sh` — tarballs `state.json`, `mempool.json`, `banlist.json`; cron `0 3 * * *`; keeps 14 rolling backups under `/root/backups/`.
+- Backup: `/usr/local/bin/tensorium-backup.sh` — tarballs the chain state directory (`*.db/`) plus `mempool.json`, `banlist.json`, and any `*.json.migrated` rollback backup; cron `0 3 * * *`; keeps 14 rolling backups under `/root/backups/`.
 - Monitor: `/usr/local/bin/tensorium-monitor.sh` — checks RPC health, P2P port, explorer, disk %, SSL expiry; cron `*/10 * * * *`; logs to `/var/log/tensorium-monitor.log`.
 
 ## Mining Checklist
@@ -458,7 +489,7 @@ Execution checklist: see `PHASE9A_EXECUTION_CHECKLIST.md`.
 
 | Feature | Status | Notes |
 |---|---|---|
-| Address page — balance + TX history | **DONE** | In-process indexer reads state.json (34k+ blocks in ~2.7s), builds address→tx index, persists to `txindex.json`. Full sent/received history at O(1). |
+| Address page — balance + TX history | **DONE** | In-process explorer indexer now builds address and tx lookup tables from RPC-backed block fetches, persists `txindex.json`, and no longer rescans the chain on every request. |
 | TX detail page fast path | **DONE** | `/api/tx/:txid` uses index for instant height lookup instead of scanning 200 blocks |
 | Global search | **DONE** | `/api/search?q=` handles block height, 64-hex txid, `txm1…` address |
 | Public REST API | **DONE** | `/api/address/:addr` returns balance+history; `/api/indexer/status`; `/api/search` |
@@ -466,7 +497,7 @@ Execution checklist: see `PHASE9A_EXECUTION_CHECKLIST.md`.
 | Network stats / difficulty chart | EXISTING | `/api/charts` endpoint + chart UI on main explorer page |
 | Mempool viewer | EXISTING | `/mempool` page, `/api/mempool` endpoint |
 
-**Indexer architecture:** `indexer.js` is an in-process Node.js module. On first start it parses `state.json` directly (avoids per-block RPC overhead). Persists compact `txindex.json`. Updates incrementally every 30s via RPC for new blocks only.
+**Indexer architecture:** explorer now keeps an in-process incremental index sourced from RPC block fetches. It tracks tx records and address appearances in memory, refreshes forward from the last indexed tip, and exposes `/api/indexer/status` for health checks.
 
 ### 9C — SDK & Developer Tools
 
@@ -496,7 +527,7 @@ Execution checklist: see `PHASE9A_EXECUTION_CHECKLIST.md`.
 - **Bridge EVM formal**: multi-sig relayer, audited smart contract, `bridge.tensoriumlabs.com`
 - **Scripting layer**: OP codes (multisig, timelock, HTLC) → enables native atomic swap + DEX
 - **Governance**: TIP process (Tensorium Improvement Proposal), on-chain or off-chain signaling
-- **Storage migration**: JSON state → RocksDB/LMDB for scalability at millions of TXs
+- **Storage migration**: JSON state -> RocksDB complete; automatic migration from legacy `state.json` now ships in the node and wallet paths
 - **Mobile wallet**: iOS + Android (React Native or Flutter)
 
 ---
@@ -540,7 +571,7 @@ Execution checklist: see `PHASE9A_EXECUTION_CHECKLIST.md`.
 **Advanced Protocol — Phase 10:**
 - [ ] Scripting layer (OP codes, HTLC, atomic swap)
 - [ ] Governance mechanism
-- [ ] Storage migration (RocksDB)
+- [x] Storage migration (RocksDB)
 
 **Community & Legal:**
 - [x] Open source license (Apache-2.0)

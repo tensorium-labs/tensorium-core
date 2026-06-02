@@ -10,3 +10,6 @@ rust-version.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tensorium-core = { path = "../tensorium-core" }
+
+[dev-dependencies]
+tempfile = "3"

@@ -36,13 +36,13 @@ Last updated: 2026-06-01
 
 ---
 
-### KI-004: Chain state stored in single JSON file
+### KI-004: Legacy JSON chain state migration may leave `.json.migrated` backups behind
 
-**Severity:** Medium (scalability)
+**Severity:** Low
 **Component:** tensorium-node state management
-**Description:** The entire chain state is loaded into memory and serialized as a single JSON file on every block write. This is fast and simple for testnet (few hundred blocks) but will not scale to hundreds of thousands of blocks without significant memory and I/O overhead.
-**Current impact:** None at testnet scale. At 100,000 blocks (~70 days), state file would be ~500MB+.
-**Fix planned:** Pre-mainnet — migrate to embedded key-value store (e.g. sled or RocksDB).
+**Description:** RocksDB migration is complete, but nodes that auto-migrate from legacy `state.json` intentionally keep a `state.json.migrated` backup on disk for rollback safety.
+**Current impact:** Minor disk usage until operators manually remove the backup after verifying the migrated DB.
+**Workaround:** After verifying `tensorium-node status` and RPC responses on the migrated DB, delete the `.json.migrated` backup manually if disk space matters.
 
 ---
 
@@ -67,7 +67,7 @@ Last updated: 2026-06-01
 
 **Severity:** Low (UX)
 **Component:** txmwallet
-**Description:** `txmwallet balance` scans the entire chain state file sequentially. On large chains this is slow. There is no UTXO index for fast lookups.
+**Description:** `txmwallet balance` scans the canonical chain sequentially to rebuild UTXOs. It no longer depends on the old JSON state file, but it still has no dedicated address/UTXO index for fast lookups.
 **Fix planned:** Pre-mainnet with the state store migration (KI-004).
 
 ---
