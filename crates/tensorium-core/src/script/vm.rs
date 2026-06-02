@@ -154,6 +154,15 @@ pub(crate) fn run(
                 if !is_truthy(&top) { return Err(ScriptError::VerifyFailed); }
             }
 
+            // ── Small integers OP_1..OP_16 (0x51..0x60) ───────────────────────────
+            op @ 0x51..=0x60 => {
+                let n = (op - 0x50) as u8; // OP_1(0x51) → 1, OP_16(0x60) → 16
+                if stack.len() >= MAX_STACK_DEPTH {
+                    return Err(ScriptError::StackOverflow);
+                }
+                stack.push(vec![n]);
+            }
+
             other => return Err(ScriptError::InvalidOpcode(other)),
         }
     }
@@ -256,5 +265,26 @@ mod tests {
 
         let result = execute(&script_sig, &script_pubkey, &fake_ctx());
         assert!(result.is_err() || !result.unwrap(), "wrong sig should fail");
+    }
+
+    #[test]
+    fn op_small_integers_push_correct_values() {
+        use crate::script::{OP_1, OP_2, OP_16};
+        let ctx = fake_ctx();
+
+        // OP_1 pushes [0x01]
+        let mut stack = Vec::new();
+        run(&mut stack, &[OP_1], &ctx, false).unwrap();
+        assert_eq!(stack, vec![vec![0x01]]);
+
+        // OP_2 pushes [0x02]
+        stack.clear();
+        run(&mut stack, &[OP_2], &ctx, false).unwrap();
+        assert_eq!(stack, vec![vec![0x02]]);
+
+        // OP_16 pushes [0x10]
+        stack.clear();
+        run(&mut stack, &[OP_16], &ctx, false).unwrap();
+        assert_eq!(stack, vec![vec![0x10]]);
     }
 }
