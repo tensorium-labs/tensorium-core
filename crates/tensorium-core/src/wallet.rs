@@ -12,6 +12,7 @@ use sha2::{Digest, Sha256};
 use thiserror::Error;
 
 use crate::block::Transaction;
+use crate::hash::Hash256;
 
 const ADDRESS_HRP: &str = "txm";
 
@@ -87,6 +88,19 @@ impl WalletKeypair {
         }
         tx.refresh_id();
         Ok(())
+    }
+
+    /// Sign a raw hash with this wallet's private key.
+    /// Returns the DER-encoded signature bytes.
+    /// Used for multisig signing where the full P2PKH scriptSig is not needed.
+    pub fn sign_hash(&self, hash: &Hash256) -> Result<Vec<u8>, WalletError> {
+        let private_key_bytes =
+            hex::decode(&self.private_key_hex).map_err(|_| WalletError::InvalidPrivateKey)?;
+        let secret_key = SecretKey::from_slice(&private_key_bytes)
+            .map_err(|_| WalletError::InvalidPrivateKey)?;
+        let signing_key = SigningKey::from(secret_key);
+        let signature: Signature = signing_key.sign(&hash.0);
+        Ok(signature.to_der().as_bytes().to_vec())
     }
 }
 
