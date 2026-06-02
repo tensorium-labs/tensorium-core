@@ -15,15 +15,16 @@ use rand_core::{OsRng, RngCore};
 use serde::{Deserialize, Serialize};
 use tensorium_core::{
     block::{Transaction, TxInput, TxOutput},
-    chain::TESTNET,
-    script::standard::{p2pkh_from_address, p2pkh_from_pubkey},
+    chain::MAINNET_CANDIDATE,
+    script::standard::{multisig_script, multisig_script_sig, extract_multisig,
+                       p2pkh_from_address, p2pkh_from_pubkey},
     ChainState, UtxoSet, WalletKeypair,
 };
 
 const DEFAULT_WALLET_PATH: &str = "tensorium-wallet.json";
-const DEFAULT_STATE_PATH: &str = "tensorium-testnet-state.json";
+const DEFAULT_STATE_PATH: &str = "tensorium-mainnet-state.json";
 const DEFAULT_SIGNED_TX_PATH: &str = "tensorium-signed-tx.json";
-const DEFAULT_RPC: &str = "127.0.0.1:23332";
+const DEFAULT_RPC: &str = "127.0.0.1:33332";
 const ARGON2_MEMORY_KIB: u32 = 19 * 1024;
 const ARGON2_ITERATIONS: u32 = 3;
 const ARGON2_PARALLELISM: u32 = 1;
@@ -46,6 +47,18 @@ struct EncryptedPrivateKey {
     salt_hex: String,
     nonce_hex: String,
     ciphertext_hex: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct MultisigSig {
+    input_index: usize,
+    der_sig_hex: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct MultisigSigFile {
+    unsigned_txid: String,
+    sigs: Vec<MultisigSig>,
 }
 
 fn main() {
@@ -136,6 +149,23 @@ fn run() -> Result<(), String> {
             let response = rpc_post(rpc, "/sendrawtransaction", &raw)?;
             println!("{response}");
         }
+        "multisig-script" => {
+            let m: u8 = args
+                .get(2)
+                .ok_or("usage: txmwallet multisig-script <m> <pubkey_hex1> ... <pubkey_hexN>")?
+                .parse::<u8>()
+                .map_err(|_| "invalid m: must be a number 1-16")?;
+            let pubkey_args: Vec<Vec<u8>> = args[3..]
+                .iter()
+                .map(|h| hex::decode(h).map_err(|_| format!("invalid pubkey hex: {h}")))
+                .collect::<Result<Vec<_>, _>>()?;
+            let pubkey_refs: Vec<&[u8]> = pubkey_args.iter().map(|v| v.as_slice()).collect();
+            let script = multisig_script(m, &pubkey_refs)
+                .map_err(|e| format!("invalid multisig params: {e:?}"))?;
+            println!("scriptpubkey: {}", hex::encode(&script));
+            println!("m={m}  n={}", pubkey_refs.len());
+            println!("size={} bytes", script.len());
+        }
         _ => print_help(),
     }
 
@@ -208,7 +238,7 @@ fn print_balance(wallet: &WalletFile, state: &ChainState) -> Result<(), String> 
     let mut utxos = UtxoSet::new();
     for block in state.canonical_blocks_iter() {
         utxos
-            .apply_block(&TESTNET, &block)
+            .apply_block(&MAINNET_CANDIDATE, &block)
             .map_err(|err| err.to_string())?;
     }
 
@@ -224,7 +254,10 @@ fn print_balance(wallet: &WalletFile, state: &ChainState) -> Result<(), String> 
         }
 
         let is_immature_coinbase = entry.coinbase
-            && tip_height < entry.created_height.saturating_add(TESTNET.coinbase_maturity_blocks);
+            && tip_height
+                < entry
+                    .created_height
+                    .saturating_add(MAINNET_CANDIDATE.coinbase_maturity_blocks);
         if is_immature_coinbase {
             immature_atoms = immature_atoms.saturating_add(entry.output.value_atoms);
         } else {
@@ -254,7 +287,7 @@ fn build_signed_payment(
     let mut utxos = UtxoSet::new();
     for block in state.canonical_blocks_iter() {
         utxos
-            .apply_block(&TESTNET, &block)
+            .apply_block(&MAINNET_CANDIDATE, &block)
             .map_err(|err| err.to_string())?;
     }
 
@@ -269,7 +302,10 @@ fn build_signed_payment(
             continue;
         }
         let immature = entry.coinbase
-            && tip_height < entry.created_height.saturating_add(TESTNET.coinbase_maturity_blocks);
+            && tip_height
+                < entry
+                    .created_height
+                    .saturating_add(MAINNET_CANDIDATE.coinbase_maturity_blocks);
         if immature {
             continue;
         }
@@ -332,6 +368,7 @@ fn print_help() {
     println!("  broadcast [tx_file] [rpc]         submit signed tx file to node RPC");
     println!("  show                              print wallet public summary");
     println!("  unlock-check                      verify passphrase can decrypt wallet");
+    println!("  multisig-script <m> <pubkey_hex>... print scriptPubKey for m-of-n multisig");
     println!();
     println!("env:");
     println!("  TENSORIUM_WALLET             wallet file, default {DEFAULT_WALLET_PATH}");
