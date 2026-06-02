@@ -67,7 +67,7 @@ mod tests {
     }
 
     #[test]
-    fn mainnet_candidate_emission_matches_testnet_schedule() {
+    fn mainnet_candidate_emission_matches_reference_schedule() {
         for era in 0..MAINNET_CANDIDATE.max_halving_eras {
             let height = MAINNET_CANDIDATE.halving_interval_blocks * u64::from(era);
             assert_eq!(

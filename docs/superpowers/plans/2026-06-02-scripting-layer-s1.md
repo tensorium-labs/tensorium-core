@@ -1,6 +1,9 @@
 # Scripting Layer S1 — Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Status: DONE — 2026-06-02.** All 9 tasks implemented and committed to main (`6df1eda`).
+> Checkboxes below were not updated during implementation; preserved for audit only.
+> **Note:** S1 changes block serialization — the mainnet genesis nonce must be re-mined
+> with the new `script_pubkey` format before deploying a fresh chain node from this code.
 
 **Goal:** Replace `TxOutput.address: String` with `TxOutput.script_pubkey: Vec<u8>` and implement a Bitcoin-inspired stack VM so all transaction validation runs through the script engine.
 
