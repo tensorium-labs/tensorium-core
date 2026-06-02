@@ -241,6 +241,8 @@ MiningCtx *mining_ctx_create(uint16_t header_len) {
     return ctx;
 }
 
+uint16_t mining_ctx_header_len(MiningCtx *ctx) { return ctx->header_len; }
+
 void mining_ctx_destroy(MiningCtx *ctx) {
     if (!ctx) return;
     if (ctx->d_midstate)     cudaFree(ctx->d_midstate);
