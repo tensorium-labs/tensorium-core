@@ -163,6 +163,87 @@ pub(crate) fn run(
                 stack.push(vec![n]);
             }
 
+            OP_CHECKMULTISIG | OP_CHECKMULTISIGVERIFY => {
+                if !allow_checksig {
+                    return Err(ScriptError::ScriptInSigContainsChecksig);
+                }
+
+                // Pop n (number of pubkeys)
+                let n_item = stack.pop().ok_or(ScriptError::StackUnderflow)?;
+                if n_item.is_empty() {
+                    return Err(ScriptError::InvalidOpcode(op));
+                }
+                let n = n_item[0] as usize;
+                if n > 16 {
+                    return Err(ScriptError::InvalidOpcode(op));
+                }
+
+                // Pop n pubkeys (stack order: last pubkey on top → reverse to get script order)
+                if stack.len() < n {
+                    return Err(ScriptError::StackUnderflow);
+                }
+                let mut pubkeys: Vec<Vec<u8>> = (0..n)
+                    .map(|_| stack.pop().unwrap())
+                    .collect();
+                pubkeys.reverse(); // pubkeys[0] = first pubkey in scriptPubKey
+
+                // Pop m (signature threshold)
+                let m_item = stack.pop().ok_or(ScriptError::StackUnderflow)?;
+                if m_item.is_empty() {
+                    return Err(ScriptError::InvalidOpcode(op));
+                }
+                let m = m_item[0] as usize;
+                if m > n {
+                    return Err(ScriptError::InvalidOpcode(op));
+                }
+
+                // Pop m signatures (stack order: last sig on top → reverse to get script order)
+                if stack.len() < m {
+                    return Err(ScriptError::StackUnderflow);
+                }
+                let mut sigs: Vec<Vec<u8>> = (0..m)
+                    .map(|_| stack.pop().unwrap())
+                    .collect();
+                sigs.reverse(); // sigs[0] = first sig in scriptSig
+
+                // Verify: each sig must match a pubkey, advancing forward through pubkeys
+                let mut pub_idx = 0;
+                let mut all_matched = true;
+                'sigs: for sig_bytes in &sigs {
+                    let sig = match Signature::from_der(sig_bytes) {
+                        Ok(s) => s,
+                        Err(_) => { all_matched = false; break; }
+                    };
+                    let mut found = false;
+                    while pub_idx < pubkeys.len() {
+                        let pk_bytes = &pubkeys[pub_idx];
+                        pub_idx += 1;
+                        if let Ok(vk) = VerifyingKey::from_sec1_bytes(pk_bytes) {
+                            if vk.verify(&ctx.sig_hash.0, &sig).is_ok() {
+                                found = true;
+                                break;
+                            }
+                        }
+                    }
+                    if !found {
+                        all_matched = false;
+                        break 'sigs;
+                    }
+                }
+
+                if op == OP_CHECKMULTISIGVERIFY {
+                    if !all_matched {
+                        return Err(ScriptError::VerifyFailed);
+                    }
+                    // CHECKMULTISIGVERIFY: leave nothing on stack, continue execution
+                } else {
+                    if stack.len() >= MAX_STACK_DEPTH {
+                        return Err(ScriptError::StackOverflow);
+                    }
+                    stack.push(if all_matched { vec![0x01u8] } else { vec![] });
+                }
+            }
+
             other => return Err(ScriptError::InvalidOpcode(other)),
         }
     }
@@ -286,5 +367,167 @@ mod tests {
         stack.clear();
         run(&mut stack, &[OP_16], &ctx, false).unwrap();
         assert_eq!(stack, vec![vec![0x10]]);
+    }
+
+    #[test]
+    fn op_checkmultisig_2of3_valid() {
+        use crate::script::{OP_CHECKMULTISIG, OP_2, OP_3};
+        use k256::ecdsa::{signature::Signer, Signature, SigningKey};
+        use rand_core::OsRng;
+
+        let k1 = SigningKey::random(&mut OsRng);
+        let k2 = SigningKey::random(&mut OsRng);
+        let k3 = SigningKey::random(&mut OsRng);
+        let p1 = k1.verifying_key().to_encoded_point(true).as_bytes().to_vec();
+        let p2 = k2.verifying_key().to_encoded_point(true).as_bytes().to_vec();
+        let p3 = k3.verifying_key().to_encoded_point(true).as_bytes().to_vec();
+
+        let msg = Hash256([7u8; 32]);
+        let sig1: Signature = k1.sign(&msg.0);
+        let sig2: Signature = k2.sign(&msg.0);
+        let d1 = sig1.to_der().as_bytes().to_vec();
+        let d2 = sig2.to_der().as_bytes().to_vec();
+
+        let mut script_sig = Vec::new();
+        script_sig.push(d1.len() as u8); script_sig.extend_from_slice(&d1);
+        script_sig.push(d2.len() as u8); script_sig.extend_from_slice(&d2);
+
+        let mut spk = Vec::new();
+        spk.push(OP_2);
+        spk.push(p1.len() as u8); spk.extend_from_slice(&p1);
+        spk.push(p2.len() as u8); spk.extend_from_slice(&p2);
+        spk.push(p3.len() as u8); spk.extend_from_slice(&p3);
+        spk.push(OP_3);
+        spk.push(OP_CHECKMULTISIG);
+
+        let result = execute(&script_sig, &spk, &real_ctx(msg)).unwrap();
+        assert!(result, "2-of-3 with correct sigs should succeed");
+    }
+
+    #[test]
+    fn op_checkmultisig_wrong_sig_returns_false() {
+        use crate::script::{OP_CHECKMULTISIG, OP_2, OP_3};
+        use k256::ecdsa::{signature::Signer, Signature, SigningKey};
+        use rand_core::OsRng;
+
+        let k1 = SigningKey::random(&mut OsRng);
+        let k2 = SigningKey::random(&mut OsRng);
+        let k3 = SigningKey::random(&mut OsRng);
+        let p1 = k1.verifying_key().to_encoded_point(true).as_bytes().to_vec();
+        let p2 = k2.verifying_key().to_encoded_point(true).as_bytes().to_vec();
+        let p3 = k3.verifying_key().to_encoded_point(true).as_bytes().to_vec();
+
+        let msg = Hash256([7u8; 32]);
+        let wrong_msg = Hash256([99u8; 32]);
+        let sig1: Signature = k1.sign(&msg.0);
+        let sig_wrong: Signature = k2.sign(&wrong_msg.0);
+        let d1 = sig1.to_der().as_bytes().to_vec();
+        let d_wrong = sig_wrong.to_der().as_bytes().to_vec();
+
+        let mut script_sig = Vec::new();
+        script_sig.push(d1.len() as u8); script_sig.extend_from_slice(&d1);
+        script_sig.push(d_wrong.len() as u8); script_sig.extend_from_slice(&d_wrong);
+
+        let mut spk = Vec::new();
+        spk.push(OP_2);
+        spk.push(p1.len() as u8); spk.extend_from_slice(&p1);
+        spk.push(p2.len() as u8); spk.extend_from_slice(&p2);
+        spk.push(p3.len() as u8); spk.extend_from_slice(&p3);
+        spk.push(OP_3);
+        spk.push(OP_CHECKMULTISIG);
+
+        let result = execute(&script_sig, &spk, &real_ctx(msg)).unwrap();
+        assert!(!result, "wrong sig should return false, not error");
+    }
+
+    #[test]
+    fn op_checkmultisig_insufficient_sigs_errors() {
+        use crate::script::{OP_CHECKMULTISIG, OP_1, OP_2};
+        use k256::ecdsa::{signature::Signer, Signature, SigningKey};
+        use rand_core::OsRng;
+
+        let k1 = SigningKey::random(&mut OsRng);
+        let k2 = SigningKey::random(&mut OsRng);
+        let p1 = k1.verifying_key().to_encoded_point(true).as_bytes().to_vec();
+        let p2 = k2.verifying_key().to_encoded_point(true).as_bytes().to_vec();
+
+        let msg = Hash256([1u8; 32]);
+        let sig1: Signature = k1.sign(&msg.0);
+        let d1 = sig1.to_der().as_bytes().to_vec();
+
+        // Only 1 sig but m=2
+        let mut script_sig = Vec::new();
+        script_sig.push(d1.len() as u8); script_sig.extend_from_slice(&d1);
+
+        let mut spk = Vec::new();
+        spk.push(OP_2); // m=2
+        spk.push(p1.len() as u8); spk.extend_from_slice(&p1);
+        spk.push(p2.len() as u8); spk.extend_from_slice(&p2);
+        spk.push(OP_2); // n=2
+        spk.push(OP_CHECKMULTISIG);
+
+        let result = execute(&script_sig, &spk, &real_ctx(msg));
+        assert!(result.is_err(), "insufficient sigs should return error");
+    }
+
+    #[test]
+    fn op_checkmultisig_m_greater_than_n_errors() {
+        use crate::script::{OP_CHECKMULTISIG, OP_3, OP_2};
+        use k256::ecdsa::SigningKey;
+        use rand_core::OsRng;
+
+        let k1 = SigningKey::random(&mut OsRng);
+        let k2 = SigningKey::random(&mut OsRng);
+        let p1 = k1.verifying_key().to_encoded_point(true).as_bytes().to_vec();
+        let p2 = k2.verifying_key().to_encoded_point(true).as_bytes().to_vec();
+
+        // scriptPubKey: OP_m <pubkeys...> OP_n OP_CHECKMULTISIG where m=3 but n=2 → invalid
+        let mut spk = Vec::new();
+        spk.push(OP_3); // m=3
+        spk.push(p1.len() as u8); spk.extend_from_slice(&p1);
+        spk.push(p2.len() as u8); spk.extend_from_slice(&p2);
+        spk.push(OP_2); // n=2
+        spk.push(OP_CHECKMULTISIG);
+
+        let result = execute(&[], &spk, &fake_ctx());
+        assert!(result.is_err(), "m > n should return error");
+    }
+
+    #[test]
+    fn op_checkmultisig_sigs_out_of_order_fails() {
+        use crate::script::{OP_CHECKMULTISIG, OP_2, OP_3};
+        use k256::ecdsa::{signature::Signer, Signature, SigningKey};
+        use rand_core::OsRng;
+
+        let k1 = SigningKey::random(&mut OsRng);
+        let k2 = SigningKey::random(&mut OsRng);
+        let k3 = SigningKey::random(&mut OsRng);
+        let p1 = k1.verifying_key().to_encoded_point(true).as_bytes().to_vec();
+        let p2 = k2.verifying_key().to_encoded_point(true).as_bytes().to_vec();
+        let p3 = k3.verifying_key().to_encoded_point(true).as_bytes().to_vec();
+
+        let msg = Hash256([5u8; 32]);
+        let sig1: Signature = k1.sign(&msg.0);
+        let sig2: Signature = k2.sign(&msg.0);
+        let d1 = sig1.to_der().as_bytes().to_vec();
+        let d2 = sig2.to_der().as_bytes().to_vec();
+
+        // Deliberately swap sig order (sig2 first, sig1 second — wrong order)
+        let mut script_sig = Vec::new();
+        script_sig.push(d2.len() as u8); script_sig.extend_from_slice(&d2);
+        script_sig.push(d1.len() as u8); script_sig.extend_from_slice(&d1);
+
+        let mut spk = Vec::new();
+        spk.push(OP_2);
+        spk.push(p1.len() as u8); spk.extend_from_slice(&p1);
+        spk.push(p2.len() as u8); spk.extend_from_slice(&p2);
+        spk.push(p3.len() as u8); spk.extend_from_slice(&p3);
+        spk.push(OP_3);
+        spk.push(OP_CHECKMULTISIG);
+
+        // sig2 (for k2) comes first but p1 is first → sig2 can't match p1, advances to p2 and matches.
+        // Then sig1 (for k1) comes next but pub_idx is at p3, p1 already consumed → no match → false.
+        let result = execute(&script_sig, &spk, &real_ctx(msg)).unwrap();
+        assert!(!result, "sigs in wrong order should fail");
     }
 }
