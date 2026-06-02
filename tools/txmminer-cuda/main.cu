@@ -34,6 +34,7 @@
 struct MiningCtx;
 extern "C" MiningCtx *mining_ctx_create(uint16_t header_len);
 extern "C" void       mining_ctx_destroy(MiningCtx *ctx);
+extern "C" uint16_t   mining_ctx_header_len(MiningCtx *ctx);
 extern "C" int        launch_mining_kernel_ctx(
     MiningCtx      *ctx,
     const uint8_t  *header_template,
@@ -426,7 +427,7 @@ int main(int argc, char *argv[]) {
         }
 
         // Recreate context if header length changed (rare: chain_id change).
-        if ((uint16_t)header_len != mctx->header_len) {
+        if ((uint16_t)header_len != mining_ctx_header_len(mctx)) {
             mining_ctx_destroy(mctx);
             mctx = mining_ctx_create((uint16_t)header_len);
         }
