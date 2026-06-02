@@ -42,7 +42,7 @@ const MC_GENESIS_TIMESTAMP: u64 = 1_780_272_000;
 /// Pre-mint: 8M TXM (founder 1M + liquidity 3M + bridge 2M + ecosystem 2M)
 /// Mining: 25M TXM over 10 eras, initial reward 11.9027... TXM/block
 /// Nonce will be updated after re-mine with new tokenomics.
-const MC_GENESIS_NONCE: u64 = 0; // placeholder — re-mine required
+const MC_GENESIS_NONCE: u64 = 798_243_452_272;
 const P2P_PROTOCOL_VERSION: u32 = 1;
 /// Maximum blocks returned per GetBlocks response.
 const SYNC_BATCH_SIZE: usize = 50;
