@@ -20,3 +20,8 @@ node_data/
 contracts/node_modules/
 contracts/cache/
 contracts/artifacts/
+
+# RocksDB state directories
+*.db/
+tensorium-*-state.db/
+tensorium-mc-state.db/
