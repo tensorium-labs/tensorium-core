@@ -1638,21 +1638,36 @@ fn handle_rpc_stream(
         }
 
         ("GET", path) if path.starts_with("/getutxos/") => {
-            let address = path.trim_start_matches("/getutxos/");
-            if address.is_empty() {
+            let param = path.trim_start_matches("/getutxos/");
+
+            if param.is_empty() {
                 return write_json_response(
                     stream,
                     400,
-                    &RpcError::new("missing address: GET /getutxos/<address>"),
+                    &RpcError::new("missing param: GET /getutxos/<address_or_scriptpubkey_hex>"),
                 );
             }
-            let script = match p2pkh_from_address(address) {
-                Ok(s) => s,
-                Err(_) => return write_json_response(
-                    stream,
-                    400,
-                    &RpcError::new("invalid address: GET /getutxos/<address>"),
-                ),
+
+            // If param starts with "txm1" treat as bech32 address → derive P2PKH script.
+            // Otherwise treat as lowercase hex-encoded scriptPubKey.
+            let script = if param.starts_with("txm1") {
+                match p2pkh_from_address(param) {
+                    Ok(s) => s,
+                    Err(_) => return write_json_response(
+                        stream,
+                        400,
+                        &RpcError::new("invalid address: GET /getutxos/<address>"),
+                    ),
+                }
+            } else {
+                match hex::decode(param) {
+                    Ok(s) => s,
+                    Err(_) => return write_json_response(
+                        stream,
+                        400,
+                        &RpcError::new("invalid hex: GET /getutxos/<scriptpubkey_hex>"),
+                    ),
+                }
             };
             let state = load_state(state_path)?;
             let utxos = build_utxo_set(&state, params)?;
@@ -1683,7 +1698,7 @@ fn handle_rpc_stream(
                 stream,
                 200,
                 &json!({
-                    "address": address,
+                    "address": param,
                     "tip_height": tip_height,
                     "utxo_count": entries.len(),
                     "utxos": entries,
@@ -1887,6 +1902,13 @@ mod tests {
 
         let mature = !false || tip_height >= created_height.saturating_add(coinbase_maturity);
         assert!(mature, "non-coinbase output is always mature");
+    }
+
+    #[test]
+    fn getutxos_accepts_scriptpubkey_hex() {
+        let param = "5221aabb";
+        let is_address = param.starts_with("txm1");
+        assert!(!is_address, "hex scriptpubkey should not be decoded as address");
     }
 
     #[test]
