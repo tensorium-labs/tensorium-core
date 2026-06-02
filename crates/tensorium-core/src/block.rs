@@ -58,6 +58,7 @@ impl Transaction {
         miner: &str,
         founder_atoms: u64,
         founder_addr: &str,
+        genesis_allocations: &[(&str, u64)],
     ) -> Self {
         let payload = format!("coinbase:0:{reward_atoms}:{miner}").into_bytes();
         let mut outputs = Vec::new();
@@ -67,7 +68,18 @@ impl Transaction {
                 script_pubkey: p2pkh_from_address(miner).unwrap_or_default(),
             });
         }
-        if founder_atoms > 0 && !founder_addr.is_empty() {
+        // If genesis_allocations is provided, use it for pre-mint distribution.
+        // Otherwise fall back to legacy single-founder output.
+        if !genesis_allocations.is_empty() {
+            for (addr, atoms) in genesis_allocations {
+                if *atoms > 0 {
+                    outputs.push(TxOutput {
+                        value_atoms: *atoms,
+                        script_pubkey: p2pkh_from_address(addr).unwrap_or_default(),
+                    });
+                }
+            }
+        } else if founder_atoms > 0 && !founder_addr.is_empty() {
             outputs.push(TxOutput {
                 value_atoms: founder_atoms,
                 script_pubkey: p2pkh_from_address(founder_addr).unwrap_or_default(),

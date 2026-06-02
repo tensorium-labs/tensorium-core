@@ -4,8 +4,8 @@
 // Usage: txmminer-cuda <rpc_host:port> <miner_address> [device_id] [blocks] [threads]
 //
 // Example:
-//   txmminer-cuda 127.0.0.1:23332 txm1youraddress
-//   txmminer-cuda 127.0.0.1:23332 txm1youraddress 0 1024 256
+//   txmminer-cuda 127.0.0.1:33332 txm1youraddress
+//   txmminer-cuda 127.0.0.1:33332 txm1youraddress 0 1024 256
 
 #include <cuda_runtime.h>
 #include <stdio.h>
@@ -32,7 +32,8 @@
 
 // Provided by mining_kernel.cu (extern "C" to match C linkage in mining_kernel.cu)
 extern "C" int launch_mining_kernel(
-    const uint8_t  header112[112],
+    const uint8_t *header_template,
+    uint16_t       header_len,
     uint8_t        difficulty_bits,
     uint64_t       start_nonce,
     int            cuda_blocks,
@@ -47,6 +48,7 @@ extern "C" int launch_mining_kernel(
 #define ITERS_DEFAULT  (1 << 20)   // 1M iters per thread per kernel launch
 #define BLOCKS_DEFAULT  2048
 #define THREADS_DEFAULT 256
+#define HEADER_TEMPLATE_MAX 192
 
 static volatile int g_running = 1;
 static void handle_sigint(int s) { (void)s; g_running = 0; }
@@ -237,10 +239,13 @@ static int get_block_template(const char *host, const char *port,
 
 // ── Build 112-byte header from template + nonce ───────────────────────────────
 
-static void build_header(const BlockTemplate *tmpl, uint64_t nonce, uint8_t out[112]) {
+static int build_header(const BlockTemplate *tmpl, uint64_t nonce, uint8_t out[HEADER_TEMPLATE_MAX]) {
     int pos = 0;
-    write_le32(out + pos, tmpl->version); pos += 4;
     int cid_len = (int)strlen(tmpl->chain_id);
+    if (cid_len <= 0) return 0;
+    if (4 + cid_len + 8 + 32 + 32 + 8 + 1 + 8 > HEADER_TEMPLATE_MAX) return 0;
+
+    write_le32(out + pos, tmpl->version); pos += 4;
     memcpy(out + pos, tmpl->chain_id, cid_len); pos += cid_len;
     write_le64(out + pos, tmpl->height); pos += 8;
     memcpy(out + pos, tmpl->previous_hash, 32); pos += 32;
@@ -248,8 +253,7 @@ static void build_header(const BlockTemplate *tmpl, uint64_t nonce, uint8_t out[
     write_le64(out + pos, tmpl->timestamp_seconds); pos += 8;
     out[pos++] = tmpl->difficulty_bits;
     write_le64(out + pos, nonce); pos += 8;
-    // Pad to 112 if chain_id shorter than 19 bytes (shouldn't happen)
-    while (pos < 112) out[pos++] = 0;
+    return pos;
 }
 
 // ── Submit mined block ────────────────────────────────────────────────────────
@@ -337,7 +341,7 @@ int main(int argc, char *argv[]) {
         fprintf(stderr,
             "Tensorium CUDA Miner\n"
             "Usage: %s <host:port> <address> [device_id] [cuda_blocks] [cuda_threads]\n"
-            "Example: %s 127.0.0.1:23332 txm1youraddress 0 2048 256\n",
+            "Example: %s 127.0.0.1:33332 txm1youraddress 0 2048 256\n",
             argv[0], argv[0]);
         return 1;
     }
@@ -402,13 +406,18 @@ int main(int argc, char *argv[]) {
     clock_gettime(CLOCK_MONOTONIC, &rate_t0);
 
     while (g_running) {
-        // Build 112-byte header (nonce=0, will be set by kernel)
-        uint8_t header112[112] = {0};
-        build_header(&tmpl, 0, header112);
+        // Build the exact serialized header bytes expected by the node.
+        uint8_t header_template[HEADER_TEMPLATE_MAX] = {0};
+        int header_len = build_header(&tmpl, 0, header_template);
+        if (header_len <= 0) {
+            fprintf(stderr, "invalid header template length for chain_id=%s\n", tmpl.chain_id);
+            usleep(500000);
+            continue;
+        }
 
         uint64_t winning_nonce = 0;
         int found = launch_mining_kernel(
-            header112, tmpl.difficulty_bits, start_nonce,
+            header_template, (uint16_t)header_len, tmpl.difficulty_bits, start_nonce,
             cuda_blocks, cuda_threads, iters, &winning_nonce
         );
 

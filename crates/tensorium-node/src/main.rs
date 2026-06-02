@@ -38,11 +38,11 @@ const DEFAULT_MC_P2P_BIND: &str = "0.0.0.0:33333";
 /// Genesis timestamp for the mainnet-candidate chain (2026-06-01 00:00:00 UTC).
 /// All nodes MUST use this exact value to share the same genesis block.
 const MC_GENESIS_TIMESTAMP: u64 = 1_780_272_000;
-/// Genesis nonce for the mainnet-candidate chain.
-/// GENESIS v2 — includes 1,000,000 TXM founder allocation at txm18c3t652j0x0sanux3dhse8fqgrqpsdzx97358d
-/// Mined on RTX 3060 (VastAI) at 0.56 GH/s in 855 s (2026-06-01).
-/// Merkle root: 2997b957adc7c9f563569a2024a6e8f8816e34aafb6f96edb71871ae36542279
-const MC_GENESIS_NONCE: u64 = 1_936_263_118_035;
+/// Genesis nonce for the mainnet-candidate chain (tokenomics v2, 2026-06-02).
+/// Pre-mint: 8M TXM (founder 1M + liquidity 3M + bridge 2M + ecosystem 2M)
+/// Mining: 25M TXM over 10 eras, initial reward 11.9027... TXM/block
+/// Nonce will be updated after re-mine with new tokenomics.
+const MC_GENESIS_NONCE: u64 = 0; // placeholder — re-mine required
 const P2P_PROTOCOL_VERSION: u32 = 1;
 /// Maximum blocks returned per GetBlocks response.
 const SYNC_BATCH_SIZE: usize = 50;
@@ -275,9 +275,7 @@ fn mine_genesis_multithreaded(threads: usize) -> Result<u64, String> {
     use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
     // Build the actual genesis block header with the real merkle root.
-    // The merkle root depends on the genesis coinbase (miner="genesis", height=0)
-    // INCLUDING the founder allocation output.
-    // This must match exactly what init_genesis_nonce constructs.
+    // Must match exactly what init_genesis_nonce constructs via candidate_block.
     let header_template = {
         let params = &MAINNET_CANDIDATE;
         let reward = reward_at_height(params, 0);
@@ -286,6 +284,7 @@ fn mine_genesis_multithreaded(threads: usize) -> Result<u64, String> {
             "genesis",
             params.founder_allocation_atoms,
             params.founder_address,
+            params.genesis_allocations,
         );
         let real_merkle = compute_merkle_root(&[coinbase]);
         BlockHeader {

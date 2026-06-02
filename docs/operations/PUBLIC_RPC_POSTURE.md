@@ -8,7 +8,7 @@ seed-only, and what conditions justify activating public RPC on the backup host.
 
 ## Current Decision
 
-For the current mainnet-candidate stage:
+For the current mainnet stage:
 
 - DigitalOcean remains the primary public RPC host.
 - Vultr `txm-mc-seed-1` remains a backup seed node, not a public RPC host yet.
@@ -23,7 +23,6 @@ Roles:
 
 - primary MC seed node
 - public MC RPC at `https://mc-rpc.tensoriumlabs.com`
-- public testnet RPC at `https://rpc.tensoriumlabs.com`
 - docs/web/pool/faucet/status-related services
 
 Reason:

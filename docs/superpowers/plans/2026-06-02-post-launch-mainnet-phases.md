@@ -19,7 +19,7 @@
 **Why first:** Backups without a validated restore path are paperwork, not safety.
 
 **Deliverables:**
-- `docs/operations/RESTORE_RUNBOOK.md` with exact recovery steps for testnet and mainnet-candidate
+- `docs/operations/RESTORE_RUNBOOK.md` with exact recovery steps for the active mainnet environment
 - Verified restore drill on a clean host or temp data directory
 - Explicit rules for when to restore `*.db/` versus when to fall back to `*.json.migrated`
 - Service restart order documented for RPC, P2P, explorer, and pool

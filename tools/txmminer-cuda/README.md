@@ -1,6 +1,6 @@
 # txmminer-cuda — Tensorium GPU Miner
 
-CUDA-accelerated SHA256d miner for the Tensorium testnet and mainnet.
+CUDA-accelerated SHA256d miner for the Tensorium mainnet.
 
 ## Requirements
 
@@ -11,7 +11,7 @@ CUDA-accelerated SHA256d miner for the Tensorium testnet and mainnet.
 | GCC/Clang | Any recent version |
 | OS | Linux x86_64 (Windows supported via WSL2) |
 
-> **Note:** This miner is for Tensorium's CPU-bootstrap testnet and the upcoming GPU-first testnet (Phase 6). At testnet difficulty 26, a single RTX 3060 will mine blocks in milliseconds. Difficulty will be raised to 36+ bits during Phase 6 for meaningful GPU mining.
+> **Note:** This miner is for Tensorium's live GPU-first mainnet. Throughput depends heavily on GPU architecture, clock behavior, and the current network difficulty.
 
 ## Build
 
@@ -46,10 +46,10 @@ Common architectures:
 
 ```bash
 # Basic (auto-select GPU 0, default blocks/threads)
-./txmminer-cuda 127.0.0.1:23332 txm1youraddress
+./txmminer-cuda 127.0.0.1:33332 txm1youraddress
 
 # Specify GPU device, CUDA blocks, and threads per block
-./txmminer-cuda 127.0.0.1:23332 txm1youraddress 0 2048 256
+./txmminer-cuda 127.0.0.1:33332 txm1youraddress 0 2048 256
 
 # Arguments:
 #   rpc_host:port       Node RPC address (keep RPC on localhost)
@@ -75,40 +75,29 @@ The total parallel hashrate = `cuda_blocks × cuda_threads × iters_per_thread /
 > SHA256d is a compute-intensive workload. H100/H200 are optimized for AI matrix
 > operations and do NOT significantly outperform gaming GPUs (RTX 4090) for SHA256d.
 
-### Expected Block Times at Difficulty 26
-
-| Hardware | ~Hashrate | Expected Block Time |
-|----------|-----------|---------------------|
-| RTX 3060 | 600 MH/s | ~0.1 seconds |
-| RTX 4090 | 3 GH/s | ~0.02 seconds |
-
-Phase 6 will raise difficulty to 36+ bits (68 billion hashes expected per block).
-At that difficulty, RTX 3060 (~600 MH/s) will take ~113 seconds per block on average.
+Expected block times on mainnet depend on live network difficulty and should be treated as variable. Use the hashrate table above for relative GPU sizing, not for guaranteed block-time planning.
 
 ## Technical Notes
 
-### SHA256d Midstate Optimisation
+### SHA256d Header Handling
 
-The Tensorium block header is 112 bytes. SHA256d requires 2 compression rounds for the 112-byte input + 1 for the second hash = 3 rounds total.
+Tensorium block headers are serialized with a variable-length `chain_id`.
 
-This miner uses the **midstate optimisation**:
-1. CPU precomputes the SHA256 state after the first 64 bytes of the header (constant for all nonces)
-2. GPU receives only the midstate + the remaining 48 bytes
-3. GPU completes: 1 compression round (second block) + 1 full SHA256 (second hash) = 2 rounds
+- Mainnet (`tensorium-mainnet-candidate-0`) produces a 122-byte header
 
-This reduces GPU work from 3 → 2 compression rounds per nonce (~33% faster).
+The CUDA miner must hash the exact serialized header bytes returned by the RPC template. Hardcoding the old 112-byte layout causes valid-looking nonces to be rejected on mainnet with `block proof-of-work is invalid`.
 
 ### Header Format
 
 ```
-bytes [0..3]    version       (u32 LE)
-bytes [4..22]   chain_id      ("tensorium-testnet-0", 19 bytes)
-bytes [23..30]  height        (u64 LE)
-bytes [31..62]  previous_hash (32 bytes)
-bytes [63..94]  merkle_root   (32 bytes)
-bytes [95..102] timestamp     (u64 LE)
-bytes [103]     difficulty_bits (u8)
-bytes [104..111] nonce        (u64 LE)  ← varied per thread
+bytes [0..3]      version         (u32 LE)
+bytes [4..N]      chain_id        (variable-length ASCII)
+bytes [...]       height          (u64 LE)
+bytes [...]       previous_hash   (32 bytes)
+bytes [...]       merkle_root     (32 bytes)
+bytes [...]       timestamp       (u64 LE)
+bytes [...]       difficulty_bits (u8)
+bytes [...]       nonce           (u64 LE)  ← varied per thread
 ```
 
 ## Integration with Node
@@ -117,16 +106,16 @@ The CUDA miner uses the same RPC endpoints as `txmminer`:
 - `GET /getblocktemplate/<address>` — fetch candidate block
 - `POST /submitblock` — submit mined block
 
-Keep the RPC bound to `127.0.0.1:23332` — never expose it publicly.
+Keep the RPC bound to `127.0.0.1:33332` — never expose it publicly.
 
 ## Multi-GPU Setup
 
 Run one instance per GPU:
 
 ```bash
-./txmminer-cuda 127.0.0.1:23332 txm1youraddress 0 &  # GPU 0
-./txmminer-cuda 127.0.0.1:23332 txm1youraddress 1 &  # GPU 1
-./txmminer-cuda 127.0.0.1:23332 txm1youraddress 2 &  # GPU 2
+./txmminer-cuda 127.0.0.1:33332 txm1youraddress 0 &  # GPU 0
+./txmminer-cuda 127.0.0.1:33332 txm1youraddress 1 &  # GPU 1
+./txmminer-cuda 127.0.0.1:33332 txm1youraddress 2 &  # GPU 2
 ```
 
 Each instance uses a different `start_nonce` region by default (based on device ID).

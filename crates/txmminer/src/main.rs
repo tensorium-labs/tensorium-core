@@ -13,7 +13,7 @@ use std::{
 use serde::Deserialize;
 use tensorium_core::{block::BlockHeader, pow::header_meets_work, Block};
 
-const DEFAULT_RPC: &str = "127.0.0.1:23332";
+const DEFAULT_RPC: &str = "127.0.0.1:33332";
 const DEFAULT_MINER: &str = "local-dev-miner";
 
 fn main() {

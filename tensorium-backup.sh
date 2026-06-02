@@ -12,12 +12,9 @@ mkdir -p "${BACKUP_DIR}"
 declare -a inputs=()
 for path in \
   "${DATA_DIR}/state.db" \
-  "${DATA_DIR}/tensorium-testnet-state.db" \
   "${DATA_DIR}/tensorium-mc-state.db" \
   "${DATA_DIR}/mempool.json" \
   "${DATA_DIR}/banlist.json" \
-  "${DATA_DIR}/tensorium-testnet-mempool.json" \
-  "${DATA_DIR}/tensorium-testnet-banlist.json" \
   "${DATA_DIR}/tensorium-mc-mempool.json" \
   "${DATA_DIR}/tensorium-mc-banlist.json"
 do

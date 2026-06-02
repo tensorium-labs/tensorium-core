@@ -1,6 +1,5 @@
 #!/bin/bash
-# tensorium-monitor.sh — Phase 11 enhanced
-# Canonical metadata: docs/integrations/CANONICAL_ASSET_METADATA.md in tensorium-core repo
+# tensorium-monitor.sh — mainnet operational monitor
 
 LOG="/var/log/tensorium-monitor.log"
 STATE_FILE="/var/lib/tensorium-monitor/state.json"
@@ -18,21 +17,6 @@ mkdir -p /var/lib/tensorium-monitor
 PREV_MC_HEIGHT=0
 if [ -f "$STATE_FILE" ]; then
     PREV_MC_HEIGHT=$(python3 -c "import json; print(json.load(open('$STATE_FILE')).get('mc_height',0))" 2>/dev/null || echo 0)
-fi
-
-# ── Testnet RPC ───────────────────────────────────────────────────────────────
-RPC=$(curl -sf --max-time 10 http://127.0.0.1:23332/health 2>/dev/null)
-if echo "$RPC" | grep -q '"ok"'; then
-    TN_HEIGHT=$(curl -sf --max-time 10 http://127.0.0.1:23332/getblockcount 2>/dev/null | python3 -c "import json,sys; print(json.load(sys.stdin).get('height',0))" 2>/dev/null || echo 0)
-    log "INFO testnet_rpc=ok height=${TN_HEIGHT}"
-else
-    alert "testnet_rpc=FAIL response='$RPC'"
-fi
-
-if ss -tlnp 2>/dev/null | grep -q ':23333'; then
-    log "INFO testnet_p2p=ok"
-else
-    alert "testnet_p2p=FAIL port 23333 not listening"
 fi
 
 # ── Mainnet Candidate node ────────────────────────────────────────────────────
@@ -55,8 +39,7 @@ else
 fi
 
 # ── State file / RocksDB disk size ────────────────────────────────────────────
-for STATE_PATH in /root/node1/state.json /root/node1/tensorium-testnet-state.db \
-                  /root/mc/tensorium-mc-state.json /root/mc/tensorium-mc-state.db; do
+for STATE_PATH in /root/mc/tensorium-mc-state.json /root/mc/tensorium-mc-state.db; do
     if [ -e "$STATE_PATH" ]; then
         SIZE_MB=$(du -sm "$STATE_PATH" 2>/dev/null | cut -f1)
         SIZE_MB=${SIZE_MB:-0}

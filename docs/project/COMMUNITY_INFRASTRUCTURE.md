@@ -25,7 +25,6 @@ Use these surfaces with clear roles:
 | `tensoriumlabs.com` | homepage / canonical links | live |
 | `docs.tensoriumlabs.com` | setup, RPC docs, onboarding | live |
 | `explorer.tensoriumlabs.com` | chain visibility | live |
-| `faucet.tensoriumlabs.com` | testnet onboarding | live |
 | Telegram | fast support, announcements, community chat | invite exists, public opening pending |
 | Discord | structured mining/dev/support server | pending creation |
 | X/Twitter | milestone broadcast, public proof of progress | pending structured rollout |

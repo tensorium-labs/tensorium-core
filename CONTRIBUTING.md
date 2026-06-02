@@ -37,16 +37,18 @@ Requires Rust ≥ 1.76. All 24 unit tests must pass before a PR can merge.
 
 ## Scope
 
-Tensorium is in **public testnet** (Phase 4). We are actively looking for:
+Tensorium is in **live mainnet / post-launch operations**. We are actively looking for:
 
 - Consensus bugs
 - P2P edge cases
 - Wallet signing issues
 - Miner reliability problems
-- Documentation improvements
+- Mainnet operator tooling improvements
+- Documentation improvements that reduce production drift
 
 We are **not** looking for:
-- Mainnet parameter changes (too early)
+- Testnet-first UX or deployment assumptions
+- Mainnet parameter changes without prior discussion
 - Tokenomics modifications
 - Breaking consensus changes without prior discussion
 

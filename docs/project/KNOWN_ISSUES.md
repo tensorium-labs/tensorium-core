@@ -1,7 +1,7 @@
-# Known Issues — Tensorium Testnet
+# Known Issues — Tensorium Mainnet Operations
 
-Status: Public testnet active, mainnet-candidate pre-launch checklist in progress
-Last updated: 2026-06-01
+Status: Mainnet live; this file tracks active runtime and operator-facing issues
+Last updated: 2026-06-02
 
 ---
 
@@ -21,7 +21,7 @@ Last updated: 2026-06-01
 
 **Severity:** Low
 **Component:** tensorium-node (mine-once command)
-**Description:** `tensorium-node mine-once` uses a single-threaded nonce search. At current GPU-first testnet difficulty, this command is only useful for development diagnostics and should not be treated as a real miner.
+**Description:** `tensorium-node mine-once` uses a single-threaded nonce search. At current GPU-first mainnet difficulty, this command is only useful for development diagnostics and should not be treated as a real miner.
 **Workaround:** Use `txmminer-cuda` for GPU mining or `txmminer` only for low-difficulty/dev testing.
 
 ---
@@ -32,7 +32,7 @@ Last updated: 2026-06-01
 **Component:** tensorium-node P2P
 **Description:** Nodes now have built-in default seeds, and the mainnet-candidate chain has a DNS seed, but there is still no peer exchange (PEX) or richer discovery layer. If the published seeds are unreachable, operators still need manual peer configuration.
 **Workaround:** Default seeds should work in normal cases. If not, set `TENSORIUM_PEERS` manually and run `tensorium-node sync <peer>` against a healthy node.
-**Fix planned:** Post-launch networking hardening — add better peer discovery and redundancy beyond static seeds.
+**Fix planned:** Post-launch networking hardening — add peer exchange and redundancy beyond static seeds/DNS seeds.
 
 ---
 
@@ -59,7 +59,7 @@ Last updated: 2026-06-01
 
 **Severity:** Low
 **Component:** Consensus / mempool
-**Description:** The current consensus rules do not enforce minimum transaction fees. Miners accept zero-fee transactions. Fee market mechanics are deferred to testnet Phase 5 / mainnet design.
+**Description:** The current consensus rules do not enforce minimum transaction fees. Miners accept zero-fee transactions. Fee market mechanics remain deferred to a later mainnet economics pass.
 
 ---
 
@@ -68,7 +68,7 @@ Last updated: 2026-06-01
 **Severity:** Low (UX)
 **Component:** txmwallet
 **Description:** `txmwallet balance` scans the canonical chain sequentially to rebuild UTXOs. It no longer depends on the old JSON state file, but it still has no dedicated address/UTXO index for fast lookups.
-**Fix planned:** Pre-mainnet with the state store migration (KI-004).
+**Fix planned:** Post-launch wallet/indexing improvement after the storage migration baseline.
 
 ---
 
@@ -79,15 +79,15 @@ Last updated: 2026-06-01
 | FI-001 | Genesis block non-deterministic (different hash per node) | v0.1.1 — fixed timestamp |
 | FI-002 | txmminer fails at difficulty > ~23 bits (nonce limit too low) | v0.1.1 — raised to u64::MAX |
 | FI-003 | Invalid POST body returns HTTP 500 instead of HTTP 400 | v0.1.2 — parse errors now 400 |
-| FI-004 | No GPU miner available for public testnet | v0.2.0-testnet — CUDA miner released |
-| FI-005 | GPU-first genesis took too long to initialize on normal nodes | v0.2.0-testnet — pre-mined genesis nonce |
+| FI-004 | No production GPU miner path available | v0.2.0-pre-mainnet — CUDA miner released |
+| FI-005 | GPU-first genesis took too long to initialize on normal nodes | v0.2.0-pre-mainnet — pre-mined genesis nonce |
 
 ---
 
-## Out of Scope for Testnet
+## Deferred / Out Of Scope
 
-These are known limitations that are intentional for testnet and will be addressed before mainnet:
+These are known limitations that remain intentionally deferred after launch:
 
 - No peer exchange (PEX) / richer peer discovery beyond static seeds
-- No security audit — required before mainnet
+- No external security audit yet
 - Public RPC still relies on nginx rate limiting and localhost-only node binds

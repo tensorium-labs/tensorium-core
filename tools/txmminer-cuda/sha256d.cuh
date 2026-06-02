@@ -1,23 +1,9 @@
-// sha256d.cuh — SHA256d device functions for Tensorium CUDA miner
-// SHA256 implementation optimized for the 112-byte Tensorium block header.
-//
-// Header layout (112 bytes):
-//   [0..3]   version      (u32 LE)
-//   [4..22]  chain_id     ("tensorium-testnet-0", 19 bytes)
-//   [23..30] height       (u64 LE)
-//   [31..62] previous_hash (32 bytes)
-//   [63..94] merkle_root   (32 bytes)
-//   [95..102] timestamp    (u64 LE)
-//   [103]    difficulty_bits (u8)
-//   [104..111] nonce       (u64 LE)  ← varied per thread
-//
-// Midstate optimisation: block1 = header[0..63] is constant for all nonces.
-// CPU precomputes the SHA256 state after block1, GPU only processes block2.
+// sha256d.cuh — SHA256d device helpers for Tensorium CUDA miner
+// Supports the exact serialized Tensorium block header length, including
+// mainnet chain IDs that do not fit the old 112-byte fixed-header assumption.
 
 #pragma once
 #include <stdint.h>
-
-// ── SHA256 constants ─────────────────────────────────────────────────────────
 
 __constant__ uint32_t K[64] = {
     0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,
@@ -38,8 +24,6 @@ __constant__ uint32_t K[64] = {
     0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2,
 };
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
 #define ROTR32(x, n) (((x) >> (n)) | ((x) << (32 - (n))))
 #define CH(e,f,g)   (((e) & (f)) ^ (~(e) & (g)))
 #define MAJ(a,b,c)  (((a) & (b)) ^ ((a) & (c)) ^ ((b) & (c)))
@@ -48,23 +32,17 @@ __constant__ uint32_t K[64] = {
 #define sigma0(x)   (ROTR32(x, 7)  ^ ROTR32(x, 18) ^ ((x) >> 3))
 #define sigma1(x)   (ROTR32(x, 17) ^ ROTR32(x, 19) ^ ((x) >> 10))
 
-// Big-endian u32 load from byte array
 __device__ __forceinline__ uint32_t load_be32(const uint8_t *p) {
     return ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) |
            ((uint32_t)p[2] << 8)  |  (uint32_t)p[3];
 }
 
-// Store big-endian u32 to byte array
 __device__ __forceinline__ void store_be32(uint8_t *p, uint32_t v) {
     p[0] = (v >> 24) & 0xff;
     p[1] = (v >> 16) & 0xff;
     p[2] = (v >>  8) & 0xff;
     p[3] =  v        & 0xff;
 }
-
-// ── SHA256 single block compression ─────────────────────────────────────────
-// state[8]: in/out (H0..H7)
-// block[64]: input block (big-endian 32-bit words)
 
 __device__ void sha256_compress(uint32_t state[8], const uint32_t block[16]) {
     uint32_t W[64];
@@ -86,61 +64,55 @@ __device__ void sha256_compress(uint32_t state[8], const uint32_t block[16]) {
     state[4] += e; state[5] += f; state[6] += g; state[7] += h;
 }
 
-// ── SHA256d of 112-byte Tensorium header ─────────────────────────────────────
-//
-// Uses precomputed midstate after block1 (first 64 bytes).
-// block2 is header[64..111] (48 bytes) + SHA256 padding.
-//
-// block2 bytes:
-//   [0..47]  = header[64..111]
-//   [48]     = 0x80
-//   [49..55] = 0x00 (padding)
-//   [56..63] = 0x0000000000000380  (big-endian bit length = 896)
-//
-// nonce_offset in block2 = 104 - 64 = 40  →  block2[40..47]
-
-__device__ void sha256d_header(
-    const uint32_t midstate[8],  // SHA256 state after block1
-    const uint8_t  block2[64],   // second 64-byte block (pre-built with nonce)
-    uint8_t        hash_out[32]  // SHA256d result
-) {
-    // ── First hash: finish block2 ─────────────────────────────────────────
-    uint32_t state1[8];
-    for (int i = 0; i < 8; i++) state1[i] = midstate[i];
-
-    uint32_t W1[16];
-    for (int i = 0; i < 16; i++)
-        W1[i] = load_be32(block2 + i * 4);
-    sha256_compress(state1, W1);
-
-    // state1 now holds SHA256(header)
-
-    // ── Second hash: SHA256 of 32-byte first hash ─────────────────────────
-    // Input is 32 bytes. SHA256 block (64 bytes):
-    //   [0..3]  state1[0], ..., state1[7]  in BE
-    //   [32]    0x80
-    //   [33..55] 0x00
-    //   [56..63] 0x0000000000000100  (256 bits)
-
-    uint32_t W2[16] = {0};
-    W2[0] = state1[0]; W2[1] = state1[1]; W2[2] = state1[2]; W2[3] = state1[3];
-    W2[4] = state1[4]; W2[5] = state1[5]; W2[6] = state1[6]; W2[7] = state1[7];
-    W2[8] = 0x80000000;  // 0x80 followed by zeros
-    // W2[9..13] = 0
-    W2[14] = 0x00000000;
-    W2[15] = 0x00000100;  // 256 bits in big-endian u32 pair [0, 256]
-
-    uint32_t state2[8] = {
+__device__ void sha256_bytes(const uint8_t *msg, uint16_t len, uint8_t hash_out[32]) {
+    uint32_t state[8] = {
         0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a,
         0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19,
     };
-    sha256_compress(state2, W2);
 
-    for (int i = 0; i < 8; i++)
-        store_be32(hash_out + i * 4, state2[i]);
+    const int total_blocks = (len + 9 + 63) / 64;
+    const uint64_t bit_len = (uint64_t)len * 8;
+
+    for (int b = 0; b < total_blocks; b++) {
+        uint8_t block_bytes[64];
+        uint32_t block_words[16];
+        int base = b * 64;
+
+        for (int i = 0; i < 64; i++) {
+            int idx = base + i;
+            if (idx < len) block_bytes[i] = msg[idx];
+            else if (idx == len) block_bytes[i] = 0x80;
+            else block_bytes[i] = 0x00;
+        }
+
+        if (b == total_blocks - 1) {
+            block_bytes[56] = (uint8_t)(bit_len >> 56);
+            block_bytes[57] = (uint8_t)(bit_len >> 48);
+            block_bytes[58] = (uint8_t)(bit_len >> 40);
+            block_bytes[59] = (uint8_t)(bit_len >> 32);
+            block_bytes[60] = (uint8_t)(bit_len >> 24);
+            block_bytes[61] = (uint8_t)(bit_len >> 16);
+            block_bytes[62] = (uint8_t)(bit_len >> 8);
+            block_bytes[63] = (uint8_t)(bit_len);
+        }
+
+        for (int i = 0; i < 16; i++) {
+            block_words[i] = load_be32(block_bytes + i * 4);
+        }
+        sha256_compress(state, block_words);
+    }
+
+    for (int i = 0; i < 8; i++) {
+        store_be32(hash_out + i * 4, state[i]);
+    }
 }
 
-// ── Leading zero bit count of a 32-byte hash ─────────────────────────────────
+__device__ void sha256d_bytes(const uint8_t *msg, uint16_t len, uint8_t hash_out[32]) {
+    uint8_t first_hash[32];
+    sha256_bytes(msg, len, first_hash);
+    sha256_bytes(first_hash, 32, hash_out);
+}
+
 __device__ int leading_zero_bits(const uint8_t hash[32]) {
     int bits = 0;
     for (int i = 0; i < 32; i++) {

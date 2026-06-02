@@ -4,7 +4,7 @@ Last updated: 2026-06-02
 
 Canonical source for integrator-facing fields:
 
-- `CANONICAL_ASSET_METADATA.md`
+- `docs/integrations/CANONICAL_ASSET_METADATA.md`
 
 ---
 
@@ -81,7 +81,7 @@ For wallets, indexers, and listing forms that need one concise reference packet,
 | Backup seed | `139.180.137.144:33333` |
 | Node software | `tensorium-node` (Rust, open source) |
 | Wallet | `txmwallet` CLI + Chrome extension |
-| Mining software | `txmminer` (CPU), `txmminer-cuda` (NVIDIA CUDA) |
+| Mining software | `txmminer` (CPU diagnostic/dev), `txmminer-cuda` (NVIDIA CUDA, practical mainnet mining) |
 
 **wTXM Bridge (Optimism mainnet):**
 

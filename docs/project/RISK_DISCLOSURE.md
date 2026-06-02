@@ -11,8 +11,6 @@ Please read this document carefully before running a node, mining, or acquiring 
 
 Tensorium mainnet (`tensorium-mainnet-candidate-0`) is **live** as of 2026-06-02. Mining is active. TXM tokens on the mainnet chain may carry monetary value — participants assume full risk.
 
-The public testnet (`tensorium-testnet-0`) remains active for development and onboarding; testnet tokens have no monetary value.
-
 - **Mainnet genesis:** nonce `114_103_168_481`, hash `000000000063ab6f057a16376b1712e709719126ad977a3d4be23f83b89f0392`, timestamp `2026-06-01 00:00:00 UTC`
 - **Bridge live:** TXM ↔ wTXM (Optimism) at https://bridge.tensoriumlabs.com
 - No external security audit has been completed. Use at your own risk.
@@ -52,12 +50,12 @@ The founder commits to a **voluntary 24-month lock** starting from mainnet genes
 
 ### Consensus and Security
 - Tensorium has not undergone a formal third-party security audit.
-- The consensus code has been tested via unit tests (54+ tests passing) and public testnet operation, but may contain undiscovered vulnerabilities.
+- The consensus code has been tested via unit tests and live chain operation, but may contain undiscovered vulnerabilities.
 - The founder lock policy is social/manual — no smart contract or timelock enforces it.
 - The RPC server is single-threaded and intended for localhost use. Public RPC exposure requires nginx rate-limiting.
 
 ### Storage
-- Chain state is stored in JSON format. This is acceptable for testnet and early mainnet but may not scale to high transaction volumes. A migration to a binary/database format is planned for future versions.
+- Chain state now uses RocksDB persistence, but higher long-term transaction volume may still expose storage and operational scaling constraints.
 - Users should maintain chain state backups.
 
 ### Mining
@@ -67,7 +65,7 @@ The founder commits to a **voluntary 24-month lock** starting from mainnet genes
 - Other GPU architectures may require compiling from source.
 
 ### Network
-- Peer discovery uses a built-in static seed list and DNS seed (`seed.tensoriumlabs.com:33333` for mainnet-candidate, `157.230.44.162:23333` for testnet). If all seed nodes go offline, new nodes cannot auto-connect without manually specifying a peer.
+- Peer discovery uses built-in DNS/static mainnet seeds (`seed.tensoriumlabs.com:33333`, `seed2.tensoriumlabs.com:33333`). If all seed nodes go offline, new nodes cannot auto-connect without manually specifying a peer.
 - A backup seed node (`139.180.137.144`, Vultr) is operational for the mainnet-candidate. Network decentralization still requires broader community participation.
 
 ---
@@ -102,4 +100,4 @@ The founder commits to a **voluntary 24-month lock** starting from mainnet genes
 
 ---
 
-*This disclosure is subject to update before the mainnet-candidate chain launches. The most recent version is always available at the GitHub repository.*
+*This disclosure is subject to further operational updates. The most recent version is always available at the GitHub repository.*

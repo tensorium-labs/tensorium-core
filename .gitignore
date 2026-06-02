@@ -1,9 +1,9 @@
 /target
-tensorium-testnet-state.json
+state.json
 tensorium-wallet.json
 tensorium-signed-tx.json
-tensorium-testnet-mempool.json
-tensorium-testnet-banlist.json
+mempool.json
+banlist.json
 **/*.rs.bk
 .env
 .env.*
