@@ -9,7 +9,7 @@ A Proof-of-Work blockchain built in Rust — public GPU-first testnet, CUDA mini
 [![Website](https://img.shields.io/badge/Website-tensoriumlabs.com-black)](https://tensoriumlabs.com)
 [![Docs](https://img.shields.io/badge/Docs-docs.tensoriumlabs.com-7c3aed)](https://docs.tensoriumlabs.com)
 [![Explorer](https://img.shields.io/badge/Explorer-Live-green)](https://explorer.tensoriumlabs.com)
-[![Release](https://img.shields.io/badge/Release-v0.2.0--testnet-orange)](https://github.com/tensorium-labs/tensorium-core/releases/tag/v0.2.0-testnet)
+[![Release](https://img.shields.io/badge/Release-v0.3.1--mainnet--candidate-orange)](https://github.com/tensorium-labs/tensorium-core/releases/tag/v0.3.1-mainnet-candidate)
 
 ## Install (Linux x86_64)
 
@@ -80,6 +80,16 @@ Tensorium consensus does not include a hidden miner tax.
 The current Phase 8 policy allows an official/reference mining pool to charge a transparent `5%` pool fee. This fee is handled by pool payout accounting, sent to a published pool treasury/development wallet, and shown before miners connect. Solo miners who submit blocks directly to their own node are not charged this pool fee by the protocol.
 
 For safety, the node and pool should be separate trust boundaries. The temporary mainnet-candidate setup may colocate services on the current VPS to keep operations moving, as long as processes, folders, env files, logs, and wallet files are isolated. As the network grows, adding more nodes is good for redundancy, sync health, and decentralization; mainnet-candidate infrastructure should add backup seed nodes and split high-risk services when needed.
+
+---
+
+## Chrome Wallet Extension
+
+A self-custody browser wallet for TXM is available as a Chrome extension.
+
+- Repo: [tensorium-labs/tensorium-wallet-extension](https://github.com/tensorium-labs/tensorium-wallet-extension)
+- Install (manual, while Chrome Web Store review is pending): download ZIP from the [latest release](https://github.com/tensorium-labs/tensorium-wallet-extension/releases/latest), unzip, open `chrome://extensions`, enable Developer mode, click Load unpacked
+- Features: create/import wallet, balance, send, history (last 200 blocks, sent + received), network selector (testnet / mainnet-candidate / custom RPC), export backup, lock
 
 ---
 
