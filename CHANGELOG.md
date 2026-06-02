@@ -2,6 +2,28 @@
 
 All notable changes to Tensorium are documented in this file.
 
+## [Phase 9C/9D Complete + CEX Outreach] — 2026-06-02
+
+### Phase 9C — Python SDK (DONE)
+- `tensorium-sdk==0.1.1` published to PyPI via GitHub Actions OIDC
+- `pip install tensorium-sdk`
+- License corrected: MIT → Apache-2.0
+- 7/7 tests passing
+- https://pypi.org/project/tensorium-sdk/
+
+### Phase 9D — CEX Outreach (DONE)
+- Listing applications sent to 14 exchanges from dev@tensoriumlabs.com
+- Tier 1–2: MEXC Global, Gate.io, CoinEx, OKX, Bybit, BingX, BitMart, XT.com
+- Tier 3: LBank, CoinW, DigiFinex, Hotcoin, BTCC, SafeTrade
+- `CEX_LISTING_PACKAGE.md` added to repo with full token info + templates
+- Next step: submit to CoinGecko + CMC after Uniswap V3 pool is live
+
+### Deferred
+- Telegram: Discord-first strategy, Telegram later
+- Twitter/X: Discord-first strategy
+
+---
+
 ## [Mainnet Launch] — 2026-06-02
 
 **Tensorium mainnet (`tensorium-mainnet-candidate-0`) declared live.**
