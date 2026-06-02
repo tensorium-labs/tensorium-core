@@ -391,15 +391,35 @@ Chrome extension wallet stack: TypeScript + React, separate repo `tensorium-wall
 | Docs: Chrome extension guide | DONE | `https://docs.tensoriumlabs.com/chrome-wallet.html` deployed 2026-06-01. Covers install, create/import, send, network selector, security model, FAQ. |
 | Public RPC endpoints | DONE | `https://rpc.tensoriumlabs.com` (testnet) + `https://mc-rpc.tensoriumlabs.com` (MC) live with CORS + rate limit (10r/s). Used by Chrome extension. Current posture: DO remains primary public RPC host; Vultr backup seed stays seed-only until public RPC split/failover is explicitly activated. See `PUBLIC_RPC_POSTURE.md`. |
 | Risk disclosure on website | DONE | Root site and docs link to `RISK_DISCLOSURE.md` |
-| Announce mainnet-candidate launch | TODO | LAST STEP only: after 8A infrastructure is acceptable, monitoring is green, and launch decision is taken. Soak test continues in background and is noted, not treated as a hard calendar gate. |
+| Announce mainnet-candidate launch | **DONE** | 2026-06-02: Bridge opened, Discord announcement pinned, bridge website live, ecosystem complete. Mainnet declared live. |
 
 ### 8E — Security & Legal
 
 | Item | Status | Notes |
 |---|---|---|
 | Source code license | DONE | Apache-2.0 added with `LICENSE` and `NOTICE`; workspace package license updated |
-| Soak test (ongoing runtime watch) | DOING | MC chain + related services have been running on VPS since 2026-06-01. Hourly cron `/usr/local/bin/tensorium-soak.sh` logs to `/var/log/tensorium-soak.log`. Keep this running in background, record stability notes, and do not treat `2026-06-15` as a hard blocker date by itself. |
+| Soak test (ongoing runtime watch) | **DONE** | MC chain ran from 2026-06-01. Soak gate removed 2026-06-02 — infrastructure stable, monitoring green, mainnet declared live. Soak logging continues passively. |
 | Security audit | DEFERRED | External audit recommended before economic value. Can defer to post-launch. |
+
+---
+
+---
+
+## Phase 9A — Bridge & Ecosystem (DONE — 2026-06-02)
+
+| Item | Status | Notes |
+|---|---|---|
+| wTXM ERC-20 (OP Mainnet) | DONE | `0x2e71FD45530FAe75B6b427F3e71A0CDEB146C20e` |
+| TensoriumBridgeController (OP Mainnet) | DONE | `0x4b31C557AD64609B975610812273BF82F1475384` |
+| Gnosis Safe 2-of-3 | DONE | `0x9B3B2DB2eCf2b83f58ed256C252204f0d76dB6e9` — 3 owners, threshold 2 |
+| Contract ownership → Safe | DONE | Both wTXM and Controller owned by Safe |
+| Bridge relayer (VPS) | DONE | `tensorium-bridge-relayer` pm2 process, 6-block confirm, ~15 min avg |
+| Bridge website | DONE | https://bridge.tensoriumlabs.com — status "Bridge Live" |
+| Bridge publicly open | DONE | 2026-06-02 — soak test gate removed |
+| Explorer indexer | DONE | In-process indexer, O(1) address history, `/api/search`, paginated UI |
+| SDK JS | DONE | `@tensorium/sdk@0.1.1` on npm |
+| Discord community | DONE | `discord.gg/KkgGSZKVZw` — 7 categories, 20 channels, auto-role bot |
+| Uniswap V3 pool | PENDING | Create via https://app.uniswap.org/pools/new?chain=optimism when first wTXM is bridged |
 
 ---
 

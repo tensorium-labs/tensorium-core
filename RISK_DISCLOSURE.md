@@ -9,11 +9,13 @@ Please read this document carefully before running a node, mining, or acquiring 
 
 ## 1. Project Status
 
-Tensorium is a **mainnet-candidate** blockchain. It is **not yet in production mainnet**. The current public chain is a GPU-first testnet (`tensorium-testnet-0`) for community testing and GPU mining evaluation.
+Tensorium mainnet (`tensorium-mainnet-candidate-0`) is **live** as of 2026-06-02. Mining is active. TXM tokens on the mainnet chain may carry monetary value — participants assume full risk.
 
-- Testnet tokens have **no monetary value**.
-- The mainnet-candidate genesis block has been mined (nonce `114_103_168_481`, hash `000000000063ab6f057a16376b1712e709719126ad977a3d4be23f83b89f0392`, timestamp `2026-06-01 00:00:00 UTC`). The chain is in soak-test phase.
-- **No public launch date is announced.** A launch announcement will only be made after monitoring, soak test, and final infrastructure checks pass.
+The public testnet (`tensorium-testnet-0`) remains active for development and onboarding; testnet tokens have no monetary value.
+
+- **Mainnet genesis:** nonce `114_103_168_481`, hash `000000000063ab6f057a16376b1712e709719126ad977a3d4be23f83b89f0392`, timestamp `2026-06-01 00:00:00 UTC`
+- **Bridge live:** TXM ↔ wTXM (Optimism) at https://bridge.tensoriumlabs.com
+- No external security audit has been completed. Use at your own risk.
 
 ---
 

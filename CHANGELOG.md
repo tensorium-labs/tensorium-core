@@ -2,6 +2,28 @@
 
 All notable changes to Tensorium are documented in this file.
 
+## [Mainnet Launch] — 2026-06-02
+
+**Tensorium mainnet (`tensorium-mainnet-candidate-0`) declared live.**
+
+Infrastructure stable since 2026-06-01 genesis. Soak test gate removed. TXM mining is open. Bridge live.
+
+---
+
+## [Phase 9A — Bridge & Ecosystem] — 2026-06-02
+
+**Status: Bridge live. Safe 2-of-3. Explorer indexer. SDK published. Discord open.**
+
+### Phase 9A — Bridge
+- **Gnosis Safe 2-of-3** created on OP Mainnet: `0x9B3B2DB2eCf2b83f58ed256C252204f0d76dB6e9`
+  - Owners: deployer + signer B (`0x50B0...`) + signer C (`0x950f...`) | threshold: 2
+- **wTXM + Controller ownership** transferred from deployer EOA to Safe (Ownable2Step)
+- **Bridge publicly open** — soak test gate removed 2026-06-02
+- Bridge website status updated: "Bridge Live"
+- Discord: bridge open announcement pinned in #announcements
+
+---
+
 ## [Phase 9 Ecosystem] — 2026-06-02
 
 **Status: Explorer indexer live. SDK published. Discord community open. Phase 9A (bridge) in progress.**

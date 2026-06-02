@@ -2,8 +2,9 @@
 
 A Proof-of-Work blockchain built in Rust — public GPU-first testnet, CUDA mining, and mainnet-candidate bootstrap.
 
-> **Status:** Public CPU-minable testnet plus mainnet-candidate preparation. The current DigitalOcean VPS is the temporary MC host until a dedicated VPS migration is ready.
-> Chain: `tensorium-testnet-0` | Ticker: `TXM` | P2P port: `23333` | RPC port: `23332`
+> **Status:** Mainnet live (declared 2026-06-02). GPU mining active on `tensorium-mainnet-candidate-0`. Public testnet still running at 20-bit for onboarding.
+> Mainnet chain: `tensorium-mainnet-candidate-0` | Ticker: `TXM` | P2P: `33333` | RPC: `33332`
+> Testnet chain: `tensorium-testnet-0` | P2P: `23333` | RPC: `23332`
 
 [![Discord](https://img.shields.io/badge/Discord-Join-5865F2?logo=discord&logoColor=white)](https://discord.gg/KkgGSZKVZw)
 [![npm](https://img.shields.io/badge/npm-%40tensorium%2Fsdk-red?logo=npm)](https://www.npmjs.com/package/@tensorium/sdk)
