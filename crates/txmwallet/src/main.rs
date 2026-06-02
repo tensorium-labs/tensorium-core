@@ -16,6 +16,7 @@ use serde::{Deserialize, Serialize};
 use tensorium_core::{
     block::{Transaction, TxInput, TxOutput},
     chain::TESTNET,
+    script::standard::{p2pkh_from_address, p2pkh_from_pubkey},
     ChainState, UtxoSet, WalletKeypair,
 };
 
@@ -214,8 +215,11 @@ fn print_balance(wallet: &WalletFile, state: &ChainState) -> Result<(), String> 
     let tip_height = state.height().unwrap_or(0);
     let mut mature_atoms = 0u64;
     let mut immature_atoms = 0u64;
+    let expected_script = p2pkh_from_pubkey(
+        &hex::decode(&wallet.public_key_hex).unwrap_or_default()
+    );
     for entry in utxos.entries.values() {
-        if entry.output.address != wallet.address {
+        if entry.output.script_pubkey != expected_script {
             continue;
         }
 
@@ -257,8 +261,11 @@ fn build_signed_payment(
     let tip_height = state.height().unwrap_or(0);
     let mut selected = Vec::new();
     let mut selected_atoms = 0u64;
+    let expected_script = p2pkh_from_pubkey(
+        &hex::decode(&wallet.public_key_hex).unwrap_or_default()
+    );
     for (outpoint, entry) in &utxos.entries {
-        if entry.output.address != wallet.address {
+        if entry.output.script_pubkey != expected_script {
             continue;
         }
         let immature = entry.coinbase
@@ -289,13 +296,15 @@ fn build_signed_payment(
         .collect();
     let mut outputs = vec![TxOutput {
         value_atoms: amount_atoms,
-        address: to_address.to_owned(),
+        script_pubkey: p2pkh_from_address(to_address)
+            .map_err(|_| format!("invalid recipient address: {to_address}"))?,
     }];
     let change = selected_atoms - amount_atoms;
     if change > 0 {
         outputs.push(TxOutput {
             value_atoms: change,
-            address: wallet.address.clone(),
+            script_pubkey: p2pkh_from_address(&wallet.address)
+                .map_err(|_| "invalid wallet address".to_owned())?,
         });
     }
 
@@ -426,10 +435,18 @@ fn build_signed_payment_via_rpc(
     let inputs: Vec<TxInput> = selected.iter()
         .map(|(op, _)| TxInput { previous_output: *op, signature_script: Vec::new() })
         .collect();
-    let mut outputs = vec![TxOutput { value_atoms: amount_atoms, address: to_address.to_owned() }];
+    let mut outputs = vec![TxOutput {
+        value_atoms: amount_atoms,
+        script_pubkey: p2pkh_from_address(to_address)
+            .map_err(|_| format!("invalid recipient address: {to_address}"))?,
+    }];
     let change = selected_atoms - amount_atoms;
     if change > 0 {
-        outputs.push(TxOutput { value_atoms: change, address: wallet.address.clone() });
+        outputs.push(TxOutput {
+            value_atoms: change,
+            script_pubkey: p2pkh_from_address(&wallet.address)
+                .map_err(|_| "invalid wallet address".to_owned())?,
+        });
     }
 
     let mut tx = Transaction::payment(inputs, outputs);
