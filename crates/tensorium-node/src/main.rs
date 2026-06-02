@@ -42,7 +42,7 @@ const MC_GENESIS_TIMESTAMP: u64 = 1_780_272_000;
 /// GENESIS v2 — includes 1,000,000 TXM founder allocation at txm18c3t652j0x0sanux3dhse8fqgrqpsdzx97358d
 /// Mined on RTX 3060 (VastAI) at 0.56 GH/s in 855 s (2026-06-01).
 /// Merkle root: 2997b957adc7c9f563569a2024a6e8f8816e34aafb6f96edb71871ae36542279
-const MC_GENESIS_NONCE: u64 = 114_103_168_481;
+const MC_GENESIS_NONCE: u64 = 1_936_263_118_035;
 const P2P_PROTOCOL_VERSION: u32 = 1;
 /// Maximum blocks returned per GetBlocks response.
 const SYNC_BATCH_SIZE: usize = 50;

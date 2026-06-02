@@ -10,7 +10,7 @@ This document records what had to be true before launch and tracks the remaining
 **Phase 7 DONE.** All Phase 7 sprints (7A–7E) completed 2026-05-31.
 
 - Mainnet-candidate code: `v0.3.1-mainnet-candidate` — genesis hardcoded, MC daemon complete
-- MC genesis: nonce `114_103_168_481`, hash `000000000063ab6f057a16376b1712e709719126ad977a3d4be23f83b89f0392` (v2 — with 1M founder allocation)
+- MC genesis: nonce `1_936_263_118_035`, hash `0000000000269b71601aded6dda2991df6f88b67ac2bef13dff56f4f8a94dfae` (v3 — post-S1 script_pubkey serialisation)
 - MC commands: `tensorium-node mainnet-candidate rpc/p2p-listen/sync/init`
 - Public services: website, docs, whitepaper, explorer, and mainnet seed infrastructure
 
@@ -65,7 +65,7 @@ Phase 10E artifact:
 | Consensus audit | DONE | Tokenomics, emission, difficulty, fork-choice/reorg, timestamp, coinbase, double-spend, RPC bind safety, P2P cap, ban-list fix, connection limit, TCP timeouts — 54 unit tests passing. Soak/integration test: Phase 8 item. |
 | Founder wallet | DONE | Founder address `txm18c3t652j0x0sanux3dhse8fqgrqpsdzx97358d`, pool treasury `txm10wa2dazhn2yqwwxkm4aegvzjq55hj9m2jlznt9` generated 2026-05-31. |
 | Founder lock policy | DONE | Social/manual 24-month lock documented; no L1 enforcement. Disclosure required in whitepaper before mainnet. |
-| Mainnet genesis | DONE | Nonce `114_103_168_481` mined RTX 3060 (0.56 GH/s, 855s, 2026-06-01). Hash: `000000000063ab6f057a16376b1712e709719126ad977a3d4be23f83b89f0392`. Genesis v2 includes 1M TXM founder allocation.. Hardcoded in binary. |
+| Mainnet genesis | DONE | Nonce `1_936_263_118_035` mined RTX 5090 (4.64 GH/s, 474s, 2026-06-02). Hash: `0000000000269b71601aded6dda2991df6f88b67ac2bef13dff56f4f8a94dfae`. Genesis v3 — post-S1 script_pubkey serialisation. Hardcoded in binary. |
 | Storage migration decision | DONE | RocksDB migration shipped on 2026-06-02. Legacy `state.json` files now auto-migrate to `*.db/` on first open. |
 | Peer discovery | DONE | Mainnet DNS seed live at `seed.tensoriumlabs.com:33333`; generic runtime defaults now point to mainnet DNS seeds. |
 | Mining pool path | DONE | tensorium-pool reference pool implemented (HTTP proxy, 5% fee, payout ledger). |
@@ -596,11 +596,12 @@ Execution checklist: see `docs/bridge/phase9a/PHASE9A_EXECUTION_CHECKLIST.md`.
 
 ### Mainnet-Candidate Genesis (Reference)
 
-- **Nonce:** `114_103_168_481`
-- **Hash:** `000000000063ab6f057a16376b1712e709719126ad977a3d4be23f83b89f0392`
+- **Nonce:** `1_936_263_118_035`
+- **Hash:** `0000000000269b71601aded6dda2991df6f88b67ac2bef13dff56f4f8a94dfae`
 - **Timestamp:** `1_780_272_000` (2026-06-01 00:00:00 UTC)
-- **Mined:** RTX 5090, CUDA, 2.28 GH/s, 24.6 seconds (2026-05-31)
-- **Verified:** GPU server (142.188.39.36) + VPS (157.230.44.162) → identical hash
+- **Mined:** RTX 5090, CUDA, 4.64 GH/s, 474 seconds (2026-06-02)
+- **Format:** v3 — post-S1 script_pubkey coinbase serialisation
+- **Verified:** local `tensorium-node mainnet-candidate init` → identical hash
 - **Command:** `tensorium-node mainnet-candidate init` (no args needed)
 
 ### VPS Plan for Mainnet-Candidate Seed Node
