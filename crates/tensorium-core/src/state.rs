@@ -1,29 +1,114 @@
-use std::collections::{HashMap, HashSet};
+use std::path::{Path, PathBuf};
 
+use rocksdb::{ColumnFamilyDescriptor, Options, WriteBatch, DB};
 use serde::{Deserialize, Serialize};
+use tempfile::TempDir;
 use thiserror::Error;
 
 use crate::{
-    block::{merkle_root, Block, BlockHeader, Transaction},
+    block::{Block, BlockHeader, Transaction},
     chain::ConsensusParams,
     emission::reward_at_height,
     hash::Hash256,
     pow::mine_header,
+    storage::{
+        decode_block, encode_block, encode_height,
+        CF_BLOCKS, CF_CANONICAL, CF_META, META_HEIGHT, META_TIP,
+    },
     validation::{validate_block, ValidationError},
 };
 
-/// All validated blocks indexed by hash hex (canonical + stale forks).
-type BlockMap = HashMap<String, Block>;
+fn cf_options() -> Vec<ColumnFamilyDescriptor> {
+    vec![
+        ColumnFamilyDescriptor::new(CF_BLOCKS,    Options::default()),
+        ColumnFamilyDescriptor::new(CF_CANONICAL, Options::default()),
+        ColumnFamilyDescriptor::new(CF_META,      Options::default()),
+    ]
+}
 
-#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+fn open_rocksdb(path: &Path) -> DB {
+    let mut opts = Options::default();
+    opts.create_if_missing(true);
+    opts.create_missing_column_families(true);
+    DB::open_cf_descriptors(&opts, path, cf_options())
+        .unwrap_or_else(|e| panic!("Failed to open RocksDB at {}: {e}", path.display()))
+}
+
 pub struct ChainState {
-    /// Canonical chain in genesis-first order; `blocks[0]` is genesis.
-    pub blocks: Vec<Block>,
-    /// Every validated block, keyed by its hash hex.  Canonical blocks appear
-    /// here too.  Old state files without this field get it populated lazily
-    /// from `blocks` the first time `submit_block` is called.
-    #[serde(default)]
-    pub block_map: BlockMap,
+    db:           DB,
+    _tmpdir:      Option<TempDir>,
+    tip_cache:    Option<Block>,
+    height_cache: Option<u64>,
+}
+
+impl ChainState {
+    /// Create an in-memory (tempdir) instance — for tests only.
+    pub fn new() -> Self {
+        let dir = TempDir::new().expect("tempdir");
+        let db  = open_rocksdb(dir.path());
+        ChainState { db, _tmpdir: Some(dir), tip_cache: None, height_cache: None }
+    }
+
+    /// Open (or create) a persistent RocksDB at `path`.
+    /// If `path` ends in `.json` the DB lives at `path` with `.json` replaced by `.db`.
+    pub fn open_db(path: &Path) -> Result<Self, String> {
+        let db_path: PathBuf = if path.extension().map(|e| e == "json").unwrap_or(false) {
+            path.with_extension("db")
+        } else {
+            path.to_path_buf()
+        };
+        let db = open_rocksdb(&db_path);
+        let mut s = ChainState { db, _tmpdir: None, tip_cache: None, height_cache: None };
+        s.reload_caches();
+        Ok(s)
+    }
+
+    fn reload_caches(&mut self) {
+        let meta_cf   = self.db.cf_handle(CF_META).expect("meta CF");
+        let blocks_cf = self.db.cf_handle(CF_BLOCKS).expect("blocks CF");
+
+        let tip_bytes = match self.db.get_cf(meta_cf, META_TIP).expect("meta tip read") {
+            Some(b) => b,
+            None    => return,
+        };
+        let hash = Hash256(tip_bytes.as_slice().try_into().expect("32-byte hash"));
+        let block_bytes = match self.db.get_cf(blocks_cf, &hash.0).expect("block read") {
+            Some(b) => b,
+            None    => return,
+        };
+        let block = decode_block(&block_bytes);
+        self.height_cache = Some(block.header.height);
+        self.tip_cache    = Some(block);
+    }
+
+    pub fn height(&self) -> Option<u64> {
+        self.height_cache
+    }
+
+    pub fn tip(&self) -> Option<&Block> {
+        self.tip_cache.as_ref()
+    }
+
+    pub fn tip_hash(&self) -> Hash256 {
+        self.tip().map(|b| b.hash()).unwrap_or(Hash256::ZERO)
+    }
+
+    pub fn block_count(&self) -> usize {
+        self.height_cache.map(|h| h as usize + 1).unwrap_or(0)
+    }
+
+    pub fn canonical_blocks_iter(&self) -> impl Iterator<Item = Block> + '_ {
+        let canonical_cf = self.db.cf_handle(CF_CANONICAL).expect("canonical CF");
+        let blocks_cf    = self.db.cf_handle(CF_BLOCKS).expect("blocks CF");
+        self.db
+            .iterator_cf(canonical_cf, rocksdb::IteratorMode::Start)
+            .filter_map(move |r| {
+                let (_k, hash_bytes) = r.expect("iterator read");
+                let hash = Hash256(hash_bytes.as_ref().try_into().ok()?);
+                let block_bytes = self.db.get_cf(blocks_cf, &hash.0).ok()??;
+                Some(decode_block(&block_bytes))
+            })
+    }
 }
 
 #[derive(Debug, Error, Eq, PartialEq)]
@@ -43,36 +128,6 @@ pub enum StateError {
 }
 
 impl ChainState {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Populate `block_map` from the canonical `blocks` Vec.
-    ///
-    /// Call this after deserializing state files that pre-date `block_map`.
-    /// Safe to call multiple times; does nothing when the map is already
-    /// populated.
-    pub fn ensure_block_map(&mut self) {
-        if self.block_map.is_empty() && !self.blocks.is_empty() {
-            for block in &self.blocks {
-                self.block_map.insert(block.hash().to_hex(), block.clone());
-            }
-        }
-    }
-
-    pub fn height(&self) -> Option<u64> {
-        self.tip().map(|block| block.header.height)
-    }
-
-    pub fn tip(&self) -> Option<&Block> {
-        self.blocks.last()
-    }
-
-    /// Hash of the current canonical tip, or `Hash256::ZERO` when empty.
-    pub fn tip_hash(&self) -> Hash256 {
-        self.tip().map(|b| b.hash()).unwrap_or(Hash256::ZERO)
-    }
-
     pub fn init_genesis(
         &mut self,
         params: &ConsensusParams,
