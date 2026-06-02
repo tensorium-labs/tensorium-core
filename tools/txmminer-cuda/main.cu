@@ -30,16 +30,19 @@
   #define SOCK_INVALID (-1)
 #endif
 
-// Provided by mining_kernel.cu (extern "C" to match C linkage in mining_kernel.cu)
-extern "C" int launch_mining_kernel(
-    const uint8_t *header_template,
-    uint16_t       header_len,
-    uint8_t        difficulty_bits,
-    uint64_t       start_nonce,
-    int            cuda_blocks,
-    int            cuda_threads,
-    uint32_t       iters_per_thread,
-    uint64_t      *nonce_out
+// Provided by mining_kernel.cu
+struct MiningCtx;
+extern "C" MiningCtx *mining_ctx_create(uint16_t header_len);
+extern "C" void       mining_ctx_destroy(MiningCtx *ctx);
+extern "C" int        launch_mining_kernel_ctx(
+    MiningCtx      *ctx,
+    const uint8_t  *header_template,
+    uint8_t         difficulty_bits,
+    uint64_t        start_nonce,
+    int             cuda_blocks,
+    int             cuda_threads,
+    uint32_t        iters_per_thread,
+    uint64_t       *nonce_out
 );
 
 // ── Config ────────────────────────────────────────────────────────────────────
@@ -396,6 +399,13 @@ int main(int argc, char *argv[]) {
            cuda_blocks, cuda_threads);
     fflush(stdout);
 
+    // Pre-allocate GPU buffers once — reused every kernel launch to eliminate
+    // ~16ms cudaMalloc/cudaFree overhead per launch.
+    uint8_t  probe_header[HEADER_TEMPLATE_MAX] = {0};
+    int      probe_len = build_header(&tmpl, 0, probe_header);
+    if (probe_len <= 0) probe_len = 122;
+    MiningCtx *mctx = mining_ctx_create((uint16_t)probe_len);
+
     // Timer: refresh template every TEMPLATE_REFRESH_SEC seconds
     #define TEMPLATE_REFRESH_SEC 10
     struct timespec last_refresh;
@@ -415,9 +425,15 @@ int main(int argc, char *argv[]) {
             continue;
         }
 
+        // Recreate context if header length changed (rare: chain_id change).
+        if ((uint16_t)header_len != mctx->header_len) {
+            mining_ctx_destroy(mctx);
+            mctx = mining_ctx_create((uint16_t)header_len);
+        }
+
         uint64_t winning_nonce = 0;
-        int found = launch_mining_kernel(
-            header_template, (uint16_t)header_len, tmpl.difficulty_bits, start_nonce,
+        int found = launch_mining_kernel_ctx(
+            mctx, header_template, tmpl.difficulty_bits, start_nonce,
             cuda_blocks, cuda_threads, iters, &winning_nonce
         );
 
@@ -505,6 +521,7 @@ int main(int argc, char *argv[]) {
         }
     }
 
+    mining_ctx_destroy(mctx);
     printf("\nStopped.\n");
 #ifdef _WIN32
     WSACleanup();
