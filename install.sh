@@ -158,11 +158,12 @@ setup_node() {
     mkdir -p "$DATA_DIR"
 
     local state="$DATA_DIR/state.json"
+    local state_db="$DATA_DIR/state.db"
     local mempool="$DATA_DIR/mempool.json"
     local bans="$DATA_DIR/banlist.json"
 
-    if [[ -f "$state" ]]; then
-        warn "State file already exists — skipping init"
+    if [[ -f "$state" || -d "$state_db" ]]; then
+        warn "Existing chain state detected ($state or $state_db) — skipping init"
     else
         info "Initializing chain (genesis block)..."
         TENSORIUM_STATE="$state" \
@@ -215,7 +216,7 @@ Environment=TENSORIUM_STATE=${state}
 Environment=TENSORIUM_MEMPOOL=${mempool}
 Environment=TENSORIUM_BANS=${bans}
 Environment=TENSORIUM_PEERS=${SEED_NODE}:${P2P_PORT}
-ExecStart=${INSTALL_DIR}/tensorium-node rpc 0.0.0.0:${RPC_PORT}
+ExecStart=${INSTALL_DIR}/tensorium-node rpc 127.0.0.1:${RPC_PORT}
 Restart=always
 RestartSec=10
 StandardOutput=journal
@@ -275,8 +276,9 @@ print_summary() {
     echo -e "${BOLD}Useful commands:${NC}"
     echo ""
     echo -e "  Start node (manual):"
-    echo -e "    ${CYAN}tensorium-node rpc 0.0.0.0:${RPC_PORT} &${NC}"
+    echo -e "    ${CYAN}tensorium-node rpc 127.0.0.1:${RPC_PORT} &${NC}"
     echo -e "    ${CYAN}tensorium-node p2p-listen 0.0.0.0:${P2P_PORT} &${NC}"
+    echo -e "    ${CYAN}# put nginx in front before exposing RPC publicly${NC}"
     echo ""
     echo -e "  Start mining:"
     echo -e "    ${CYAN}txmminer 127.0.0.1:${RPC_PORT} ${miner_addr}${NC}"
@@ -286,6 +288,9 @@ print_summary() {
     echo ""
     echo -e "  Wallet balance:"
     echo -e "    ${CYAN}TENSORIUM_WALLET=${DATA_DIR}/wallet.json TENSORIUM_WALLET_PASSPHRASE=<pass> txmwallet balance${NC}"
+    echo ""
+    echo -e "  Chain state:"
+    echo -e "    ${CYAN}${DATA_DIR}/state.json${NC} (compat path, auto-migrates to ${CYAN}${DATA_DIR}/state.db/${NC})"
     echo ""
     echo -e "  Docs & source: ${CYAN}https://github.com/${REPO}${NC}"
     echo ""

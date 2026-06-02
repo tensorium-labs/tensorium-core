@@ -162,9 +162,25 @@ fn load_wallet(path: &Path) -> Result<WalletFile, String> {
 }
 
 fn load_state(path: &Path) -> Result<ChainState, String> {
-    let raw = fs::read_to_string(path)
-        .map_err(|err| format!("failed to read {}: {err}", path.display()))?;
-    serde_json::from_str(&raw).map_err(|err| format!("failed to parse {}: {err}", path.display()))
+    let db_path: PathBuf = if path.extension().map(|e| e == "json").unwrap_or(false) {
+        path.with_extension("db")
+    } else {
+        path.to_path_buf()
+    };
+
+    if !db_path.exists() && path.exists() {
+        eprintln!(
+            "[storage] Migrating {} -> {} (one-time)",
+            path.display(),
+            db_path.display()
+        );
+        tensorium_core::storage::migration::migrate_json_to_rocksdb(path, &db_path)?;
+        let backup = path.with_extension("json.migrated");
+        let _ = fs::rename(path, &backup);
+        eprintln!("[storage] Migration complete. Backup at {}", backup.display());
+    }
+
+    ChainState::open_db(&db_path)
 }
 
 fn save_wallet(path: &Path, wallet: &WalletFile) -> Result<(), String> {
@@ -182,9 +198,9 @@ fn print_wallet_summary(wallet: &WalletFile) {
 
 fn print_balance(wallet: &WalletFile, state: &ChainState) -> Result<(), String> {
     let mut utxos = UtxoSet::new();
-    for block in &state.blocks {
+    for block in state.canonical_blocks_iter() {
         utxos
-            .apply_block(&TESTNET, block)
+            .apply_block(&TESTNET, &block)
             .map_err(|err| err.to_string())?;
     }
 
@@ -225,9 +241,9 @@ fn build_signed_payment(
     }
 
     let mut utxos = UtxoSet::new();
-    for block in &state.blocks {
+    for block in state.canonical_blocks_iter() {
         utxos
-            .apply_block(&TESTNET, block)
+            .apply_block(&TESTNET, &block)
             .map_err(|err| err.to_string())?;
     }
 

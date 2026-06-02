@@ -2,6 +2,31 @@
 
 All notable changes to Tensorium are documented in this file.
 
+## [Phase 10 — RocksDB Storage Migration Complete] — 2026-06-02
+
+### Added
+- `ChainState` now persists blocks in RocksDB with column families for blocks, canonical height mapping, and metadata
+- Automatic one-time migration from legacy `state.json` to `*.db/` on first open
+- Persistent init coverage in `tensorium-node` test suite to ensure `init` produces a reusable on-disk chain state
+- `PUBLIC_RPC_HARDENING_RUNBOOK.md` with alert thresholds and incident response for chain stall, peer isolation, explorer divergence, RPC abuse, backup failure, and disk pressure
+- `templates/nginx-public-rpc.conf` so public RPC reverse-proxy policy lives in repo instead of tribal knowledge
+- `CANONICAL_ASSET_METADATA.md` as the concise single-source packet for wallets, listing forms, and data providers
+- `docs/superpowers/prompts/2026-06-02-claude-code-phase11-handoff.md` as the next-worker handoff prompt after Phase 10 closure
+
+### Changed
+- `tensorium-node init` now creates persistent RocksDB-backed testnet state instead of building genesis in a tempdir
+- `tensorium-node mainnet-candidate init` and `mainnet-candidate mine-genesis` now persist MC genesis to the configured state path
+- `txmwallet` now reads chain state through the RocksDB loader and rebuilds wallet UTXOs from `canonical_blocks_iter()`
+- `tensorium-pool` now exposes treasury / payout-hot-wallet custody metadata via CLI and HTTP, and pool payout operations are documented in `POOL_PAYOUT_RUNBOOK.md`
+- `install.sh` systemd RPC service now binds to `127.0.0.1` by default, matching the node's public-bind guard and intended reverse-proxy posture
+
+### Verified
+- `cargo test --workspace` passing after storage migration
+- Local smoke run: `tensorium-node init` created `tensorium-testnet-state.db/`
+- Local RPC smoke run: `/getblock/0` responded in ~22.56 ms
+
+---
+
 ## [Phase 9C/9D Complete + CEX Outreach] — 2026-06-02
 
 ### Phase 9C — Python SDK (DONE)
@@ -51,7 +76,8 @@ Infrastructure stable since 2026-06-01 genesis. Soak test gate removed. TXM mini
 **Status: Explorer indexer live. SDK published. Discord community open. Phase 9A (bridge) in progress.**
 
 ### Phase 9B — Explorer Indexer (DONE)
-- **`indexer.js`** in-process module: reads `state.json` directly (34k+ blocks in ~2.7s), builds `address→txHistory` + `txid→height` index, persists to `txindex.json`, updates incrementally every 30s
+- **Explorer in-process indexer** now builds `address→history` + `txid→record` in memory from RPC-backed block fetches, then serves `/api/address/:addr`, `/api/tx/:txid`, and `/api/indexer/status` without rescanning the chain on every request
+- **Explorer index snapshot persistence** added via `txindex.json`, allowing restart-time reload instead of guaranteed full cold rebuild
 - **`/api/address/:addr`** now returns full tx history (received, sent, mined), live UTXO balance from RPC, pending balance, indexer status
 - **`/api/tx/:txid`** fast path via index: O(1) txid→height lookup replaces 200-block scan
 - **`/api/search?q=`** global search: block height / 64-hex txid / `txm1…` address

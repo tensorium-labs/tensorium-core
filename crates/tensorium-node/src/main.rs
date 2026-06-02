@@ -88,15 +88,7 @@ fn run() -> Result<(), String> {
 
     match command {
         "init" => {
-            let mut state = ChainState::new();
-            // Genesis nonce pre-mined via CUDA (RTX 3060, 369 MH/s, 173.5s).
-            // Diff-36 nonce = 64092008986. Verified against expected genesis hash.
-            // Users do NOT need to mine genesis — init is instant.
-            const GENESIS_NONCE: u64 = 64_092_008_986;
-            state
-                .init_genesis_nonce(&TESTNET, 1_748_649_600, GENESIS_NONCE)
-                .map_err(|err| err.to_string())?;
-            save_state(&state_path, &state)?;
+            let state = init_testnet_state(&state_path)?;
             print_status(&state, &TESTNET);
         }
         "status" => {
@@ -109,7 +101,6 @@ fn run() -> Result<(), String> {
             state
                 .mine_next_block(&TESTNET, now_seconds(), miner, DEFAULT_NONCE_LIMIT)
                 .map_err(|err| err.to_string())?;
-            save_state(&state_path, &state)?;
             print_status(&state, &TESTNET);
         }
         "rpc" => {
@@ -161,11 +152,7 @@ fn run() -> Result<(), String> {
                         None => MC_GENESIS_NONCE,
                     };
                     let mc_state = mc_state_path_from_env();
-                    let mut state = ChainState::new();
-                    state
-                        .init_genesis_nonce(&MAINNET_CANDIDATE, MC_GENESIS_TIMESTAMP, nonce)
-                        .map_err(|err| err.to_string())?;
-                    save_state(&mc_state, &state)?;
+                    let state = init_mainnet_candidate_state(&mc_state, nonce)?;
                     println!("mainnet-candidate genesis initialized");
                     print_status(&state, &MAINNET_CANDIDATE);
                 }
@@ -186,12 +173,8 @@ fn run() -> Result<(), String> {
                     );
                     println!("This may take hours on CPU — use txmminer-cuda for GPU acceleration.");
                     let nonce = mine_genesis_multithreaded(threads)?;
-                    let mut state = ChainState::new();
-                    state
-                        .init_genesis_nonce(&MAINNET_CANDIDATE, MC_GENESIS_TIMESTAMP, nonce)
-                        .map_err(|err| err.to_string())?;
                     let mc_state = mc_state_path_from_env();
-                    save_state(&mc_state, &state)?;
+                    let state = init_mainnet_candidate_state(&mc_state, nonce)?;
                     println!("GENESIS NONCE: {nonce}  (hardcode this in node binary for v1 release)");
                     print_status(&state, &MAINNET_CANDIDATE);
                 }
@@ -401,25 +384,49 @@ fn now_seconds() -> u64 {
         .as_secs()
 }
 
+fn init_testnet_state(state_path: &Path) -> Result<ChainState, String> {
+    let mut state = ChainState::open_db(state_path)?;
+    state
+        .init_genesis(&TESTNET, 1_748_649_600, DEFAULT_NONCE_LIMIT)
+        .map_err(|err| err.to_string())?;
+    Ok(state)
+}
+
+fn init_mainnet_candidate_state(state_path: &Path, nonce: u64) -> Result<ChainState, String> {
+    let mut state = ChainState::open_db(state_path)?;
+    state
+        .init_genesis_nonce(&MAINNET_CANDIDATE, MC_GENESIS_TIMESTAMP, nonce)
+        .map_err(|err| err.to_string())?;
+    Ok(state)
+}
+
 // ---------------------------------------------------------------------------
 // State persistence
 // ---------------------------------------------------------------------------
 
 fn load_state(path: &Path) -> Result<ChainState, String> {
-    let raw = fs::read_to_string(path)
-        .map_err(|err| format!("failed to read {}: {err}", path.display()))?;
-    let mut state: ChainState = serde_json::from_str(&raw)
-        .map_err(|err| format!("failed to parse {}: {err}", path.display()))?;
-    // Populate block_map from the canonical chain for state files written
-    // before fork-choice support was added.
-    state.ensure_block_map();
-    Ok(state)
-}
+    // Derive the .db directory path from the .json path.
+    let db_path: std::path::PathBuf =
+        if path.extension().map(|e| e == "json").unwrap_or(false) {
+            path.with_extension("db")
+        } else {
+            path.to_path_buf()
+        };
 
-fn save_state(path: &Path, state: &ChainState) -> Result<(), String> {
-    let raw = serde_json::to_string_pretty(state)
-        .map_err(|err| format!("failed to serialize chain state: {err}"))?;
-    fs::write(path, raw).map_err(|err| format!("failed to write {}: {err}", path.display()))
+    // Auto-migrate: if JSON exists but DB directory does not, migrate once.
+    if !db_path.exists() && path.exists() {
+        eprintln!(
+            "[storage] Migrating {} → {} (one-time)",
+            path.display(),
+            db_path.display()
+        );
+        tensorium_core::storage::migration::migrate_json_to_rocksdb(path, &db_path)?;
+        let backup = path.with_extension("json.migrated");
+        let _ = std::fs::rename(path, &backup);
+        eprintln!("[storage] Migration complete. Backup at {}", backup.display());
+    }
+
+    ChainState::open_db(&db_path)
 }
 
 /// Load mempool, or return an empty one if the file does not exist yet.
@@ -439,9 +446,9 @@ fn save_mempool(path: &Path, mempool: &Mempool) -> Result<(), String> {
 /// Build a full UTXO set by replaying all blocks in `state`.
 fn build_utxo_set(state: &ChainState, params: &ConsensusParams) -> Result<UtxoSet, String> {
     let mut utxos = UtxoSet::new();
-    for block in &state.blocks {
+    for block in state.canonical_blocks_iter() {
         utxos
-            .apply_block(params, block)
+            .apply_block(params, &block)
             .map_err(|err| format!("UTXO apply failed: {err}"))?;
     }
     Ok(utxos)
@@ -591,7 +598,7 @@ fn print_status(state: &ChainState, params: &ConsensusParams) {
         tip.header.height,
         tip.hash(),
         tip.header.leading_zero_bits,
-        state.blocks.len()
+        state.block_count()
     );
 }
 
@@ -995,11 +1002,9 @@ fn handle_p2p_connection(
             P2pMsg::GetBlocks { from_height } => {
                 let batch = match load_state(state_path) {
                     Ok(state) => state
-                        .blocks
-                        .iter()
+                        .canonical_blocks_iter()
                         .filter(|b| b.header.height >= from_height)
                         .take(SYNC_BATCH_SIZE)
-                        .cloned()
                         .collect::<Vec<_>>(),
                     Err(err) => {
                         eprintln!("getblocks: load state error: {err}");
@@ -1051,8 +1056,6 @@ fn accept_peer_block(
         }
         Err(err) => return Err(err.to_string()),
     }
-
-    save_state(state_path, &state)?;
 
     let mut mempool = load_mempool(mempool_path);
     mempool.remove_confirmed(&block);
@@ -1317,7 +1320,6 @@ fn sync_from_peer(
             current_height = height;
         }
 
-        save_state(state_path, &state)?;
         synced += batch_count;
         println!("  synced +{batch_count} blocks  height={current_height}  total_synced={synced}");
 
@@ -1431,7 +1433,7 @@ fn handle_rpc_stream(
                 &json!({
                     "chain_id": params.chain_id,
                     "height": state.height(),
-                    "blocks": state.blocks.len(),
+                    "blocks": state.block_count(),
                 }),
             )
         }
@@ -1458,11 +1460,7 @@ fn handle_rpc_stream(
                 .parse::<u64>()
                 .map_err(|err| format!("invalid block height: {err}"))?;
             let state = load_state(state_path)?;
-            let Some(block) = state
-                .blocks
-                .iter()
-                .find(|block| block.header.height == height)
-            else {
+            let Some(block) = state.get_block_by_height(height) else {
                 return write_json_response(stream, 404, &RpcError::new("block not found"));
             };
             write_json_response(
@@ -1527,8 +1525,6 @@ fn handle_rpc_stream(
 
             let height = accepted.header.height;
             let hash = accepted.hash();
-
-            save_state(state_path, &state)?;
 
             // Remove confirmed transactions from mempool.
             let mut mempool = load_mempool(&mempool_path);
@@ -1880,5 +1876,19 @@ mod tests {
 
         let mature = !false || tip_height >= created_height.saturating_add(coinbase_maturity);
         assert!(mature, "non-coinbase output is always mature");
+    }
+
+    #[test]
+    fn testnet_init_persists_state_on_disk() {
+        let dir = tempfile::tempdir().unwrap();
+        let state_path = dir.path().join("tensorium-testnet-state.json");
+
+        let state = init_testnet_state(&state_path).unwrap();
+        assert_eq!(state.height(), Some(0));
+        drop(state);
+
+        let reopened = load_state(&state_path).unwrap();
+        assert_eq!(reopened.height(), Some(0));
+        assert!(state_path.with_extension("db").exists());
     }
 }
