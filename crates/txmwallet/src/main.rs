@@ -195,6 +195,46 @@ fn run() -> Result<(), String> {
             println!("written={}", tx_path.display());
             println!("next: txmwallet multisig-sign {}", tx_path.display());
         }
+        "multisig-sign" => {
+            let tx_path = PathBuf::from(
+                args.get(2).ok_or("usage: txmwallet multisig-sign <tx_file>")?
+            );
+            let passphrase = passphrase_from_env()?;
+            let wallet = load_wallet(&wallet_path)?;
+            let keypair = wallet.decrypt(&passphrase)?;
+
+            let raw = fs::read_to_string(&tx_path)
+                .map_err(|e| format!("read {}: {e}", tx_path.display()))?;
+            let tx: Transaction = serde_json::from_str(&raw)
+                .map_err(|e| format!("parse tx: {e}"))?;
+
+            let sig_hash = tx.signature_hash();
+            let der_sig = keypair.sign_hash(&sig_hash)
+                .map_err(|e| format!("sign: {e:?}"))?;
+
+            let sigs: Vec<MultisigSig> = (0..tx.inputs.len())
+                .map(|i| MultisigSig {
+                    input_index: i,
+                    der_sig_hex: hex::encode(&der_sig),
+                })
+                .collect();
+
+            let sig_file = MultisigSigFile {
+                unsigned_txid: hex::encode(&tx.id.0),
+                sigs,
+            };
+
+            let addr_prefix = &wallet.address[4..].chars().take(6).collect::<String>();
+            let sig_path = tx_path.with_extension(format!("sig{addr_prefix}"));
+            let sig_raw = serde_json::to_string_pretty(&sig_file)
+                .map_err(|e| format!("serialize sig: {e}"))?;
+            fs::write(&sig_path, &sig_raw)
+                .map_err(|e| format!("write {}: {e}", sig_path.display()))?;
+
+            println!("signed_by={}", wallet.address);
+            println!("unsigned_txid={}", sig_file.unsigned_txid);
+            println!("written={}", sig_path.display());
+        }
         _ => print_help(),
     }
 
