@@ -69,66 +69,76 @@ static void compute_midstate_64(const uint8_t *header, uint32_t midstate_out[8])
     midstate_out[4] += e; midstate_out[5] += f; midstate_out[6] += g; midstate_out[7] += h;
 }
 
-__device__ void sha256d_122(
-    const uint32_t midstate[8],
-    const uint8_t  block2_const[50],
-    uint64_t       nonce,
+// Optimized sha256d for 122-byte Tensorium headers.
+// Works entirely in uint32 (no byte arrays) to minimise register pressure and
+// avoid slow local-memory spills. block2_const is the 50 constant bytes from
+// header[64..113]; nonce occupies header[114..121] (8 bytes LE).
+//
+// SHA256 padding for 122-byte message:
+//   block2: header[64..121] || 0x80 || 0x00 × 5          (64 bytes)
+//   block3: 0x00 × 56 || 0x000000000000_03D0              (64 bytes, bit-len=976)
+//   block4: SHA256(block1+block2+block3)[0..31] || 0x80
+//           || 0x00 × 23 || 0x0000000000000100            (64 bytes, bit-len=256)
+__device__ __forceinline__ void sha256d_122(
+    const uint32_t midstate[8],      // SHA256 state after first 64 bytes (constant)
+    const uint8_t  b2c[50],          // header[64..113] — constant 50 bytes
+    uint64_t       nonce,            // header[114..121] LE
     uint8_t        hash_out[32]
 ) {
-    uint8_t blk2[64], blk3[64], blk4[64], h1[32];
-    uint32_t block2_words[16], block3_words[16], block4_words[16];
+    // ── Build block2 words directly (no byte intermediate) ───────────────────
+    // b2c[0..47] → W[0..11] big-endian, b2c[48..49] + nonce bytes → W[12..14]
+    uint32_t W2[16];
+    #pragma unroll
+    for (int i = 0; i < 12; i++) W2[i] = load_be32(b2c + i * 4);
 
-    for (int i = 0; i < 50; i++) blk2[i] = block2_const[i];
-    blk2[50] = (uint8_t)(nonce);
-    blk2[51] = (uint8_t)(nonce >> 8);
-    blk2[52] = (uint8_t)(nonce >> 16);
-    blk2[53] = (uint8_t)(nonce >> 24);
-    blk2[54] = (uint8_t)(nonce >> 32);
-    blk2[55] = (uint8_t)(nonce >> 40);
-    blk2[56] = (uint8_t)(nonce >> 48);
-    blk2[57] = (uint8_t)(nonce >> 56);
-    blk2[58] = 0x80;
-    for (int i = 59; i < 64; i++) blk2[i] = 0x00;
+    // W[12]: b2c[48], b2c[49], nonce[0], nonce[1]
+    W2[12] = ((uint32_t)b2c[48] << 24) | ((uint32_t)b2c[49] << 16)
+           | ((uint32_t)(nonce & 0xff) << 8) | (uint32_t)((nonce >> 8) & 0xff);
+    // W[13]: nonce[2..5]
+    W2[13] = ((uint32_t)((nonce >> 16) & 0xff) << 24)
+           | ((uint32_t)((nonce >> 24) & 0xff) << 16)
+           | ((uint32_t)((nonce >> 32) & 0xff) << 8)
+           |  (uint32_t)((nonce >> 40) & 0xff);
+    // W[14]: nonce[6], nonce[7], 0x80, 0x00
+    W2[14] = ((uint32_t)((nonce >> 48) & 0xff) << 24)
+           | ((uint32_t)((nonce >> 56) & 0xff) << 16)
+           | 0x00008000u;
+    W2[15] = 0x00000000u;
 
-    for (int i = 0; i < 56; i++) blk3[i] = 0x00;
-    blk3[56] = 0x00; blk3[57] = 0x00; blk3[58] = 0x00; blk3[59] = 0x00;
-    blk3[60] = 0x00; blk3[61] = 0x00; blk3[62] = 0x03; blk3[63] = 0xD0;
+    // ── First SHA256: compress block2 and block3 ─────────────────────────────
+    uint32_t s[8];
+    #pragma unroll
+    for (int i = 0; i < 8; i++) s[i] = midstate[i];
+    sha256_compress(s, W2);
 
-    uint32_t state[8];
-    for (int i = 0; i < 8; i++) state[i] = midstate[i];
+    // block3: all zeros except W[15] = bit-length 976 = 0x000003D0
+    uint32_t W3[16] = {0};
+    W3[15] = 0x000003D0u;
+    sha256_compress(s, W3);
 
-    for (int i = 0; i < 16; i++) {
-        block2_words[i] = load_be32(blk2 + i * 4);
-        block3_words[i] = load_be32(blk3 + i * 4);
-    }
-    sha256_compress(state, block2_words);
-    sha256_compress(state, block3_words);
+    // ── Build block4 directly from s[] (no byte intermediate) ────────────────
+    // block4 = s[0..7] || 0x80000000 || 0 × 5 || bit-length 256 = 0x00000100
+    uint32_t W4[16];
+    #pragma unroll
+    for (int i = 0; i < 8; i++) W4[i] = s[i];
+    W4[8]  = 0x80000000u;
+    W4[9]  = 0; W4[10] = 0; W4[11] = 0;
+    W4[12] = 0; W4[13] = 0; W4[14] = 0;
+    W4[15] = 0x00000100u;  // 256 bits
 
-    for (int i = 0; i < 8; i++) {
-        h1[i * 4 + 0] = (uint8_t)(state[i] >> 24);
-        h1[i * 4 + 1] = (uint8_t)(state[i] >> 16);
-        h1[i * 4 + 2] = (uint8_t)(state[i] >> 8);
-        h1[i * 4 + 3] = (uint8_t)(state[i]);
-    }
-
-    for (int i = 0; i < 32; i++) blk4[i] = h1[i];
-    blk4[32] = 0x80;
-    for (int i = 33; i < 56; i++) blk4[i] = 0x00;
-    blk4[56] = 0x00; blk4[57] = 0x00; blk4[58] = 0x00; blk4[59] = 0x00;
-    blk4[60] = 0x00; blk4[61] = 0x00; blk4[62] = 0x01; blk4[63] = 0x00;
-
-    uint32_t state2[8] = {
-        0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a,
-        0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19,
+    // ── Second SHA256 ─────────────────────────────────────────────────────────
+    uint32_t s2[8] = {
+        0x6a09e667u, 0xbb67ae85u, 0x3c6ef372u, 0xa54ff53au,
+        0x510e527fu, 0x9b05688cu, 0x1f83d9abu, 0x5be0cd19u,
     };
-    for (int i = 0; i < 16; i++) block4_words[i] = load_be32(blk4 + i * 4);
-    sha256_compress(state2, block4_words);
+    sha256_compress(s2, W4);
 
+    #pragma unroll
     for (int i = 0; i < 8; i++) {
-        hash_out[i * 4 + 0] = (uint8_t)(state2[i] >> 24);
-        hash_out[i * 4 + 1] = (uint8_t)(state2[i] >> 16);
-        hash_out[i * 4 + 2] = (uint8_t)(state2[i] >> 8);
-        hash_out[i * 4 + 3] = (uint8_t)(state2[i]);
+        hash_out[i*4+0] = (uint8_t)(s2[i] >> 24);
+        hash_out[i*4+1] = (uint8_t)(s2[i] >> 16);
+        hash_out[i*4+2] = (uint8_t)(s2[i] >>  8);
+        hash_out[i*4+3] = (uint8_t)(s2[i]);
     }
 }
 
