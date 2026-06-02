@@ -90,20 +90,13 @@ static void write_le32(uint8_t *buf, uint32_t v) {
 
 static sock_t tcp_connect(const char *host, const char *port) {
     struct addrinfo hints = {0}, *res;
-    hints.ai_family   = AF_INET;  // force IPv4
+    hints.ai_family   = AF_UNSPEC;
     hints.ai_socktype = SOCK_STREAM;
-    int gai = getaddrinfo(host, port, &hints, &res);
-    if (gai != 0) {
-        fprintf(stderr, "getaddrinfo failed: %s\n", gai_strerror(gai));
-        return SOCK_INVALID;
-    }
+    if (getaddrinfo(host, port, &hints, &res) != 0) return SOCK_INVALID;
     sock_t s = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
-    if (s == SOCK_INVALID) {
-        fprintf(stderr, "socket() failed: %s\n", strerror(errno));
-        freeaddrinfo(res); return SOCK_INVALID;
+    if (s == SOCK_INVALID) { freeaddrinfo(res); return SOCK_INVALID;
     }
     if (connect(s, res->ai_addr, (int)res->ai_addrlen) != 0) {
-        fprintf(stderr, "connect() failed: %s (errno=%d)\n", strerror(errno), errno);
         CLOSE_SOCK(s); freeaddrinfo(res); return SOCK_INVALID;
     }
     freeaddrinfo(res);
@@ -263,50 +256,36 @@ static void build_header(const BlockTemplate *tmpl, uint64_t nonce, uint8_t out[
 
 static int submit_block(const char *host, const char *port,
                         const char *template_json, uint64_t winning_nonce) {
-    // Replace "nonce":0 with the winning nonce in the template JSON
     char *json = strdup(template_json);
     if (!json) return 0;
 
-    // Find and replace the nonce field inside header
+    // Patch nonce in JSON
     char nonce_str[32];
     snprintf(nonce_str, sizeof(nonce_str), "%llu", (unsigned long long)winning_nonce);
-
-    // Build: extract template object ({"template":{...}}) and update nonce
-    // Simple approach: find "nonce": in the header section and replace
     char *nonce_pos = strstr(json, "\"nonce\":");
     if (!nonce_pos) { free(json); return 0; }
-
-    nonce_pos += 8; // skip "nonce":
+    nonce_pos += 8;
     while (*nonce_pos == ' ') nonce_pos++;
-
-    // Find end of current nonce value
     char *nonce_end = nonce_pos;
     while (*nonce_end && *nonce_end != ',' && *nonce_end != '}' && *nonce_end != ' ')
         nonce_end++;
-
-    // Build new JSON: before + new_nonce + after
     int before_len = (int)(nonce_pos - json);
     int after_len  = (int)strlen(nonce_end);
     int new_len    = before_len + (int)strlen(nonce_str) + after_len + 1;
     char *new_json = (char *)malloc(new_len);
     if (!new_json) { free(json); return 0; }
-
     memcpy(new_json, json, before_len);
     memcpy(new_json + before_len, nonce_str, strlen(nonce_str));
     memcpy(new_json + before_len + strlen(nonce_str), nonce_end, after_len + 1);
     free(json);
 
-    // Extract "template" value — find "template": then grab the object
-    // new_json has form {"leading_zero_bits":N,...,"template":{...block_json...}}
-    // We need to extract just the block JSON object for /submitblock
+    // Extract "template" block JSON
     const char *tmpl_key = strstr(new_json, "\"template\"");
-    if (!tmpl_key) { free(new_json); fprintf(stderr, "no template key\n"); return 0; }
+    if (!tmpl_key) { free(new_json); return 0; }
     const char *tmpl_val = strchr(tmpl_key + 10, ':');
     if (!tmpl_val) { free(new_json); return 0; }
     tmpl_val++;
     while (*tmpl_val == ' ') tmpl_val++;
-    // tmpl_val points to the opening { of the block JSON
-    // Count matching braces to find end of block object
     int depth = 0;
     const char *p = tmpl_val;
     while (*p) {
@@ -319,17 +298,35 @@ static int submit_block(const char *host, const char *port,
     if (!body) { free(new_json); return 0; }
     memcpy(body, tmpl_val, body_len);
     body[body_len] = '\0';
-
-    static char resp_buf[4096];
-    int ok = http_post(host, port, "/submitblock", body, resp_buf, sizeof(resp_buf));
-    free(body);
     free(new_json);
 
-    if (ok) {
-        char accepted[16];
-        if (json_get_str(resp_buf, "accepted", accepted, sizeof(accepted)))
-            return strcmp(accepted, "true") == 0 ? 1 : 0;
-    }
+    // Write block JSON to temp file and submit via curl (avoids CUDA-socket conflict)
+    FILE *f = fopen("/tmp/txm_block.json", "w");
+    if (!f) { free(body); return 0; }
+    fputs(body, f);
+    fclose(f);
+    free(body);
+
+    char cmd[256];
+    snprintf(cmd, sizeof(cmd),
+        "curl -sf -X POST http://%s:%s/submitblock "
+        "-H 'Content-Type: application/json' "
+        "-d @/tmp/txm_block.json -o /tmp/txm_resp.json 2>/dev/null",
+        host, port);
+    int rc = system(cmd);
+    if (rc != 0) return 0;
+
+    // Read response
+    static char resp_buf[4096];
+    FILE *r = fopen("/tmp/txm_resp.json", "r");
+    if (!r) return 0;
+    int n = (int)fread(resp_buf, 1, sizeof(resp_buf)-1, r);
+    fclose(r);
+    resp_buf[n] = '\0';
+
+    char accepted[16];
+    if (json_get_str(resp_buf, "accepted", accepted, sizeof(accepted)))
+        return strcmp(accepted, "true") == 0 ? 1 : 0;
     return 0;
 }
 
