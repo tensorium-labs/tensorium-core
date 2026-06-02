@@ -235,6 +235,62 @@ fn run() -> Result<(), String> {
             println!("unsigned_txid={}", sig_file.unsigned_txid);
             println!("written={}", sig_path.display());
         }
+        "multisig-combine" => {
+            let tx_path = PathBuf::from(
+                args.get(2).ok_or("usage: txmwallet multisig-combine <tx_file> <sig_file1> <sig_file2> [...]")?
+            );
+            if args.len() < 5 {
+                return Err("multisig-combine requires at least 2 sig files".to_owned());
+            }
+            let sig_paths: Vec<PathBuf> = args[3..].iter().map(PathBuf::from).collect();
+
+            let raw = fs::read_to_string(&tx_path)
+                .map_err(|e| format!("read {}: {e}", tx_path.display()))?;
+            let mut tx: Transaction = serde_json::from_str(&raw)
+                .map_err(|e| format!("parse tx: {e}"))?;
+
+            let expected_txid = hex::encode(&tx.id.0);
+
+            let mut collected_sigs: Vec<Vec<u8>> = Vec::new();
+            for sig_path in &sig_paths {
+                let sig_raw = fs::read_to_string(sig_path)
+                    .map_err(|e| format!("read {}: {e}", sig_path.display()))?;
+                let sig_file: MultisigSigFile = serde_json::from_str(&sig_raw)
+                    .map_err(|e| format!("parse {}: {e}", sig_path.display()))?;
+                if sig_file.unsigned_txid != expected_txid {
+                    return Err(format!(
+                        "sig file {} txid mismatch: expected {}, got {}",
+                        sig_path.display(), expected_txid, sig_file.unsigned_txid
+                    ));
+                }
+                let sig = sig_file.sigs.iter()
+                    .find(|s| s.input_index == 0)
+                    .ok_or_else(|| format!("no sig for input 0 in {}", sig_path.display()))?;
+                collected_sigs.push(
+                    hex::decode(&sig.der_sig_hex)
+                        .map_err(|_| format!("invalid sig hex in {}", sig_path.display()))?
+                );
+            }
+
+            let sig_refs: Vec<&[u8]> = collected_sigs.iter().map(|v| v.as_slice()).collect();
+            let script_sig = multisig_script_sig(&sig_refs);
+
+            for input in &mut tx.inputs {
+                input.signature_script = script_sig.clone();
+            }
+            tx.refresh_id();
+
+            let combined_raw = serde_json::to_string_pretty(&tx)
+                .map_err(|e| format!("serialize combined tx: {e}"))?;
+            fs::write(&tx_path, &combined_raw)
+                .map_err(|e| format!("write {}: {e}", tx_path.display()))?;
+
+            println!("combined_txid={}", tx.id);
+            println!("inputs={}", tx.inputs.len());
+            println!("sigs_applied={}", collected_sigs.len());
+            println!("written={}", tx_path.display());
+            println!("ready to broadcast: txmwallet broadcast {}", tx_path.display());
+        }
         _ => print_help(),
     }
 
@@ -430,19 +486,22 @@ fn print_help() {
     println!("txmwallet <command>");
     println!();
     println!("commands:");
-    println!("  create                            create a local wallet file");
-    println!("  getnewaddress                     print wallet address");
-    println!("  balance                           scan local chain state for wallet balance");
-    println!("  send <to> <atoms> [tx_file]       build and sign a transaction file");
-    println!("  broadcast [tx_file] [rpc]         submit signed tx file to node RPC");
-    println!("  show                              print wallet public summary");
-    println!("  unlock-check                      verify passphrase can decrypt wallet");
-    println!("  multisig-script <m> <pubkey_hex>... print scriptPubKey for m-of-n multisig");
+    println!("  create                                        create a local wallet file");
+    println!("  getnewaddress                                 print wallet address");
+    println!("  balance                                       scan local chain state for wallet balance");
+    println!("  send <to> <atoms> [tx_file]                   build and sign a transaction file");
+    println!("  broadcast [tx_file] [rpc]                     submit signed tx file to node RPC");
+    println!("  show                                          print wallet public summary");
+    println!("  unlock-check                                  verify passphrase can decrypt wallet");
+    println!("  multisig-script <m> <pubkey_hex>...           print scriptPubKey for m-of-n multisig");
+    println!("  send-from-script <spk_hex> <to> <atoms>       build unsigned multisig spend tx");
+    println!("  multisig-sign <tx_file>                       sign a multisig tx with this wallet");
+    println!("  multisig-combine <tx_file> <sig1> <sig2>...   combine partial sigs into broadcast tx");
     println!();
     println!("env:");
     println!("  TENSORIUM_WALLET             wallet file, default {DEFAULT_WALLET_PATH}");
     println!("  TENSORIUM_STATE              chain state, default {DEFAULT_STATE_PATH}");
-    println!("  TENSORIUM_WALLET_PASSPHRASE  required for create, send, unlock-check");
+    println!("  TENSORIUM_WALLET_PASSPHRASE  required for create, send, unlock-check, multisig-sign");
 }
 
 // ---------------------------------------------------------------------------
