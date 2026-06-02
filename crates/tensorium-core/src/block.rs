@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::hash::Hash256;
+use crate::script::standard::p2pkh_from_address;
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
 pub struct OutPoint {
@@ -17,7 +18,7 @@ pub struct TxInput {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct TxOutput {
     pub value_atoms: u64,
-    pub address: String,
+    pub script_pubkey: Vec<u8>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -36,7 +37,8 @@ impl Transaction {
         } else {
             vec![TxOutput {
                 value_atoms: reward_atoms,
-                address: miner.to_owned(),
+                script_pubkey: p2pkh_from_address(miner)
+                    .unwrap_or_default(),
             }]
         };
         let id = transaction_id(&[], &outputs, &payload);
@@ -62,13 +64,13 @@ impl Transaction {
         if reward_atoms > 0 {
             outputs.push(TxOutput {
                 value_atoms: reward_atoms,
-                address: miner.to_owned(),
+                script_pubkey: p2pkh_from_address(miner).unwrap_or_default(),
             });
         }
         if founder_atoms > 0 && !founder_addr.is_empty() {
             outputs.push(TxOutput {
                 value_atoms: founder_atoms,
-                address: founder_addr.to_owned(),
+                script_pubkey: p2pkh_from_address(founder_addr).unwrap_or_default(),
             });
         }
         let id = transaction_id(&[], &outputs, &payload);
@@ -213,7 +215,7 @@ fn transaction_id(inputs: &[TxInput], outputs: &[TxOutput], payload: &[u8]) -> H
     }
     for output in outputs {
         bytes.extend_from_slice(&output.value_atoms.to_le_bytes());
-        bytes.extend_from_slice(output.address.as_bytes());
+        bytes.extend_from_slice(&output.script_pubkey);
     }
     bytes.extend_from_slice(payload);
     Hash256::double_sha256(&bytes)
