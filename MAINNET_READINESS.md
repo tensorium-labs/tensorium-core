@@ -185,6 +185,22 @@ This disclosure must appear in the whitepaper and risk disclosure before mainnet
 - Do not store founder private key on the seed node, explorer server, docs server, or CI. ✓ documented
 - If native lock is not implemented, disclose that the lock is social/manual, not enforced by L1 consensus. ✓ documented above
 
+## Liquidity Wallet Lock Policy (2026-06-02)
+
+The 3,000,000 TXM liquidity pre-mint is managed in three tranches:
+
+| Tranche | Amount | Purpose | Lock |
+|---------|--------|---------|------|
+| Initial pool | 500,000 TXM | Uniswap V3 wTXM/ETH seed at $0.005/TXM | None — deployed at launch |
+| Reserve A | 1,000,000 TXM | Liquidity reserve | **2-year voluntary social lock** |
+| Reserve B | 1,500,000 TXM | Long-term protocol liquidity | **5-year voluntary social lock** |
+
+Lock type: **social/manual, not L1-enforced.** Same model as the founder lock.
+L1 timelock (OP_CLTV) is planned for Scripting Layer S3.
+
+All movements from the liquidity wallet are visible on-chain at:
+`txm1uyy0sfm07p47f8dy0mvdtwfefya8w5y2qr0q8p`
+
 ## Official Pool Fee Policy Draft
 
 Draft decision:
