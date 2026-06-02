@@ -243,13 +243,14 @@ static void build_genesis_header(uint8_t hdr[122]) {
     uint64_t timestamp   = 1780272000ULL;
     uint8_t  diff_bits   = 40;
 
-    // Merkle root of genesis block with founder allocation
-    // (computed by `tensorium-node mainnet-candidate mine-genesis` before finding nonce)
+    // Merkle root — post-S1 serialisation (script_pubkey coinbase, 2026-06-02)
+    // Verified from: tensorium-node mainnet-candidate mine-genesis 1
+    // f555b26269c9a7c3e0454c4ff27f7887925c6f8a46111fefa3ad3425eeb21001
     const uint8_t merkle[32] = {
-        0x29,0x97,0xb9,0x57,0xad,0xc7,0xc9,0xf5,
-        0x63,0x56,0x9a,0x20,0x24,0xa6,0xe8,0xf8,
-        0x81,0x6e,0x34,0xaa,0xfb,0x6f,0x96,0xed,
-        0xb7,0x18,0x71,0xae,0x36,0x54,0x22,0x79,
+        0xf5,0x55,0xb2,0x62,0x69,0xc9,0xa7,0xc3,
+        0xe0,0x45,0x4c,0x4f,0xf2,0x7f,0x78,0x87,
+        0x92,0x5c,0x6f,0x8a,0x46,0x11,0x1f,0xef,
+        0xa3,0xad,0x34,0x25,0xee,0xb2,0x10,0x01,
     };
 
     int p = 0;
@@ -309,8 +310,8 @@ int main(void) {
     uint8_t block2_const[50];
     for (int i=0;i<50;i++) block2_const[i]=hdr[64+i];
 
-    // GPU config: RTX 3060 — 3584 CUDA cores = 28 SMs × 128 cores
-    const int  CUDA_BLOCKS  = 3584;
+    // GPU config: RTX 5090 — 21760 CUDA cores = 170 SMs × 128 cores
+    const int  CUDA_BLOCKS  = 8192;
     const int  CUDA_THREADS = 256;
     const uint32_t ITERS    = 1 << 19;  // ~500k iters per thread per batch
     const uint64_t BATCH    = (uint64_t)CUDA_BLOCKS * CUDA_THREADS * ITERS;
@@ -335,7 +336,7 @@ int main(void) {
     time_t t0 = time(NULL);
     time_t last_print = t0;
 
-    printf("Mining... (RTX 3060, ~2 GH/s expected, ~8 min at diff 40)\n");
+    printf("Mining... (RTX 5090, ~3+ GH/s expected, ~5 min at diff 40)\n");
     fflush(stdout);
 
     while (!h_found) {

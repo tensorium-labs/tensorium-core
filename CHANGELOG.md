@@ -2,6 +2,19 @@
 
 All notable changes to Tensorium are documented in this file.
 
+## [Genesis v3 — Post-S1 Re-mine] — 2026-06-02
+
+### Changed
+- **MC genesis re-mined** with post-S1 `script_pubkey` coinbase serialisation
+  - New nonce: `1_936_263_118_035` (RTX 5090, 4.64 GH/s, 474s)
+  - New hash: `0000000000269b71601aded6dda2991df6f88b67ac2bef13dff56f4f8a94dfae`
+  - Previous nonce `114_103_168_481` was invalid after scripting-layer S1 changed `TxOutput.address → script_pubkey`, altering block serialisation and thus the genesis merkle root
+- `MC_GENESIS_NONCE` updated in `crates/tensorium-node/src/main.rs`
+- `tools/txmminer-cuda/mine_genesis.cu` updated with new merkle root
+- VPS chain state reset required (see deploy notes below)
+
+---
+
 ## [Phase 10 — RocksDB Storage Migration Complete] — 2026-06-02
 
 ### Added
@@ -12,9 +25,11 @@ All notable changes to Tensorium are documented in this file.
 - `templates/nginx-public-rpc.conf` so public RPC reverse-proxy policy lives in repo instead of tribal knowledge
 - `docs/integrations/CANONICAL_ASSET_METADATA.md` as the concise single-source packet for wallets, listing forms, and data providers
 - `docs/superpowers/prompts/2026-06-02-claude-code-phase11-handoff.md` as the next-worker handoff prompt after Phase 10 closure
+- `docs/superpowers/prompts/2026-06-02-claude-code-mainnet-only-handoff.md` as the follow-up handoff prompt for the mainnet-only cleanup pass
+- `docs/superpowers/prompts/2026-06-02-claude-code-gpu-only-mining-handoff.md` as the follow-up handoff prompt for GPU-only mining positioning and CPU-miner retirement review
 
 ### Changed
-- `tensorium-node init` now creates persistent RocksDB-backed testnet state instead of building genesis in a tempdir
+- `tensorium-node init` now creates persistent RocksDB-backed mainnet state instead of building genesis in a tempdir
 - `tensorium-node mainnet-candidate init` and `mainnet-candidate mine-genesis` now persist MC genesis to the configured state path
 - `txmwallet` now reads chain state through the RocksDB loader and rebuilds wallet UTXOs from `canonical_blocks_iter()`
 - `tensorium-pool` now exposes treasury / payout-hot-wallet custody metadata via CLI and HTTP, and pool payout operations are documented in `docs/operations/POOL_PAYOUT_RUNBOOK.md`
@@ -22,7 +37,7 @@ All notable changes to Tensorium are documented in this file.
 
 ### Verified
 - `cargo test --workspace` passing after storage migration
-- Local smoke run: `tensorium-node init` created `tensorium-testnet-state.db/`
+- Local smoke run: `tensorium-node init` created `tensorium-mainnet-state.db/`
 - Local RPC smoke run: `/getblock/0` responded in ~22.56 ms
 
 ---
@@ -95,7 +110,7 @@ Infrastructure stable since 2026-06-01 genesis. Soak test gate removed. TXM mini
 - **Discord server** live: `discord.gg/KkgGSZKVZw`
 - 7 categories, 20 channels, 9 roles (Founder / Core Dev / Moderator / Top Miner / Miner / Community / Verified Miner / Early Adopter / Bot)
 - **Auto-role bot** (`txm-discord-bot.service`) on VPS: assigns ⭐ Early Adopter + 🌟 Community to every new member; sends DM welcome with key links
-- Channel guides posted: GPU mining, pool mining, node operator, testnet, mainnet-candidate, GPU benchmarks, FAQ, rules, announcements
+- Channel guides posted: GPU mining, pool mining, node operator, mainnet-candidate, GPU benchmarks, FAQ, rules, announcements
 - **Discord CTA section** added to `tensoriumlabs.com`
 - Bot renamed to **TXM Bot** globally
 - **Mainnet-candidate launch announcement** pinned in #announcements
@@ -111,9 +126,9 @@ Infrastructure stable since 2026-06-01 genesis. Soak test gate removed. TXM mini
 - **MC RPC/P2P daemon** — `ConsensusParams` threaded through all node functions; subcommands `mainnet-candidate rpc [bind]`, `mainnet-candidate p2p-listen [bind]`, `mainnet-candidate sync [peer]`; env vars `TENSORIUM_MC_MEMPOOL`, `TENSORIUM_MC_BANS` (commit `9286304`)
 - **Backup seed node** — Vultr `txm-mc-seed-1` (`139.180.137.144`) deployed as second-provider MC seed; runbook at `docs/operations/BACKUP_SEED_NODE_RUNBOOK.md`
 - **DNS seed** — `MC_DEFAULT_SEEDS = ["seed.tensoriumlabs.com:33333"]` in node binary; `seed.tensoriumlabs.com` A→`157.230.44.162` (commit `40f723d`)
-- **Public RPC proxies** — `rpc.tensoriumlabs.com` (testnet →23332) and `mc-rpc.tensoriumlabs.com` (MC →33332) via nginx with CORS + rate-limit (`10r/s`) and Let's Encrypt TLS
+- **Public RPC proxies** — `mc-rpc.tensoriumlabs.com` (MC →33332) via nginx with CORS + rate-limit (`10r/s`) and Let's Encrypt TLS
 - **Chrome wallet extension** — `tensorium-wallet-extension` v0.1.1; TypeScript + React MV3; secp256k1+SHA256d; create/import/send/history/settings; 20/20 tests; Apache-2.0; GitHub release live with manual install ZIP
-- **Testnet faucet** — `https://faucet.tensoriumlabs.com`; 10 TXM/request, 24h cooldown; testnet reset to 20-bit diff / 10-block maturity for CPU mining
+- **Faucet service** — legacy onboarding service retained on the operations host for archival/internal support only
 - **`tensorium-sdk-js`** — JS/TS SDK for TXM chain; code complete, tests/build/pack pass; npm publish pending token/2FA policy resolution
 - **Pool website** — `https://pooltxm.tensoriumlabs.com` deployed; Next.js frontend with stats, miner lookup, payout history, 5% fee disclosure
 - **Community subdomains** — `bridge.tensoriumlabs.com`, `otc.tensoriumlabs.com`, `status.tensoriumlabs.com`, `faucet.tensoriumlabs.com` all live with HTTPS
@@ -140,7 +155,7 @@ Infrastructure stable since 2026-06-01 genesis. Soak test gate removed. TXM mini
   - 9 unit tests covering fee split, ledger, stats, pending, and mark-paid
   - Pool treasury address: `txm10wa2dazhn2yqwwxkm4aegvzjq55hj9m2jlznt9`
 - **Built-in static seed list** in `tensorium-node`
-  - `DEFAULT_SEEDS = ["157.230.44.162:23333"]` — new nodes auto-connect without manual config
+  - `DEFAULT_SEEDS = ["seed.tensoriumlabs.com:33333", "seed2.tensoriumlabs.com:33333"]` — new nodes auto-connect without manual config
   - Opt-out: `TENSORIUM_NO_DEFAULT_SEEDS=1`
   - Seed node runs with `TENSORIUM_NO_DEFAULT_SEEDS=1` to avoid self-connection
 - **`tensorium-node mainnet-candidate` subcommands**
@@ -189,33 +204,7 @@ Infrastructure stable since 2026-06-01 genesis. Soak test gate removed. TXM mini
 
 ---
 
-## [v0.2.0-testnet] — 2025-05-31
+## [Pre-Mainnet Archive] — 2025-05-29 to 2025-05-31
 
-- GPU-first testnet at 36-bit difficulty
-- Genesis nonce: `64_092_008_986` (pre-mined via CUDA, RTX 3060, 369 MH/s, 173.5s)
-- Genesis hash: `00000000095752e05ed8dca9041a3a2ca34ae99ce43dfe711ef8d8df3e302c9e`
-- `txmminer-cuda`: NVIDIA CUDA miner (sm86), tested on RTX 3060 ~410 MH/s
-- Explorer: `explorer.tensoriumlabs.com`
-- Docs: `docs.tensoriumlabs.com`
-- Whitepaper: `whitepaper.tensoriumlabs.com`
-- Install script: `curl -fsSL https://raw.githubusercontent.com/tensorium-labs/tensorium-core/main/install.sh | bash`
-
----
-
-## [v0.1.1-testnet] — 2025-05-30
-
-- P2P genesis fix: hardcode genesis timestamp `1_748_649_600` to ensure all nodes share the same genesis block
-- Chain ID: `tensorium-testnet-0`
-- Difficulty: 26 bits
-
----
-
-## [v0.1.0-testnet] — 2025-05-29
-
-- Initial public testnet release
-- Chain: `tensorium-testnet-0`, SHA256d PoW, UTXO model
-- Wallet CLI: `txmwallet create`, `getnewaddress`, `balance`, `send`
-- CPU miner: `txmminer`
-- Node: `tensorium-node rpc`, `p2p-listen`, `sync`, `init`
-- P2P handshake and block sync
-- Explorer (early version)
+- Early pre-mainnet releases and dry runs happened before the current live mainnet posture.
+- Historical implementation details from that period were intentionally collapsed here to keep the active changelog focused on the live chain era.
