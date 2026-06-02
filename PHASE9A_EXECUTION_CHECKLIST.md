@@ -115,5 +115,7 @@ Infrastructure:
 - [x] Controller ownership transferred to Safe (Ownable2Step complete)
 - [x] Deployment saved: `deployments/safe-op-mainnet.json`
 - [ ] Upgrade Safe to 2-of-3: add signer B and signer C via https://app.safe.global/home?safe=oeth:0x9B3B2DB2eCf2b83f58ed256C252204f0d76dB6e9
-- [ ] Uniswap V3 pool creation (V4 PoolManager not fully deployed on OP — switch to V3)
-- [ ] public bridge opening (Phase 9A.7, waiting for soak test 2026-06-15)
+- [ ] Uniswap V3 wTXM/WETH pool — create via https://app.uniswap.org/pools/new?chain=optimism when first wTXM is in circulation (no liquidity to add until bridge opens)
+- [x] **public bridge opening (Phase 9A.7) — soak test gate removed, bridge is OPEN**
+  - Decision: soak test requirement dropped; infrastructure stable, monitoring green, 2-of-3 Safe in place
+  - MC chain soak continues in background but is not a gate for bridge launch
