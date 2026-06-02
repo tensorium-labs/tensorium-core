@@ -99,8 +99,15 @@ fn run() -> Result<(), String> {
             let passphrase = passphrase_from_env()?;
             let wallet = load_wallet(&wallet_path)?;
             let keypair = wallet.decrypt(&passphrase)?;
-            let state = load_state(&state_path_from_env())?;
-            let tx = build_signed_payment(&wallet, &keypair, &state, to_address, amount_atoms)?;
+            // Prefer RPC-based UTXO lookup (avoids RocksDB LOCK conflict when
+            // the node is running alongside txmwallet).
+            let rpc = env::var("TENSORIUM_RPC").unwrap_or_else(|_| DEFAULT_RPC.to_owned());
+            let tx = build_signed_payment_via_rpc(&wallet, &keypair, &rpc, to_address, amount_atoms)
+                .or_else(|_rpc_err| {
+                    // Fall back to state.db if RPC is not available.
+                    let state = load_state(&state_path_from_env())?;
+                    build_signed_payment(&wallet, &keypair, &state, to_address, amount_atoms)
+                })?;
             let raw = serde_json::to_string_pretty(&tx)
                 .map_err(|err| format!("failed to serialize signed tx: {err}"))?;
             fs::write(&tx_path, raw)
@@ -350,6 +357,84 @@ fn rpc_post(rpc: &str, path: &str, body: &str) -> Result<String, String> {
         return Err(format!("RPC error: {response_body}"));
     }
     Ok(response_body.to_owned())
+}
+
+fn rpc_get(rpc: &str, path: &str) -> Result<String, String> {
+    let request = format!(
+        "GET {path} HTTP/1.1\r\nhost: {rpc}\r\nconnection: close\r\n\r\n"
+    );
+    let mut stream =
+        TcpStream::connect(rpc).map_err(|err| format!("RPC connect {rpc}: {err}"))?;
+    stream.write_all(request.as_bytes()).map_err(|e| format!("RPC write: {e}"))?;
+    let mut response = String::new();
+    stream.read_to_string(&mut response).map_err(|e| format!("RPC read: {e}"))?;
+    let (head, body) = response.split_once("\r\n\r\n").ok_or("invalid HTTP response")?;
+    if !head.starts_with("HTTP/1.1 200") {
+        return Err(format!("RPC error: {body}"));
+    }
+    Ok(body.to_owned())
+}
+
+/// Build a signed payment transaction using UTXOs fetched from the node RPC.
+/// This avoids opening the RocksDB state file directly, which would conflict
+/// with the node's exclusive lock on the database.
+fn build_signed_payment_via_rpc(
+    wallet: &WalletFile,
+    keypair: &WalletKeypair,
+    rpc: &str,
+    to_address: &str,
+    amount_atoms: u64,
+) -> Result<Transaction, String> {
+    use tensorium_core::block::OutPoint;
+    use tensorium_core::hash::Hash256;
+
+    #[derive(serde::Deserialize)]
+    struct RpcUtxo {
+        txid_bytes: Vec<u8>,
+        output_index: u32,
+        value_atoms: u64,
+        coinbase: bool,
+        mature: bool,
+    }
+    #[derive(serde::Deserialize)]
+    struct RpcUtxoResp { utxos: Vec<RpcUtxo> }
+
+    let body = rpc_get(rpc, &format!("/getutxos/{}", wallet.address))?;
+    let resp: RpcUtxoResp = serde_json::from_str(&body)
+        .map_err(|e| format!("UTXO parse error: {e}"))?;
+
+    let mut selected: Vec<(OutPoint, u64)> = Vec::new();
+    let mut selected_atoms = 0u64;
+    for u in resp.utxos {
+        if !u.mature { continue; }
+        let hash = Hash256(
+            u.txid_bytes.as_slice().try_into()
+                .map_err(|_| "invalid txid length from RPC".to_owned())?
+        );
+        let outpoint = OutPoint { txid: hash, output_index: u.output_index };
+        selected.push((outpoint, u.value_atoms));
+        selected_atoms = selected_atoms.saturating_add(u.value_atoms);
+        if selected_atoms >= amount_atoms { break; }
+    }
+
+    if selected_atoms < amount_atoms {
+        return Err(format!(
+            "insufficient mature balance via RPC: have {selected_atoms}, need {amount_atoms}"
+        ));
+    }
+
+    let inputs: Vec<TxInput> = selected.iter()
+        .map(|(op, _)| TxInput { previous_output: *op, signature_script: Vec::new() })
+        .collect();
+    let mut outputs = vec![TxOutput { value_atoms: amount_atoms, address: to_address.to_owned() }];
+    let change = selected_atoms - amount_atoms;
+    if change > 0 {
+        outputs.push(TxOutput { value_atoms: change, address: wallet.address.clone() });
+    }
+
+    let mut tx = Transaction::payment(inputs, outputs);
+    keypair.sign_transaction(&mut tx).map_err(|e| e.to_string())?;
+    Ok(tx)
 }
 
 impl WalletFile {
