@@ -1,5 +1,8 @@
 # Restore Runbook
 
+> **Canonical service URLs, chain IDs, and RPC endpoints:** see `CANONICAL_ASSET_METADATA.md`.
+> If any value here disagrees with that file, update this file.
+
 This runbook describes how to restore a Tensorium node from a backup created by `tensorium-backup.sh`.
 
 ## Scope
