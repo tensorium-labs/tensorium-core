@@ -108,8 +108,12 @@ Infrastructure:
 - [x] MC P2P sync test — both nodes at genesis, `already up to date` confirmed 2026-06-01
 - [x] Soak test running — STATUS: OK since 2026-06-01, target done 2026-06-15
 
-Still not done:
+## Phase 9A.0 — Governance And Keys (updated 2026-06-02)
 
-- [ ] signer set selection (Phase 9A.0)
-- [ ] custody key assignment (Phase 9A.0)
+- [x] Gnosis Safe 1-of-1 created on OP Mainnet: `0x9B3B2DB2eCf2b83f58ed256C252204f0d76dB6e9`
+- [x] wTXM ownership transferred to Safe (Ownable2Step complete)
+- [x] Controller ownership transferred to Safe (Ownable2Step complete)
+- [x] Deployment saved: `deployments/safe-op-mainnet.json`
+- [ ] Upgrade Safe to 2-of-3: add signer B and signer C via https://app.safe.global/home?safe=oeth:0x9B3B2DB2eCf2b83f58ed256C252204f0d76dB6e9
+- [ ] Uniswap V3 pool creation (V4 PoolManager not fully deployed on OP — switch to V3)
 - [ ] public bridge opening (Phase 9A.7, waiting for soak test 2026-06-15)
