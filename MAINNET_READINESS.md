@@ -1,7 +1,7 @@
 # Mainnet Readiness
 
-Status: **Phase 7 COMPLETE** — v0.3.1-mainnet-candidate released. MC daemon operational. Mainnet-candidate chain NOT yet publicly launched — pre-launch checklist (Phase 8) in progress.
-Last updated: 2026-06-01
+Status: **MAINNET LIVE — 2026-06-02** · Chain running · Bridge live · SDK published · CEX outreach sent
+Last updated: 2026-06-02
 
 This document tracks what must be true before Tensorium mainnet-candidate chain launches publicly.
 
@@ -15,7 +15,7 @@ This document tracks what must be true before Tensorium mainnet-candidate chain 
 - MC commands: `tensorium-node mainnet-candidate rpc/p2p-listen/sync/init`
 - Public services: website, docs, whitepaper, explorer, testnet seed node
 
-**Mainnet-candidate chain launch requires completing Phase 8 (Pre-Launch) checklist below.**
+**Mainnet launched 2026-06-02. All Phase 8 gates passed. Phase 9A bridge live. Phase 9B/9C/9D done. CEX outreach sent.**
 
 ## Blocking Gates
 
@@ -471,7 +471,7 @@ Execution checklist: see `PHASE9A_EXECUTION_CHECKLIST.md`.
 ### 9C — SDK & Developer Tools
 
 - `tensorium-sdk-js` — **DONE** — published as `@tensorium/sdk@0.1.1` on npm. `npm install @tensorium/sdk`. Fixed ESM output path (`index.js` not `index.mjs`), license Apache-2.0. 13 tests passing. https://www.npmjs.com/package/@tensorium/sdk
-- `tensorium-sdk-py` — TODO — pip package for scripting/automation
+- `tensorium-sdk-py` — **DONE** — `pip install tensorium-sdk` (v0.1.1, PyPI, Apache-2.0, 7 tests)
 - RPC API reference docs — TODO — `docs.tensoriumlabs.com/api`
 - Example dApp using SDK — TODO
 
@@ -484,10 +484,10 @@ Execution checklist: see `PHASE9A_EXECUTION_CHECKLIST.md`.
 | Discord guides | **DONE** | GPU mining guide, pool guide, node operator guide, testnet guide, MC guide all posted |
 | Discord announcement | **DONE** | Mainnet-candidate launch announcement posted and pinned in #announcements |
 | Website Discord CTA | **DONE** | Discord section added to `tensoriumlabs.com` before footer |
-| CEX outreach | TODO | whitepaper, tokenomics, source code ready — needs active outreach |
-| Open Telegram | TODO | currently private invite, deferred |
-| Twitter/X | TODO | deferred |
-| Mining competition | TODO | post-launch |
+| CEX outreach | **DONE** | 14 exchanges contacted 2026-06-02: MEXC, Gate.io, CoinEx, OKX, Bybit, SafeTrade, LBank, XT.com, BitMart, CoinW, DigiFinex, Hotcoin, BingX, BTCC |
+| Open Telegram | DEFERRED | User decision: Discord-first strategy, Telegram later |
+| Twitter/X | DEFERRED | Discord-first strategy |
+| Mining competition | TODO | post-launch — after exchange listing confirmed |
 
 ---
 
@@ -533,7 +533,7 @@ Execution checklist: see `PHASE9A_EXECUTION_CHECKLIST.md`.
 
 **Developer — Phase 9:**
 - [x] SDK JS — `@tensorium/sdk@0.1.1` live on npm (`npm install @tensorium/sdk`)
-- [ ] SDK Python — not started
+- [x] SDK Python — `pip install tensorium-sdk` v0.1.1
 - [ ] Public REST API docs
 - [ ] Developer onboarding guide
 

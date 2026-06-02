@@ -153,7 +153,7 @@ Founder lock:
 ### Tier 2 — Accessible CEX
 | Exchange | Status | Notes |
 |---|---|---|
-| MEXC Global | TODO | `https://support.mexc.com/hc/en-001/articles/360059604091` — new listing application |
+| MEXC Global | SENT 2026-06-02 | `https://support.mexc.com/hc/en-001/articles/360059604091` — new listing application |
 | CoinEx | TODO | `https://www.coinex.com/token-listing` — focus on PoW chains |
 | Gate.io | TODO | `https://www.gate.io/en/listing` — strong PoW support |
 | XT.com | TODO | Accessible Tier 3, active PoW support |
