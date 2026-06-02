@@ -90,12 +90,20 @@ static void write_le32(uint8_t *buf, uint32_t v) {
 
 static sock_t tcp_connect(const char *host, const char *port) {
     struct addrinfo hints = {0}, *res;
-    hints.ai_family   = AF_UNSPEC;
+    hints.ai_family   = AF_INET;  // force IPv4
     hints.ai_socktype = SOCK_STREAM;
-    if (getaddrinfo(host, port, &hints, &res) != 0) return SOCK_INVALID;
+    int gai = getaddrinfo(host, port, &hints, &res);
+    if (gai != 0) {
+        fprintf(stderr, "getaddrinfo failed: %s\n", gai_strerror(gai));
+        return SOCK_INVALID;
+    }
     sock_t s = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
-    if (s == SOCK_INVALID) { freeaddrinfo(res); return SOCK_INVALID; }
+    if (s == SOCK_INVALID) {
+        fprintf(stderr, "socket() failed: %s\n", strerror(errno));
+        freeaddrinfo(res); return SOCK_INVALID;
+    }
     if (connect(s, res->ai_addr, (int)res->ai_addrlen) != 0) {
+        fprintf(stderr, "connect() failed: %s (errno=%d)\n", strerror(errno), errno);
         CLOSE_SOCK(s); freeaddrinfo(res); return SOCK_INVALID;
     }
     freeaddrinfo(res);
