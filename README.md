@@ -1,10 +1,9 @@
 # Tensorium Core
 
-A Proof-of-Work blockchain built in Rust — public GPU-first testnet, CUDA mining, and mainnet-candidate bootstrap.
+A Proof-of-Work blockchain built in Rust — live mainnet and CUDA mining.
 
-> **Status:** Mainnet live (declared 2026-06-02). GPU mining active on `tensorium-mainnet-candidate-0`. Public testnet still running at 20-bit for onboarding.
+> **Status:** Mainnet live (declared 2026-06-02). GPU mining active on `tensorium-mainnet-candidate-0`.
 > Mainnet chain: `tensorium-mainnet-candidate-0` | Ticker: `TXM` | P2P: `33333` | RPC: `33332`
-> Testnet chain: `tensorium-testnet-0` | P2P: `23333` | RPC: `23332`
 
 [![Discord](https://img.shields.io/badge/Discord-Join-5865F2?logo=discord&logoColor=white)](https://discord.gg/KkgGSZKVZw)
 [![npm](https://img.shields.io/badge/npm-%40tensorium%2Fsdk-red?logo=npm)](https://www.npmjs.com/package/@tensorium/sdk)
@@ -20,7 +19,7 @@ A Proof-of-Work blockchain built in Rust — public GPU-first testnet, CUDA mini
 curl -fsSL https://raw.githubusercontent.com/tensorium-labs/tensorium-core/main/install.sh | bash
 ```
 
-The installer downloads binaries, creates a wallet, inits the chain (instant — no CPU mining), syncs from the seed node, and optionally sets up systemd services.
+The installer is now mainnet-first: it downloads binaries, creates a wallet, initializes `mainnet-candidate`, syncs from the seed node, and optionally sets up systemd services.
 
 | Binary | Role |
 | --- | --- |
@@ -31,22 +30,33 @@ The installer downloads binaries, creates a wallet, inits the chain (instant —
 
 Or download directly from [Releases](https://github.com/tensorium-labs/tensorium-core/releases).
 
-### Mining Modes
+### Mining Topology
 
-The public testnet was reset on 2026-06-01 for easier onboarding and faucet
-operations. It is currently CPU-minable at 20-bit difficulty with 10-block
-coinbase maturity.
+`txmminer-cuda` is the only supported production miner for mainnet. Mainnet initial difficulty (40 leading zero bits) requires a GPU; CPU cannot mine at this difficulty.
 
-Mainnet-candidate remains GPU-first and should be treated separately from the
-easier public testnet.
+**Solo mining** — miner connects directly to your own node RPC. 0% pool fee. Full block reward goes to your address.
 
-### GPU Mining (Mainnet-Candidate / High-Difficulty Testnet)
+```bash
+txmminer-cuda 127.0.0.1:33332 YOUR_ADDRESS
+```
+
+**Pool mining** — miner connects to the official pool bind address (`pooltxm.tensoriumlabs.com:23336`). The pool charges a **5% fee** on block rewards, disclosed before you connect. Solo miners who run their own node pay no pool fee.
+
+```bash
+txmminer-cuda pooltxm.tensoriumlabs.com:23336 YOUR_ADDRESS
+```
+
+Pool stats and fee disclosure: https://pooltxm.tensoriumlabs.com
+
+### GPU Mining
 
 ```bash
 # Pre-built binary (sm_86 = RTX 3000/4000 series)
 chmod +x txmminer-cuda-linux-x86_64-sm86
 sudo mv txmminer-cuda-linux-x86_64-sm86 /usr/local/bin/txmminer-cuda
-txmminer-cuda 127.0.0.1:23332 YOUR_ADDRESS
+
+# Solo: mine directly against your own node RPC
+txmminer-cuda 127.0.0.1:33332 YOUR_ADDRESS
 
 # Build from source for your GPU
 cd tools/txmminer-cuda
@@ -55,10 +65,12 @@ make ARCH=sm_89    # RTX 4000 Ada
 make ARCH=sm_90    # H100/H200
 ```
 
+`txmminer` (CPU) is a development/diagnostic tool only — it cannot mine at mainnet difficulty and must not be used as a production miner.
+
 | GPU | Hashrate | Avg Block Time (diff 36) |
 | --- | --- | --- |
-| RTX 3060 | ~380 MH/s | ~3 minutes |
-| RTX 3080 | ~1.2 GH/s | ~57 seconds |
+| RTX 3060 | ~380 MH/s | varies with live mainnet difficulty |
+| RTX 3080 | ~1.2 GH/s | varies with live mainnet difficulty |
 | RTX 4090 | ~2.5 GH/s | ~27 seconds |
 | H100 SXM | ~2 GH/s | ~34 seconds |
 
@@ -66,7 +78,7 @@ make ARCH=sm_90    # H100/H200
 
 ## What Is Tensorium
 
-Tensorium is a Proof-of-Work Layer 1 blockchain focused on open mining, transparent tokenomics, and a GPU-first mainnet direction.
+Tensorium is a Proof-of-Work Layer 1 blockchain focused on open mining, transparent tokenomics, and a GPU-first live mainnet direction.
 
 - Max supply: 33,000,000 TXM (1,000,000 founder + 32,000,000 mining)
 - Block time: 60 seconds
@@ -74,13 +86,13 @@ Tensorium is a Proof-of-Work Layer 1 blockchain focused on open mining, transpar
 - Halving: every 1,051,200 blocks (~2 years), 10 eras over 20 years
 - Testnet PoW: SHA256d at 20-bit public onboarding difficulty as of 2026-06-01
 - Mainnet-candidate PoW: SHA256d, GPU-first launch posture
-- Current phase: Phase 8 infrastructure; the existing DigitalOcean VPS is used as the temporary mainnet-candidate host, with dedicated VPS migration planned later
+- Current phase: post-launch operations; mainnet is live and Phase 10 operational hardening is complete
 
 ### Pool Fee Policy Draft
 
 Tensorium consensus does not include a hidden miner tax.
 
-The current Phase 8 policy allows an official/reference mining pool to charge a transparent `5%` pool fee. This fee is handled by pool payout accounting, sent to a published pool treasury/development wallet, and shown before miners connect. Solo miners who submit blocks directly to their own node are not charged this pool fee by the protocol.
+The current operating policy allows an official/reference mining pool to charge a transparent `5%` pool fee. This fee is handled by pool payout accounting, sent to a published pool treasury/development wallet, and shown before miners connect. Solo miners who submit blocks directly to their own node are not charged this pool fee by the protocol.
 
 Pool operations now distinguish between:
 
@@ -99,7 +111,7 @@ A self-custody browser wallet for TXM is available as a Chrome extension.
 
 - Repo: [tensorium-labs/tensorium-wallet-extension](https://github.com/tensorium-labs/tensorium-wallet-extension)
 - Install (manual, while Chrome Web Store review is pending): download ZIP from the [latest release](https://github.com/tensorium-labs/tensorium-wallet-extension/releases/latest), unzip, open `chrome://extensions`, enable Developer mode, click Load unpacked
-- Features: create/import wallet, balance, send, history (last 200 blocks, sent + received), network selector (testnet / mainnet-candidate / custom RPC), export backup, lock
+- Features: create/import wallet, balance, send, history (last 200 blocks, sent + received), network selector (mainnet / custom RPC), export backup, lock
 
 ---
 
@@ -109,7 +121,7 @@ A self-custody browser wallet for TXM is available as a Chrome extension.
 | --- | --- | --- |
 | `tensorium-core` | library | Block, transaction, UTXO, mempool, wallet, consensus, fork-choice |
 | `tensorium-node` | binary | Full node: HTTP RPC + P2P server |
-| `txmminer` | binary | CPU miner |
+| `txmminer` | binary | CPU miner (dev/diagnostic only — cannot mine at mainnet difficulty) |
 | `txmminer-cuda` | binary | NVIDIA CUDA GPU miner |
 | `txmwallet` | binary | CLI wallet |
 
@@ -139,10 +151,11 @@ cargo run -p tensorium-node -- rpc
 TENSORIUM_WALLET_PASSPHRASE=yourpass cargo run -p txmwallet -- create
 export MINER_ADDR=$(cargo run -p txmwallet -- getnewaddress 2>/dev/null)
 
-# 4. start CPU miner
-cargo run -p txmminer -- 127.0.0.1:23332 "$MINER_ADDR"
+# 4. start local miner
+# for real mainnet mining prefer txmminer-cuda; txmminer is diagnostic-only here
+cargo run -p txmminer -- 127.0.0.1:33332 "$MINER_ADDR"
 
-# 5. check balance (after 10+ blocks on current public testnet)
+# 5. check balance (after enough local dev blocks mature)
 cargo run -p txmwallet -- balance
 ```
 
@@ -153,21 +166,22 @@ cargo run -p txmwallet -- balance
 ```bash
 # --- Node A (seed) ---
 TENSORIUM_STATE=state-a.json cargo run -p tensorium-node -- init
-TENSORIUM_STATE=state-a.json cargo run -p tensorium-node -- rpc 127.0.0.1:23332 &
-TENSORIUM_STATE=state-a.json cargo run -p tensorium-node -- p2p-listen 127.0.0.1:23333 &
-cargo run -p txmminer -- 127.0.0.1:23332 miner-a
+TENSORIUM_STATE=state-a.json cargo run -p tensorium-node -- rpc 127.0.0.1:33332 &
+TENSORIUM_STATE=state-a.json cargo run -p tensorium-node -- p2p-listen 127.0.0.1:33333 &
+# dev/diagnostic only — CPU cannot mine at mainnet difficulty
+cargo run -p txmminer -- 127.0.0.1:33332 miner-a
 
 # --- Node B (syncs from A) ---
 TENSORIUM_STATE=state-b.json cargo run -p tensorium-node -- init
 # sync all blocks from A
-TENSORIUM_STATE=state-b.json cargo run -p tensorium-node -- sync 127.0.0.1:23333
+TENSORIUM_STATE=state-b.json cargo run -p tensorium-node -- sync 127.0.0.1:33333
 # listen for new blocks broadcast by A
 TENSORIUM_STATE=state-b.json TENSORIUM_NODE_ID=node-b \
-  cargo run -p tensorium-node -- p2p-listen 127.0.0.1:23334 &
+  cargo run -p tensorium-node -- p2p-listen 127.0.0.1:33334 &
 
 # tell A to broadcast to B
-TENSORIUM_PEERS=127.0.0.1:23334 TENSORIUM_STATE=state-a.json \
-  cargo run -p tensorium-node -- rpc 127.0.0.1:23332
+TENSORIUM_PEERS=127.0.0.1:33334 TENSORIUM_STATE=state-a.json \
+  cargo run -p tensorium-node -- rpc 127.0.0.1:33332
 ```
 
 ---
@@ -175,16 +189,17 @@ TENSORIUM_PEERS=127.0.0.1:23334 TENSORIUM_STATE=state-a.json \
 ## Node Commands
 
 ```
-tensorium-node init                      create genesis block
+tensorium-node init                      create mainnet genesis block
 tensorium-node status                    show chain tip and height
-tensorium-node mine-once [addr]          mine one block (dev/test only)
-tensorium-node rpc [bind]                start HTTP RPC (default 127.0.0.1:23332)
-tensorium-node p2p-listen [bind]         start P2P server (default 127.0.0.1:23333)
+tensorium-node mine-once [addr]          mine one block (diagnostic only)
+tensorium-node rpc [bind]                start HTTP RPC (default 127.0.0.1:33332)
+tensorium-node p2p-listen [bind]         start P2P server (default 0.0.0.0:33333)
 tensorium-node p2p-connect <host:port>   diagnostic handshake to a peer
 tensorium-node sync [host:port]          download missing blocks from a peer
 tensorium-node peers                     print TENSORIUM_PEERS list
 tensorium-node banlist                   show peer ban list
 tensorium-node unban <ip>                remove a ban
+tensorium-node mainnet-candidate ...     explicit alias for the same mainnet chain
 ```
 
 ## RPC Endpoints
@@ -218,9 +233,9 @@ txmwallet unlock-check                           verify passphrase can decrypt w
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `TENSORIUM_STATE` | `tensorium-testnet-state.json` | Chain state path; JSON paths auto-migrate to `*.db/` RocksDB |
-| `TENSORIUM_MEMPOOL` | `tensorium-testnet-mempool.json` | Mempool file |
-| `TENSORIUM_BANS` | `tensorium-testnet-banlist.json` | Peer ban list file |
+| `TENSORIUM_STATE` | `tensorium-mainnet-state.json` | Chain state path; JSON paths auto-migrate to `*.db/` RocksDB |
+| `TENSORIUM_MEMPOOL` | `tensorium-mainnet-mempool.json` | Mempool file |
+| `TENSORIUM_BANS` | `tensorium-mainnet-banlist.json` | Peer ban list file |
 | `TENSORIUM_PEERS` | `""` | Comma-separated peers for block/tx broadcast |
 | `TENSORIUM_NODE_ID` | `node-<timestamp>` | Identity in P2P handshake |
 | `TENSORIUM_WALLET` | `tensorium-wallet.json` | Wallet file |
@@ -253,7 +268,7 @@ All messages are newline-delimited JSON over TCP.
 
 **Handshake** (both sides send first):
 ```json
-{"protocol":"tensorium-p2p","version":1,"chain_id":"tensorium-testnet-0",
+{"protocol":"tensorium-p2p","version":1,"chain_id":"tensorium-mainnet-candidate-0",
  "node_id":"node-1","height":100,"tip_hash":"..."}
 ```
 
@@ -294,23 +309,23 @@ All validated blocks (canonical + stale) are kept in `block_map` for future fork
 | Invalid transaction (bad signature) | 10 | 10 bad txs |
 | Unparseable message | 2 | 50 bad messages |
 
-Ban duration: 1 hour. Persisted to `tensorium-testnet-banlist.json`.
+Ban duration: 1 hour. Persisted to `tensorium-mainnet-banlist.json`.
 
 ---
 
-## Consensus Parameters (Testnet)
+## Consensus Parameters (Mainnet Default)
 
 | Parameter | Value |
 | --- | --- |
-| Chain ID | `tensorium-testnet-0` |
+| Chain ID | `tensorium-mainnet-candidate-0` |
 | Target block time | 60 seconds |
-| Initial PoW difficulty | 26 leading zero bits |
+| Initial PoW difficulty | 40 leading zero bits |
 | Difficulty window | 60 blocks |
 | Max adjustment per window | ±1 bit |
 | Coinbase maturity | 100 blocks |
 | Max future timestamp | 2 hours |
-| P2P port | 23333 |
-| RPC port | 23332 |
+| P2P port | 33333 |
+| RPC port | 33332 |
 
 ---
 
@@ -336,6 +351,5 @@ Tensorium Core is licensed under the Apache License, Version 2.0. See [LICENSE](
 ## Safety
 
 - Keep RPC bound to `127.0.0.1` — never expose it directly to the internet.
-- This is testnet software. Testnet TXM has no monetary value.
-- Do not use this code for mainnet, real funds, or production mining.
-- Mainnet requires: stable testnet, GPU-first mining tested, security review, whitepaper, risk disclosure.
+- Mainnet is live, but public RPC should remain reverse-proxied and rate-limited.
+- Founder, treasury, and payout custody should follow the documented runbooks in `docs/operations/` and `docs/project/`.

@@ -2,18 +2,18 @@
 set -euo pipefail
 
 # ---------------------------------------------------------------------------
-# Tensorium Testnet Installer
+# Tensorium Mainnet Installer
 # Usage:  curl -fsSL https://raw.githubusercontent.com/tensorium-labs/tensorium-core/main/install.sh | bash
 # ---------------------------------------------------------------------------
 
 REPO="tensorium-labs/tensorium-core"
-VERSION="v0.1.0-testnet"
+VERSION="v0.3.1-mainnet-candidate"
 SEED_NODE="157.230.44.162"
-RPC_PORT="23332"
-P2P_PORT="23333"
-CHAIN_ID="tensorium-testnet-0"
+RPC_PORT="33332"
+P2P_PORT="33333"
+CHAIN_ID="tensorium-mainnet-candidate-0"
 INSTALL_DIR="/usr/local/bin"
-DATA_DIR="$HOME/tensorium-node"
+DATA_DIR="$HOME/tensorium-mainnet-node"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -77,7 +77,8 @@ download_binaries() {
 
     info "Downloading Tensorium ${VERSION} for ${os}-${arch}..."
 
-    local bins=("tensorium-node" "txmminer" "txmwallet")
+    # txmminer (CPU) is dev-only and not distributed to end users
+    local bins=("tensorium-node" "txmwallet")
     for bin in "${bins[@]}"; do
         local filename="${bin}-${os}-${arch}"
         local url="${base_url}/${filename}"
@@ -165,18 +166,18 @@ setup_node() {
     if [[ -f "$state" || -d "$state_db" ]]; then
         warn "Existing chain state detected ($state or $state_db) — skipping init"
     else
-        info "Initializing chain (genesis block)..."
-        TENSORIUM_STATE="$state" \
-        TENSORIUM_MEMPOOL="$mempool" \
-        TENSORIUM_BANS="$bans" \
-            tensorium-node init
+        info "Initializing mainnet-candidate chain (genesis block)..."
+        TENSORIUM_MC_STATE="$state" \
+        TENSORIUM_MC_MEMPOOL="$mempool" \
+        TENSORIUM_MC_BANS="$bans" \
+            tensorium-node mainnet-candidate init
 
         info "Syncing from seed node ${SEED_NODE}..."
-        TENSORIUM_STATE="$state" \
-        TENSORIUM_MEMPOOL="$mempool" \
-        TENSORIUM_BANS="$bans" \
-        TENSORIUM_PEERS="${SEED_NODE}:${P2P_PORT}" \
-            tensorium-node sync "${SEED_NODE}:${P2P_PORT}" || warn "Sync failed — you can run 'tensorium-node sync ${SEED_NODE}:${P2P_PORT}' manually later"
+        TENSORIUM_MC_STATE="$state" \
+        TENSORIUM_MC_MEMPOOL="$mempool" \
+        TENSORIUM_MC_BANS="$bans" \
+        TENSORIUM_MC_PEERS="${SEED_NODE}:${P2P_PORT}" \
+            tensorium-node mainnet-candidate sync "${SEED_NODE}:${P2P_PORT}" || warn "Sync failed — you can run 'tensorium-node mainnet-candidate sync ${SEED_NODE}:${P2P_PORT}' manually later"
     fi
 }
 
@@ -205,18 +206,18 @@ install_service() {
 
     $SUDO tee /etc/systemd/system/tensorium-rpc.service > /dev/null <<EOF
 [Unit]
-Description=Tensorium Node RPC
+Description=Tensorium Mainnet RPC
 After=network.target
 
 [Service]
 Type=simple
 User=${user}
 WorkingDirectory=${DATA_DIR}
-Environment=TENSORIUM_STATE=${state}
-Environment=TENSORIUM_MEMPOOL=${mempool}
-Environment=TENSORIUM_BANS=${bans}
-Environment=TENSORIUM_PEERS=${SEED_NODE}:${P2P_PORT}
-ExecStart=${INSTALL_DIR}/tensorium-node rpc 127.0.0.1:${RPC_PORT}
+Environment=TENSORIUM_MC_STATE=${state}
+Environment=TENSORIUM_MC_MEMPOOL=${mempool}
+Environment=TENSORIUM_MC_BANS=${bans}
+Environment=TENSORIUM_MC_PEERS=${SEED_NODE}:${P2P_PORT}
+ExecStart=${INSTALL_DIR}/tensorium-node mainnet-candidate rpc 127.0.0.1:${RPC_PORT}
 Restart=always
 RestartSec=10
 StandardOutput=journal
@@ -228,17 +229,17 @@ EOF
 
     $SUDO tee /etc/systemd/system/tensorium-p2p.service > /dev/null <<EOF
 [Unit]
-Description=Tensorium Node P2P
+Description=Tensorium Mainnet P2P
 After=network.target
 
 [Service]
 Type=simple
 User=${user}
 WorkingDirectory=${DATA_DIR}
-Environment=TENSORIUM_STATE=${state}
-Environment=TENSORIUM_MEMPOOL=${mempool}
-Environment=TENSORIUM_BANS=${bans}
-ExecStart=${INSTALL_DIR}/tensorium-node p2p-listen 0.0.0.0:${P2P_PORT}
+Environment=TENSORIUM_MC_STATE=${state}
+Environment=TENSORIUM_MC_MEMPOOL=${mempool}
+Environment=TENSORIUM_MC_BANS=${bans}
+ExecStart=${INSTALL_DIR}/tensorium-node mainnet-candidate p2p-listen 0.0.0.0:${P2P_PORT}
 Restart=always
 RestartSec=10
 StandardOutput=journal
@@ -276,12 +277,15 @@ print_summary() {
     echo -e "${BOLD}Useful commands:${NC}"
     echo ""
     echo -e "  Start node (manual):"
-    echo -e "    ${CYAN}tensorium-node rpc 127.0.0.1:${RPC_PORT} &${NC}"
-    echo -e "    ${CYAN}tensorium-node p2p-listen 0.0.0.0:${P2P_PORT} &${NC}"
+    echo -e "    ${CYAN}TENSORIUM_MC_STATE=${DATA_DIR}/state.json TENSORIUM_MC_MEMPOOL=${DATA_DIR}/mempool.json TENSORIUM_MC_BANS=${DATA_DIR}/banlist.json tensorium-node mainnet-candidate rpc 127.0.0.1:${RPC_PORT} &${NC}"
+    echo -e "    ${CYAN}TENSORIUM_MC_STATE=${DATA_DIR}/state.json TENSORIUM_MC_MEMPOOL=${DATA_DIR}/mempool.json TENSORIUM_MC_BANS=${DATA_DIR}/banlist.json tensorium-node mainnet-candidate p2p-listen 0.0.0.0:${P2P_PORT} &${NC}"
     echo -e "    ${CYAN}# put nginx in front before exposing RPC publicly${NC}"
     echo ""
-    echo -e "  Start mining:"
-    echo -e "    ${CYAN}txmminer 127.0.0.1:${RPC_PORT} ${miner_addr}${NC}"
+    echo -e "  Start mining (GPU — mainnet requires NVIDIA GPU):"
+    echo -e "    ${CYAN}# Download txmminer-cuda from Releases (architecture-specific binary)${NC}"
+    echo -e "    ${CYAN}# https://github.com/${REPO}/releases/tag/${VERSION}${NC}"
+    echo -e "    ${CYAN}txmminer-cuda 127.0.0.1:${RPC_PORT} ${miner_addr}${NC}"
+    echo -e "    ${CYAN}# txmminer (installed above) is CPU dev/diagnostic only — not for mainnet${NC}"
     echo ""
     echo -e "  Check chain height:"
     echo -e "    ${CYAN}curl -s http://localhost:${RPC_PORT}/getblockcount${NC}"
@@ -302,7 +306,7 @@ print_summary() {
 
 main() {
     echo ""
-    echo -e "${BOLD}Tensorium Testnet Installer${NC}"
+    echo -e "${BOLD}Tensorium Mainnet Installer${NC}"
     echo -e "Version: ${VERSION} | Chain: ${CHAIN_ID}"
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo ""

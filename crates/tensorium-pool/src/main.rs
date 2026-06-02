@@ -18,7 +18,7 @@ use tensorium_core::Block;
 // ---------------------------------------------------------------------------
 
 const DEFAULT_POOL_BIND: &str = "0.0.0.0:23336";
-const DEFAULT_NODE_RPC: &str = "127.0.0.1:23332";
+const DEFAULT_NODE_RPC: &str = "127.0.0.1:33332";
 const DEFAULT_LEDGER_PATH: &str = "pool-ledger.json";
 /// Read/write timeout for pool-side HTTP connections (seconds).
 const HTTP_TIMEOUT_SECS: u64 = 15;
@@ -494,10 +494,11 @@ fn print_help() {
     println!();
     println!("pool fee: {}%  ({} bps)", accounting::POOL_FEE_BPS / 100, accounting::POOL_FEE_BPS);
     println!();
-    println!("miners: point txmminer/txmminer-cuda at pool bind address instead of node RPC.");
+    println!("miners: point txmminer-cuda (GPU) at pool bind address instead of node RPC.");
+    println!("  txmminer (CPU) is dev/diagnostic only — cannot mine at mainnet difficulty.");
     println!("example:");
     println!("  TENSORIUM_POOL_TREASURY=txm1treasury... TENSORIUM_POOL_PAYOUT_HOT_WALLET=txm1hot... tensorium-pool serve");
-    println!("  txmminer <pool_host:23336> <miner_wallet_address>");
+    println!("  txmminer-cuda <pool_host:23336> <miner_wallet_address>");
 }
 
 // ---------------------------------------------------------------------------

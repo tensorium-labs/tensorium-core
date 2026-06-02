@@ -3,19 +3,30 @@
 Status: **MAINNET LIVE — 2026-06-02** · Chain running · Bridge live · SDK published · CEX outreach sent
 Last updated: 2026-06-02
 
-This document tracks what must be true before Tensorium mainnet-candidate chain launches publicly.
+This document records what had to be true before launch and tracks the remaining post-launch ecosystem and operations follow-through.
 
 ## Current Position
 
 **Phase 7 DONE.** All Phase 7 sprints (7A–7E) completed 2026-05-31.
 
-- Active public testnet: `tensorium-testnet-0`, reset 2026-06-01 to 20-bit difficulty with 10-block maturity for CPU mining, faucet funding, and wallet onboarding
 - Mainnet-candidate code: `v0.3.1-mainnet-candidate` — genesis hardcoded, MC daemon complete
 - MC genesis: nonce `114_103_168_481`, hash `000000000063ab6f057a16376b1712e709719126ad977a3d4be23f83b89f0392` (v2 — with 1M founder allocation)
 - MC commands: `tensorium-node mainnet-candidate rpc/p2p-listen/sync/init`
-- Public services: website, docs, whitepaper, explorer, testnet seed node
+- Public services: website, docs, whitepaper, explorer, and mainnet seed infrastructure
 
 **Mainnet launched 2026-06-02. All Phase 8 gates passed. Phase 9A bridge live. Phase 9B/9C/9D done. CEX outreach sent.**
+
+## Active Snapshot
+
+Use this section first. The rest of the document preserves launch auditability and roadmap context.
+
+- Chain status: mainnet live
+- Public mining posture: GPU-first on mainnet
+- Bridge status: live on Optimism with `wTXM`
+- Explorer status: incremental indexer live with persisted snapshot reload
+- Storage status: RocksDB migration complete
+- Operations status: Phase 10A-10E complete on 2026-06-02
+- Current follow-through: listings, liquidity, API docs, and longer-tail ecosystem work
 
 ## Post-Launch Execution Order
 
@@ -56,10 +67,10 @@ Phase 10E artifact:
 | Founder lock policy | DONE | Social/manual 24-month lock documented; no L1 enforcement. Disclosure required in whitepaper before mainnet. |
 | Mainnet genesis | DONE | Nonce `114_103_168_481` mined RTX 3060 (0.56 GH/s, 855s, 2026-06-01). Hash: `000000000063ab6f057a16376b1712e709719126ad977a3d4be23f83b89f0392`. Genesis v2 includes 1M TXM founder allocation.. Hardcoded in binary. |
 | Storage migration decision | DONE | RocksDB migration shipped on 2026-06-02. Legacy `state.json` files now auto-migrate to `*.db/` on first open. |
-| Peer discovery | DONE | Built-in static seed list (`157.230.44.162:23333`) added to node binary for testnet; mainnet-candidate DNS seed now live at `seed.tensoriumlabs.com:33333`. |
+| Peer discovery | DONE | Mainnet DNS seed live at `seed.tensoriumlabs.com:33333`; generic runtime defaults now point to mainnet DNS seeds. |
 | Mining pool path | DONE | tensorium-pool reference pool implemented (HTTP proxy, 5% fee, payout ledger). |
 | Pool fee policy | DONE | Pool treasury address generated (`txm10wa2dazhn2yqwwxkm4aegvzjq55hj9m2jlznt9`); payout accounting implemented; `pooltxm.tensoriumlabs.com` discloses 5% fee before miners connect. |
-| Node/pool role boundaries | DONE | Documented in this file; testnet colocates with isolation; mainnet-candidate scaling plan documented. |
+| Node/pool role boundaries | DONE | Documented in this file; mainnet scaling plan and separation posture are documented. |
 | Monitoring | DONE | `/usr/local/bin/tensorium-monitor.sh` runs every 10 min via cron; checks RPC, P2P, explorer, disk, SSL expiry; logs to `/var/log/tensorium-monitor.log`. |
 | Release reproducibility | DONE | v0.3.0-mainnet-candidate binaries built; SHA256 checksums in CHECKSUMS-v0.3.0-mainnet-candidate.txt. |
 | Risk disclosure | DONE | `docs/project/RISK_DISCLOSURE.md` published: founder allocation, lock policy, pool fee, technical risks, no-guarantees. |
@@ -90,7 +101,7 @@ Phase 10E artifact:
 
 Phase 7A test update:
 
-- Added tokenomics tests for testnet and mainnet candidate supply split.
+- Added tokenomics tests for chain supply split and founder allocation safety.
 - Added emission tests for 10-era mining allocation and rounding dust.
 - Added mainnet candidate emission schedule comparison.
 - Added difficulty tests for upward, downward, flat, and clamped retarget behavior.
@@ -231,9 +242,9 @@ Testnet rule:
 
 Scaling recommendation:
 
-- [x] Stage 1 testnet: one VPS can run node, pool, and explorer with isolated roles.
-- [ ] Stage 2 public testnet: add at least one backup node.
-- [ ] Stage 3 mainnet candidate: split high-risk services as traffic and funds increase.
+- [x] Early single-host phase: one VPS can run node, pool, and explorer with isolated roles.
+- [x] Backup node phase: add at least one independent backup/seed node.
+- [ ] Mature mainnet phase: split high-risk services further as traffic and funds increase.
 
 Mainnet candidate recommendation:
 
@@ -254,13 +265,13 @@ Wallet separation:
 
 Phase 7C update (2026-05-31):
 
-- [ ] Mainnet seed node prepared separately from testnet. *(deferred — requires new VPS decision)*
+- [x] Mainnet seed node prepared separately from earlier pre-launch assumptions. *(generic runtime now points to mainnet defaults; dedicated backup seed also live.)*
 - [x] Backup seed node prepared. *(Vultr `txm-mc-seed-1`, `139.180.137.144`, deployed 2026-06-01 with MC RPC/P2P, sync, firewall, monitoring, and soak cron.)*
-- [x] Node, pool, explorer, and treasury roles isolated or explicitly documented for testnet.
-- [x] Backup node plan documented. *(Stage 1 testnet single VPS acceptable; Stage 2 adds backup node)*
-- [x] RPC bound to localhost only. *(127.0.0.1:23332, enforced by default)*
-- [x] P2P public port documented. *(0.0.0.0:23333, UFW allows 23333)*
-- [x] Firewall allowlist documented. *(UFW: SSH/22, HTTP/80, HTTPS/443, P2P/23333)*
+- [x] Node, pool, explorer, and treasury roles isolated or explicitly documented for mainnet operations.
+- [x] Backup node plan documented. *(primary + secondary seed topology documented and deployed)*
+- [x] RPC bound to localhost only. *(mainnet default `127.0.0.1:33332`, enforced by default)*
+- [x] P2P public port documented. *(mainnet default `0.0.0.0:33333`, firewall allows `33333/tcp`)*
+- [x] Firewall allowlist documented. *(UFW: SSH/22, HTTP/80, HTTPS/443, P2P/33333)*
 - [x] Log rotation configured. *(journald: max 500M / 50M per file / 30 days; explorer logrotate: 14 days)*
 - [x] Chain state backup plan documented. *(daily cron 03:00 UTC → /root/backups/, 14 rolling backups)*
 - [x] Explorer deployed for mainnet candidate. *(explorer.tensoriumlabs.com, pm2, nginx, SSL)*
@@ -271,8 +282,8 @@ Phase 7C update (2026-05-31):
 
 ### Peer Discovery
 
-- [x] Built-in static seed list: `DEFAULT_SEEDS = ["157.230.44.162:23333"]` in `tensorium-node`.
-- [x] New nodes connect without manual configuration; seed falls back automatically.
+- [x] Built-in mainnet seed list: `DEFAULT_SEEDS = ["seed.tensoriumlabs.com:33333", "seed2.tensoriumlabs.com:33333"]` in `tensorium-node`.
+- [x] New nodes connect without manual configuration; generic runtime now falls back to mainnet DNS seeds automatically.
 - [x] Seed node itself runs with `TENSORIUM_NO_DEFAULT_SEEDS=1` to avoid self-connection.
 - [x] DNS seed (`seed.tensoriumlabs.com` → seed IP) active for mainnet-candidate stage.
 
@@ -285,7 +296,7 @@ Phase 7C update (2026-05-31):
 
 Phase 7D update (2026-05-31):
 
-- [x] CUDA miner tested from release binary. *(v0.2.0-testnet, RTX 3060 mined 5 blocks at diff 36)*
+- [x] CUDA miner tested from release binary. *(pre-launch GPU validation completed; current mainnet path uses the patched CUDA miner flow.)*
 - [x] CUDA miner tested from source build. *(sm86, compiled and tested Phase 6)*
 - [x] RTX 3000/4000 benchmark published. *(RTX 3060 ~410 MH/s, avg block time ~167s at diff 36)*
 - [ ] At least one high-end GPU benchmark published. *(RTX 4090 tested via Vast AI; formal publish deferred)*
@@ -301,7 +312,7 @@ Pool binary: `tensorium-pool` (new crate in workspace, commit 2ed0104).
 
 Architecture:
 
-- Miners point `txmminer` / `txmminer-cuda` at the pool bind address instead of the node RPC.
+- Pool miners point `txmminer-cuda` at the pool bind address instead of the node RPC. (`txmminer` CPU cannot mine at mainnet difficulty and is dev/diagnostic only.)
 - Pool proxies `GET /getblocktemplate/<miner_addr>` → node using **pool treasury address** as coinbase recipient.
 - Pool proxies `POST /submitblock` → node; on acceptance records payout accounting.
 - Payout ledger: `pool-ledger.json` (JSON, appended per accepted block).
@@ -327,7 +338,7 @@ Required env vars:
 
 ```
 TENSORIUM_POOL_TREASURY=<pool_treasury_address>   # required
-TENSORIUM_NODE_RPC=127.0.0.1:23332                 # default
+TENSORIUM_NODE_RPC=127.0.0.1:33332                 # default
 TENSORIUM_POOL_BIND=0.0.0.0:23336                  # default
 TENSORIUM_POOL_LEDGER=pool-ledger.json             # default
 ```
@@ -341,9 +352,11 @@ Payout flow (operator responsibility):
 3. Operator signs and broadcasts payment transaction from treasury wallet to miner address.
 4. Operator runs `tensorium-pool mark-paid <miner_addr>`.
 
-Solo mining (fee-free): miners point `txmminer` directly at `tensorium-node` RPC — no pool fee.
+Solo mining (fee-free): solo miners point `txmminer-cuda` directly at their own `tensorium-node` RPC endpoint — no pool fee. (`txmminer` CPU is dev/diagnostic only and cannot mine at mainnet difficulty.)
 
 ## Release Checklist
+
+Historical release-prep checklist retained for auditability.
 
 - [ ] Version tag chosen.
 - [ ] Release notes written.
@@ -358,17 +371,17 @@ Solo mining (fee-free): miners point `txmminer` directly at `tensorium-node` RPC
 
 Tensorium v0.3.1-mainnet-candidate is the current documented mainnet-candidate baseline. Phase 7 (7A–7E) is complete.
 
-## Remaining Launch Blockers
+## Launch Blockers
 
-These are the only Phase 8 items still blocking a public mainnet-candidate launch:
+Historical note: the launch blockers are now closed.
 
-1. Final public launch announcement after infrastructure and monitoring review.
-
-Everything else below Phase 9 and Phase 10 is ecosystem or post-launch roadmap, not a pre-launch blocker for the chain itself.
+- Final public launch announcement: DONE on 2026-06-02
+- Phase 8 launch gates: PASSED
+- Everything below Phase 9 and Phase 10 is post-launch execution, not a blocker to chain liveness
 
 ## Phase 8 — Pre-Launch Checklist
 
-Phase 7 is complete. Phase 8 covers everything required before the mainnet-candidate chain goes live and TXM has real economic value.
+Historical section preserved for launch auditability. Phase 8 is complete and the chain is already live.
 
 ### 8A — Infrastructure
 
@@ -382,7 +395,6 @@ Phase 7 is complete. Phase 8 covers everything required before the mainnet-candi
 | Backup seed node | DONE | Vultr `txm-mc-seed-1` (`139.180.137.144`) deployed 2026-06-01 as a second-provider MC seed node. `tensorium-mc-rpc` + `tensorium-mc-p2p` active, sync matches primary seed at height `0`, firewall open for `33333/tcp`, monitoring + soak cron installed. Runbook: `docs/operations/BACKUP_SEED_NODE_RUNBOOK.md`. |
 | Firewall + SSL on MC VPS | DONE | UFW 33333/tcp open; `rpc.tensoriumlabs.com` + `mc-rpc.tensoriumlabs.com` nginx HTTPS proxies live with Let's Encrypt certs (2026-06-01). |
 | Monitor for MC node | DONE | `tensorium-monitor.sh` checks mc_rpc (height), mc_p2p, pub_rpc (https), mc_pub_rpc (https), faucet; all green 2026-06-01. Hourly soak log `/var/log/tensorium-soak.log`. |
-| Testnet auto-miner | DONE | `tensorium-automine.service` runs `txmminer 127.0.0.1:23332` continuously. Blocks mined every few seconds at 20-bit diff. All faucet/wallet txs confirm immediately. |
 
 ### 8B — Wallet & UX
 
@@ -399,9 +411,8 @@ Chrome extension wallet stack: TypeScript + React, separate repo `tensorium-wall
 
 | Item | Status | Notes |
 |---|---|---|
-| Pool website | DONE | `https://pooltxm.tensoriumlabs.com` deployed on testnet VPS — Next.js + TypeScript frontend for `tensorium-pool`: stats, miner lookup, payout history, connect guide |
+| Pool website | DONE | `https://pooltxm.tensoriumlabs.com` deployed on the current main operations VPS — Next.js + TypeScript frontend for `tensorium-pool`: stats, miner lookup, payout history, connect guide |
 | Pool fee disclosure | DONE | Shows 5% fee, treasury address, gross reward, pool fee, and net payout before miners connect |
-| Testnet faucet | DONE | `https://faucet.tensoriumlabs.com` — Node.js, pm2, nginx SSL. 10 TXM/request, 24h cooldown. Testnet only (no mainnet faucet). Funded 2026-06-01 after testnet reset: difficulty 20 bits, maturity 10 blocks. |
 | Bridge landing | DONE | `https://bridge.tensoriumlabs.com` — landing + roadmap page. Functional bridge (wTXM on an EVM L2, current direction: Optimism) planned Phase 9A. |
 | OTC board | DONE | `https://otc.tensoriumlabs.com` — peer-to-peer trading board, community-managed via Telegram. |
 | Status page | DONE | `https://status.tensoriumlabs.com` — live service health, auto-refresh 60s, pulls from RPC API. |
@@ -420,7 +431,7 @@ Chrome extension wallet stack: TypeScript + React, separate repo `tensorium-wall
 | Working order | DONE | Future flow: local edit -> local checks -> push `tensorium-labs` -> VPS deploy/sync -> smoke checks |
 | Temporary mainnet-candidate host | DECIDED | Use current DigitalOcean VPS first; local + GitHub remain source of truth so migration to Hetzner/dedicated VPS is straightforward later. |
 | Docs: Chrome extension guide | DONE | `https://docs.tensoriumlabs.com/chrome-wallet.html` deployed 2026-06-01. Covers install, create/import, send, network selector, security model, FAQ. |
-| Public RPC endpoints | DONE | `https://rpc.tensoriumlabs.com` (testnet) + `https://mc-rpc.tensoriumlabs.com` (MC) live with CORS + rate limit (10r/s). Used by Chrome extension. Current posture: DO remains primary public RPC host; Vultr backup seed stays seed-only until public RPC split/failover is explicitly activated. See `docs/operations/PUBLIC_RPC_POSTURE.md`. |
+| Public RPC endpoints | DONE | `https://mc-rpc.tensoriumlabs.com` is the main public chain RPC. Current posture: DO remains primary public RPC host; Vultr backup seed stays seed-only until public RPC split/failover is explicitly activated. See `docs/operations/PUBLIC_RPC_POSTURE.md`. |
 | Risk disclosure on website | DONE | Root site and docs link to `docs/project/RISK_DISCLOSURE.md` |
 | Announce mainnet-candidate launch | **DONE** | 2026-06-02: Bridge opened, Discord announcement pinned, bridge website live, ecosystem complete. Mainnet declared live. |
 
@@ -456,7 +467,7 @@ Chrome extension wallet stack: TypeScript + React, separate repo `tensorium-wall
 
 ## Phase 9 — Ecosystem (Post-Launch)
 
-Starts after MC chain is live and stable (minimum 2 weeks soak test). Builds the ecosystem on top of the chain.
+This section tracks ecosystem work after launch. The chain is already live; remaining items here are adoption and integration follow-through.
 
 ### 9A — DEX / Swap Platform
 
@@ -512,7 +523,7 @@ Execution checklist: see `docs/bridge/phase9a/PHASE9A_EXECUTION_CHECKLIST.md`.
 |---|---|---|
 | Discord server | **DONE** | Full setup: 7 categories, 20 channels, 9 roles, invite `discord.gg/KkgGSZKVZw` |
 | Discord auto-role bot | **DONE** | `txm-discord-bot.service` running on VPS — assigns ⭐ Early Adopter + 🌟 Community on join; DMs welcome message |
-| Discord guides | **DONE** | GPU mining guide, pool guide, node operator guide, testnet guide, MC guide all posted |
+| Discord guides | **DONE** | GPU mining guide, pool guide, and node operator guide all posted |
 | Discord announcement | **DONE** | Mainnet-candidate launch announcement posted and pinned in #announcements |
 | Website Discord CTA | **DONE** | Discord section added to `tensoriumlabs.com` before footer |
 | CEX outreach | **DONE** | 14 exchanges contacted 2026-06-02: MEXC, Gate.io, CoinEx, OKX, Bybit, SafeTrade, LBank, XT.com, BitMart, CoinW, DigiFinex, Hotcoin, BingX, BTCC |
@@ -538,7 +549,7 @@ Execution checklist: see `docs/bridge/phase9a/PHASE9A_EXECUTION_CHECKLIST.md`.
 - [x] tensorium-node, txmwallet, txmminer, txmminer-cuda, tensorium-pool
 - [x] Genesis block mined, MC params frozen, MC daemon complete
 
-**Infrastructure — Phase 8:**
+**Infrastructure — historical Phase 8 / ongoing follow-through:**
 - [x] Temporary MC seed VPS decision: use existing DigitalOcean VPS first
 - [ ] Dedicated MC VPS migration after temporary launch
 - [x] DNS seed
@@ -546,19 +557,19 @@ Execution checklist: see `docs/bridge/phase9a/PHASE9A_EXECUTION_CHECKLIST.md`.
 - [x] Backup seed node
 - [x] Block explorer, monitoring, backup
 
-**Wallet & UX — Phase 8-9:**
+**Wallet & UX — post-launch follow-through:**
 - [x] Chrome extension wallet
 - [ ] Mobile wallet (Phase 10)
 
-**Mining Ecosystem — Phase 8-9:**
+**Mining Ecosystem — post-launch follow-through:**
 - [x] Pool website (pooltxm.tensoriumlabs.com)
 - [x] Testnet faucet
 - [x] Mining guide, pool reference implementation
 
-**Trading & Liquidity — Phase 9:**
+**Trading & Liquidity — Phase 9+:**
 - [x] OTC trading board
 - [x] Bridge landing / roadmap
-- [ ] Functional bridge to Optimism + wTXM
+- [x] Functional bridge to Optimism + wTXM
 - [ ] DEX listing (Optimism DEX)
 - [ ] CEX listing
 
@@ -615,10 +626,12 @@ Ports to open: SSH (22), HTTP (80), HTTPS (443), MC P2P (33333). RPC stays on lo
 
 ### Priority Order for Phase 8
 
+Historical execution order retained for reference.
+
 1. **Current VPS MC node** (8A) — deploy mainnet-candidate services on the existing DO VPS first
 2. **DNS seed** (8A) — point to the current VPS during the temporary phase
 3. **MC P2P sync test** (8A) — confirm chain works before public announcement
 4. **Chrome extension wallet** (8B) — DONE: `tensorium-wallet-extension` published, Apache-2.0, 20/20 tests
-5. **Faucet / user onboarding** (8C) — useful for testnet and early MC testing
+5. **User onboarding infrastructure** (8C)
 6. **Soak test** (8E) — keep MC chain running and monitored before wider announcement
 7. **Dedicated VPS migration** — move to Hetzner/dedicated host when ready without changing source control flow
