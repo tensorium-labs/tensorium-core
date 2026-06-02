@@ -1,6 +1,7 @@
 pub mod block;
 pub mod chain;
 pub mod storage;
+pub mod script;
 pub mod difficulty;
 pub mod emission;
 pub mod hash;
