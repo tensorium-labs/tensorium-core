@@ -1,12 +1,11 @@
 use std::path::{Path, PathBuf};
 
 use rocksdb::{ColumnFamilyDescriptor, Options, WriteBatch, DB};
-use serde::{Deserialize, Serialize};
 use tempfile::TempDir;
 use thiserror::Error;
 
 use crate::{
-    block::{Block, BlockHeader, Transaction},
+    block::{merkle_root, Block, BlockHeader, Transaction},
     chain::ConsensusParams,
     emission::reward_at_height,
     hash::Hash256,
@@ -128,24 +127,61 @@ pub enum StateError {
 }
 
 impl ChainState {
+    // ── Private DB helpers ──────────────────────────────────────────────────
+
+    fn put_block_batch(&self, batch: &mut WriteBatch, block: &Block) {
+        let blocks_cf    = self.db.cf_handle(CF_BLOCKS).expect("blocks CF");
+        let canonical_cf = self.db.cf_handle(CF_CANONICAL).expect("canonical CF");
+        let meta_cf      = self.db.cf_handle(CF_META).expect("meta CF");
+        let hash = block.hash();
+        batch.put_cf(blocks_cf,    &hash.0,                               encode_block(block));
+        batch.put_cf(canonical_cf, &encode_height(block.header.height),   &hash.0);
+        batch.put_cf(meta_cf,      META_TIP,                              &hash.0);
+        batch.put_cf(meta_cf,      META_HEIGHT,                           &encode_height(block.header.height));
+        batch.put_cf(meta_cf,      crate::storage::META_CHAIN_ID,         block.header.chain_id.as_bytes());
+    }
+
+    fn write_batch(&self, batch: WriteBatch) {
+        self.db.write(batch).expect("RocksDB write must not fail");
+    }
+
+    pub(crate) fn get_block_by_hash(&self, hash: Hash256) -> Option<Block> {
+        let cf = self.db.cf_handle(CF_BLOCKS).expect("blocks CF");
+        self.db.get_cf(cf, &hash.0).expect("DB read").map(|b| decode_block(&b))
+    }
+
+    pub(crate) fn get_block_by_height(&self, height: u64) -> Option<Block> {
+        let canonical_cf = self.db.cf_handle(CF_CANONICAL).expect("canonical CF");
+        let blocks_cf    = self.db.cf_handle(CF_BLOCKS).expect("blocks CF");
+        let hash_bytes = self.db.get_cf(canonical_cf, &encode_height(height)).ok()??;
+        let hash = Hash256(hash_bytes.as_slice().try_into().ok()?);
+        self.db.get_cf(blocks_cf, &hash.0).ok()?.map(|b| decode_block(&b))
+    }
+
+    fn block_known(&self, hash: &Hash256) -> bool {
+        let cf = self.db.cf_handle(CF_BLOCKS).expect("blocks CF");
+        self.db.get_cf(cf, &hash.0).expect("DB read").is_some()
+    }
+
+    // ── Public methods (Tasks 5-7 will fill these in) ───────────────────────
+
     pub fn init_genesis(
         &mut self,
         params: &ConsensusParams,
         timestamp_seconds: u64,
         max_nonce: u64,
     ) -> Result<&Block, StateError> {
-        if !self.blocks.is_empty() {
+        if self.height_cache.is_some() {
             return Err(StateError::GenesisAlreadyExists);
         }
-
         let block = mine_candidate_block(params, None, timestamp_seconds, "genesis", max_nonce)?;
         validate_block(params, None, &block, timestamp_seconds)?;
-        let hash_hex = block.hash().to_hex();
-        let block_copy = block.clone();
-        self.blocks.push(block);
-        self.block_map.insert(hash_hex, block_copy);
-
-        Ok(self.tip().expect("genesis was just pushed"))
+        let mut batch = WriteBatch::default();
+        self.put_block_batch(&mut batch, &block);
+        self.write_batch(batch);
+        self.tip_cache    = Some(block);
+        self.height_cache = Some(0);
+        Ok(self.tip_cache.as_ref().unwrap())
     }
 
     /// Initialize genesis using a pre-computed nonce (no CPU mining required).
@@ -156,21 +192,21 @@ impl ChainState {
         timestamp_seconds: u64,
         genesis_nonce: u64,
     ) -> Result<&Block, StateError> {
-        if !self.blocks.is_empty() {
+        if self.height_cache.is_some() {
             return Err(StateError::GenesisAlreadyExists);
         }
         let mut block = candidate_block(params, None, timestamp_seconds, "genesis", vec![]);
         block.header.nonce = genesis_nonce;
-        // Verify the pre-computed nonce actually satisfies difficulty
         if !crate::pow::header_meets_work(&block.header) {
             return Err(StateError::MiningFailed);
         }
         validate_block(params, None, &block, timestamp_seconds)?;
-        let hash_hex = block.hash().to_hex();
-        let block_copy = block.clone();
-        self.blocks.push(block);
-        self.block_map.insert(hash_hex, block_copy);
-        Ok(self.tip().expect("genesis was just pushed"))
+        let mut batch = WriteBatch::default();
+        self.put_block_batch(&mut batch, &block);
+        self.write_batch(batch);
+        self.tip_cache    = Some(block);
+        self.height_cache = Some(0);
+        Ok(self.tip_cache.as_ref().unwrap())
     }
 
     pub fn mine_next_block(
@@ -181,15 +217,15 @@ impl ChainState {
         max_nonce: u64,
     ) -> Result<&Block, StateError> {
         let parent = self.tip().ok_or(StateError::MissingGenesis)?.clone();
-        let block =
-            mine_candidate_block(params, Some(&parent), timestamp_seconds, miner, max_nonce)?;
+        let block = mine_candidate_block(params, Some(&parent), timestamp_seconds, miner, max_nonce)?;
         validate_block(params, Some(&parent), &block, timestamp_seconds)?;
-        let hash_hex = block.hash().to_hex();
-        let block_copy = block.clone();
-        self.blocks.push(block);
-        self.block_map.insert(hash_hex, block_copy);
-
-        Ok(self.tip().expect("block was just pushed"))
+        let height = block.header.height;
+        let mut batch = WriteBatch::default();
+        self.put_block_batch(&mut batch, &block);
+        self.write_batch(batch);
+        self.tip_cache    = Some(block);
+        self.height_cache = Some(height);
+        Ok(self.tip_cache.as_ref().unwrap())
     }
 
     pub fn candidate_block(
@@ -199,13 +235,7 @@ impl ChainState {
         miner: &str,
     ) -> Result<Block, StateError> {
         let parent = self.tip().ok_or(StateError::MissingGenesis)?;
-        Ok(candidate_block(
-            params,
-            Some(parent),
-            timestamp_seconds,
-            miner,
-            vec![],
-        ))
+        Ok(candidate_block(params, Some(parent), timestamp_seconds, miner, vec![]))
     }
 
     /// Like `candidate_block` but includes `extra_txs` after the coinbase.
@@ -217,20 +247,14 @@ impl ChainState {
         extra_txs: Vec<Transaction>,
     ) -> Result<Block, StateError> {
         let parent = self.tip().ok_or(StateError::MissingGenesis)?;
-        Ok(candidate_block(
-            params,
-            Some(parent),
-            timestamp_seconds,
-            miner,
-            extra_txs,
-        ))
+        Ok(candidate_block(params, Some(parent), timestamp_seconds, miner, extra_txs))
     }
 
     /// Accept a block from a miner or a peer, applying the fork-choice rule.
     ///
     /// The block is validated against its direct parent (which must already be
-    /// in `block_map`).  The canonical chain (`self.blocks`) is updated only
-    /// when the new chain's cumulative work exceeds the current best chain.
+    /// stored in RocksDB).  The canonical chain is updated only when the new
+    /// chain's cumulative work exceeds the current best chain.
     ///
     /// Returns the validated block on success.  Returns `AlreadyKnown` if the
     /// block was seen before (not an error in practice — callers should ignore
@@ -241,138 +265,79 @@ impl ChainState {
         block: Block,
         now_seconds: u64,
     ) -> Result<Block, StateError> {
-        self.ensure_block_map();
-
         let block_hash = block.hash();
-        let block_hash_hex = block_hash.to_hex();
-
-        if self.block_map.contains_key(&block_hash_hex) {
+        if self.block_known(&block_hash) {
             return Err(StateError::AlreadyKnown);
         }
-
-        // Validate against the block's own parent (not necessarily the tip).
-        let parent = self
-            .block_map
-            .get(&block.header.previous_hash.to_hex())
-            .ok_or(StateError::UnknownParent)?
-            .clone();
-
+        let parent_hash = block.header.previous_hash;
+        let parent = self.get_block_by_hash(parent_hash).ok_or(StateError::UnknownParent)?;
         validate_block(params, Some(&parent), &block, now_seconds)?;
 
-        // Persist the validated block before fork-choice comparison.
+        // Always store the block.
+        let blocks_cf = self.db.cf_handle(CF_BLOCKS).expect("blocks CF");
+        self.db.put_cf(blocks_cf, &block_hash.0, encode_block(&block)).expect("DB put");
+
+        // Fork choice.
         let old_tip_hash = self.tip_hash();
-        let old_tip_height = self.height().unwrap_or(0);
-        self.block_map.insert(block_hash_hex, block.clone());
+        let new_work     = self.chain_work(block_hash);
+        let old_work     = self.chain_work(old_tip_hash);
 
-        // Fork choice: the chain with the most cumulative work wins.
-        let new_work = self.chain_work(block_hash);
-        let current_work = self.chain_work(old_tip_hash);
-
-        if new_work > current_work {
-            let is_direct_extension = block.header.previous_hash == old_tip_hash;
-
-            if !is_direct_extension {
-                // Reorg: find common ancestor depth for logging.
-                let ancestor_height = self.common_ancestor_height(block_hash, old_tip_hash);
-                let reorg_depth = old_tip_height.saturating_sub(ancestor_height);
-                eprintln!(
-                    "fork-choice: reorg depth={reorg_depth} \
-                     old_tip={old_tip_hash} new_tip={block_hash}"
-                );
+        if new_work > old_work {
+            let new_canonical = self.build_canonical_chain(block_hash);
+            let height = new_canonical.last().map(|b| b.header.height).unwrap_or(0);
+            let mut batch = WriteBatch::default();
+            let canonical_cf = self.db.cf_handle(CF_CANONICAL).expect("canonical CF");
+            let meta_cf      = self.db.cf_handle(CF_META).expect("meta CF");
+            for b in &new_canonical {
+                batch.put_cf(canonical_cf, &encode_height(b.header.height), &b.hash().0);
             }
-
-            self.blocks = self.build_canonical_chain(block_hash);
+            batch.put_cf(meta_cf, META_TIP,    &block_hash.0);
+            batch.put_cf(meta_cf, META_HEIGHT, &encode_height(height));
+            self.write_batch(batch);
+            self.tip_cache    = Some(block.clone());
+            self.height_cache = Some(height);
         }
-        // else: block is on a side chain with equal or less work; it is stored
-        // in block_map but the canonical chain is unchanged.
-
         Ok(block)
     }
 
-    // -------------------------------------------------------------------------
-    // Fork-choice internals
-    // -------------------------------------------------------------------------
-
-    /// Cumulative PoW work for the chain whose tip is at `tip_hash`.
-    ///
-    /// Work per block = 2^leading_zero_bits (represents expected hashes needed).
-    fn chain_work(&self, tip_hash: Hash256) -> u128 {
+    fn chain_work(&self, mut tip_hash: Hash256) -> u128 {
         let mut work = 0u128;
-        let mut current = tip_hash;
         loop {
-            let block = match self.block_map.get(&current.to_hex()) {
-                Some(b) => b,
-                None => break,
-            };
-            work = work.saturating_add(1u128 << block.header.leading_zero_bits);
-            if block.header.previous_hash == Hash256::ZERO {
-                break;
+            match self.get_block_by_hash(tip_hash) {
+                None    => break,
+                Some(b) => {
+                    work = work.saturating_add(1u128 << b.header.leading_zero_bits);
+                    if b.header.previous_hash == Hash256::ZERO { break; }
+                    tip_hash = b.header.previous_hash;
+                }
             }
-            current = block.header.previous_hash;
         }
         work
     }
 
-    /// Reconstruct a genesis-first Vec<Block> by following parent links from
-    /// `tip_hash`.
     fn build_canonical_chain(&self, tip_hash: Hash256) -> Vec<Block> {
         let mut chain = Vec::new();
-        let mut current = tip_hash;
+        let mut cur = tip_hash;
         loop {
-            let block = match self.block_map.get(&current.to_hex()) {
-                Some(b) => b.clone(),
-                None => break,
-            };
-            let prev = block.header.previous_hash;
-            chain.push(block);
-            if prev == Hash256::ZERO {
-                break;
+            match self.get_block_by_hash(cur) {
+                None    => break,
+                Some(b) => {
+                    let prev = b.header.previous_hash;
+                    chain.push(b);
+                    if prev == Hash256::ZERO { break; }
+                    cur = prev;
+                }
             }
-            current = prev;
         }
         chain.reverse();
         chain
     }
 
-    /// Height of the deepest block shared by both chains.
-    fn common_ancestor_height(&self, tip_a: Hash256, tip_b: Hash256) -> u64 {
-        // Collect all hashes on chain A.
-        let mut chain_a: HashSet<String> = HashSet::new();
-        let mut cur = tip_a;
-        loop {
-            let hex = cur.to_hex();
-            chain_a.insert(hex.clone());
-            let block = match self.block_map.get(&hex) {
-                Some(b) => b,
-                None => break,
-            };
-            if block.header.previous_hash == Hash256::ZERO {
-                break;
-            }
-            cur = block.header.previous_hash;
-        }
+    /// Expose raw DB handle — used by migration only.
+    pub(crate) fn db_handle(&self) -> &DB { &self.db }
 
-        // Walk chain B until we land on a block that is also on chain A.
-        let mut cur = tip_b;
-        loop {
-            if chain_a.contains(&cur.to_hex()) {
-                return self
-                    .block_map
-                    .get(&cur.to_hex())
-                    .map(|b| b.header.height)
-                    .unwrap_or(0);
-            }
-            let block = match self.block_map.get(&cur.to_hex()) {
-                Some(b) => b,
-                None => break,
-            };
-            if block.header.previous_hash == Hash256::ZERO {
-                break;
-            }
-            cur = block.header.previous_hash;
-        }
-        0
-    }
+    /// Public wrapper for reload_caches — used by migration.
+    pub(crate) fn reload_caches_pub(&mut self) { self.reload_caches(); }
 }
 
 // -----------------------------------------------------------------------------
@@ -441,14 +406,16 @@ mod tests {
             .init_genesis(&TEST_PARAMS, 1_700_000_000, 1_000_000)
             .unwrap();
         assert_eq!(state.height(), Some(0));
-        assert_eq!(state.block_map.len(), 1);
+        assert_eq!(state.block_count(), 1);
 
         state
             .mine_next_block(&TEST_PARAMS, 1_700_000_060, "test-miner", 1_000_000)
             .unwrap();
         assert_eq!(state.height(), Some(1));
-        assert_eq!(state.blocks[1].header.previous_hash, state.blocks[0].hash());
-        assert_eq!(state.block_map.len(), 2);
+        let genesis = state.get_block_by_height(0).unwrap();
+        let block1  = state.get_block_by_height(1).unwrap();
+        assert_eq!(block1.header.previous_hash, genesis.hash());
+        assert_eq!(state.block_count(), 2);
     }
 
     #[test]
@@ -551,11 +518,11 @@ mod tests {
             "first-seen stays canonical on equal work"
         );
 
-        // Both blocks are in block_map.
-        assert!(state.block_map.contains_key(&block_a.hash().to_hex()));
-        assert!(state.block_map.contains_key(&block_b.hash().to_hex()));
+        // Both blocks are in the DB.
+        assert!(state.get_block_by_hash(block_a.hash()).is_some());
+        assert!(state.get_block_by_hash(block_b.hash()).is_some());
         assert_eq!(
-            state.blocks.len(),
+            state.block_count(),
             2,
             "canonical chain has genesis + block_a"
         );
@@ -567,7 +534,7 @@ mod tests {
         state
             .init_genesis(&TEST_PARAMS, 1_700_000_000, 1_000_000)
             .unwrap();
-        let genesis = state.blocks[0].clone();
+        let genesis = state.get_block_by_height(0).unwrap();
 
         let c1 = candidate_block(
             &TEST_PARAMS,
@@ -615,27 +582,25 @@ mod tests {
             .unwrap();
 
         assert_eq!(state.tip().unwrap().hash(), side_extension.hash());
-        assert_eq!(state.blocks.len(), 3);
-        assert_eq!(state.blocks[1].hash(), side_block.hash());
-        assert_eq!(state.blocks[2].hash(), side_extension.hash());
-        assert!(state
-            .block_map
-            .contains_key(&canonical_block.hash().to_hex()));
+        assert_eq!(state.block_count(), 3);
+        assert_eq!(state.get_block_by_height(1).unwrap().hash(), side_block.hash());
+        assert_eq!(state.get_block_by_height(2).unwrap().hash(), side_extension.hash());
+        assert!(state.get_block_by_hash(canonical_block.hash()).is_some());
     }
 
     #[test]
-    fn ensure_block_map_migrates_old_state() {
-        // Simulate a state file loaded without block_map (default empty).
+    fn put_and_get_block() {
         let mut state = ChainState::new();
-        state
-            .init_genesis(&TEST_PARAMS, 1_700_000_000, 1_000_000)
-            .unwrap();
-        // Manually clear block_map to simulate old state file.
-        state.block_map.clear();
-        assert!(state.block_map.is_empty());
+        state.init_genesis(&TEST_PARAMS, 1_700_000_000, 1_000_000).unwrap();
+        let tip = state.tip().unwrap().clone();
+        assert_eq!(state.get_block_by_hash(tip.hash()), Some(tip));
+    }
 
-        // ensure_block_map should repopulate from blocks.
-        state.ensure_block_map();
-        assert_eq!(state.block_map.len(), 1);
+    #[test]
+    fn get_block_by_height_returns_genesis() {
+        let mut state = ChainState::new();
+        state.init_genesis(&TEST_PARAMS, 1_700_000_000, 1_000_000).unwrap();
+        let got = state.get_block_by_height(0).expect("genesis at height 0");
+        assert_eq!(got.header.height, 0);
     }
 }
