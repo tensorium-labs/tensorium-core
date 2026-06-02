@@ -48,7 +48,7 @@ $(TARGET): main.cu mining_kernel.cu sha256d.cuh
 	$(NVCC) $(NVCCFLAGS) -o $@ main.cu mining_kernel.cu
 	@echo ""
 	@echo "Built: $(TARGET) for $(ARCH)"
-	@echo "Run:   ./$(TARGET) 127.0.0.1:23332 txm1youraddress"
+	@echo "Run:   ./$(TARGET) 127.0.0.1:33332 txm1youraddress"
 
 info:
 	@echo "ARCH=$(ARCH)"

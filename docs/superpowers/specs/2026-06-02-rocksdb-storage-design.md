@@ -123,7 +123,7 @@ One ~1KB atomic write per block replaces one ~215MB file write.
 
 | Chain | Old JSON | New RocksDB dir |
 |---|---|---|
-| testnet | `tensorium-testnet-state.json` | `tensorium-testnet-state.db/` |
+| mainnet | `state.json` | `state.db/` |
 | MC | `tensorium-mc-state.json` | `tensorium-mc-state.db/` |
 | `$TXM_STATE` | `<value>` | `<value minus .json>.db/` |
 

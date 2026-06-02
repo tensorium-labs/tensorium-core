@@ -368,8 +368,12 @@ fn candidate_block(
     let height = parent.map_or(0, |block| block.header.height + 1);
     let previous_hash = parent.map_or(Hash256::ZERO, Block::hash);
     let reward = reward_at_height(params, height);
-    let coinbase_tx = if height == 0 && !params.founder_address.is_empty() {
-        Transaction::genesis_coinbase(reward, miner, params.founder_allocation_atoms, params.founder_address)
+    let coinbase_tx = if height == 0 && (!params.genesis_allocations.is_empty() || !params.founder_address.is_empty()) {
+        Transaction::genesis_coinbase(
+            reward, miner,
+            params.founder_allocation_atoms, params.founder_address,
+            params.genesis_allocations,
+        )
     } else {
         Transaction::coinbase(height, reward, miner)
     };

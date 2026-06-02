@@ -9,7 +9,6 @@ This runbook describes how to restore a Tensorium node from a backup created by 
 
 Applies to:
 
-- testnet node data
 - mainnet-candidate node data
 - explorer instances that depend on node RPC after the node state is restored
 
@@ -31,11 +30,9 @@ Expected archive contents:
 ## Before You Start
 
 1. Confirm which host you are restoring:
-   - testnet
    - mainnet-candidate
    - backup seed
 2. Confirm the target data directory:
-   - example testnet: `/root/.tensorium`
    - example mainnet-candidate: `/root/mc`
 3. Confirm the backup archive timestamp you want to restore.
 4. Make sure you have shell access and sudo privileges.
@@ -68,16 +65,6 @@ tar -czf /root/restore-preflight/pre-restore-$(date -u +%F-%H%M%S).tgz \
 ```
 
 ## Restore Procedure
-
-### Testnet Example
-
-```bash
-mkdir -p /root/.tensorium
-tar -xzf /root/backups/tensorium-backup-YYYY-MM-DD-HHMMSS.tgz -C /
-chown -R root:root /root/.tensorium
-find /root/.tensorium -type d -name '*.db' -exec chmod 700 {} \;
-find /root/.tensorium -type f -exec chmod 600 {} \;
-```
 
 ### Mainnet-Candidate Example
 
@@ -129,14 +116,6 @@ systemctl start tensorium-pool || true
 ```
 
 ## Verification Checklist
-
-### Testnet
-
-```bash
-curl -fsS http://127.0.0.1:23332/health
-curl -fsS http://127.0.0.1:23332/getblockcount
-curl -fsS http://127.0.0.1:23332/getdifficulty
-```
 
 ### Mainnet-Candidate
 

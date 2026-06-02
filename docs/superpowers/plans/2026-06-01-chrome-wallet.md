@@ -4,7 +4,7 @@
 
 **Goal:** Build the Tensorium Chrome Wallet Extension (Phase 8B) — a Manifest V3 extension with key management, send, balance, history, and import/export, backed by public RPC proxies on the VPS.
 
-**Architecture:** All crypto runs in TypeScript via `@noble/*` and `hash-wasm` libraries. The extension popup connects to `https://rpc.tensoriumlabs.com` (testnet) and `https://mc-rpc.tensoriumlabs.com` (MC) served by nginx HTTPS proxies in front of the node's loopback RPC. Session unlock holds the decrypted private key in memory between actions; `chrome.storage.local` stores only the Argon2id+XChaCha20Poly1305 encrypted wallet file, format-compatible with `txmwallet` CLI.
+**Architecture:** All crypto runs in TypeScript via `@noble/*` and `hash-wasm` libraries. The extension popup connects to `https://rpc.tensoriumlabs.com` (mainnet) and `https://mc-rpc.tensoriumlabs.com` (MC) served by nginx HTTPS proxies in front of the node's loopback RPC. Session unlock holds the decrypted private key in memory between actions; `chrome.storage.local` stores only the Argon2id+XChaCha20Poly1305 encrypted wallet file, format-compatible with `txmwallet` CLI.
 
 **Tech Stack:** TypeScript, React 18, Vite, Manifest V3, `@noble/secp256k1`, `@noble/hashes`, `@noble/ciphers`, `@scure/bech32`, `hash-wasm` (Argon2id), MSW (test mocks), Vitest, React Testing Library.
 
@@ -123,7 +123,7 @@ tensorium-wallet-extension/
 - Create: `/etc/nginx/sites-available/rpc.tensoriumlabs.com`
 - Create: `/etc/nginx/sites-available/mc-rpc.tensoriumlabs.com`
 
-- [ ] **Step 1: SSH into VPS and create testnet RPC nginx config**
+- [ ] **Step 1: SSH into VPS and create mainnet RPC nginx config**
 
 ```bash
 cat > /etc/nginx/sites-available/rpc.tensoriumlabs.com << 'EOF'
@@ -155,7 +155,7 @@ server {
     }
 
     location / {
-        proxy_pass http://127.0.0.1:23332;
+        proxy_pass http://127.0.0.1:33332;
         proxy_set_header Host $host;
         proxy_read_timeout 30s;
     }
@@ -1037,8 +1037,8 @@ describe('storage', () => {
     expect(await loadNetwork()).toBe('mc');
   });
 
-  it('defaults network to testnet', async () => {
-    expect(await loadNetwork()).toBe('testnet');
+  it('defaults network to mainnet', async () => {
+    expect(await loadNetwork()).toBe('mainnet');
   });
 });
 
@@ -1071,7 +1071,7 @@ import type { WalletFile } from './crypto';
 const WALLET_KEY = 'txm_wallet';
 const NETWORK_KEY = 'txm_network';
 
-export type Network = 'testnet' | 'mc' | 'custom';
+export type Network = 'mainnet' | 'mc' | 'custom';
 
 function chromeGet(keys: string[]): Promise<Record<string, unknown>> {
   return new Promise((resolve) => chrome.storage.local.get(keys, resolve));
@@ -1104,7 +1104,7 @@ export async function saveNetwork(network: Network): Promise<void> {
 
 export async function loadNetwork(): Promise<Network> {
   const result = await chromeGet([NETWORK_KEY]);
-  return (result[NETWORK_KEY] as Network) ?? 'testnet';
+  return (result[NETWORK_KEY] as Network) ?? 'mainnet';
 }
 
 export async function saveCustomRpc(url: string): Promise<void> {
@@ -1187,10 +1187,10 @@ const BASE = 'https://rpc.tensoriumlabs.com';
 const handlers = [
   http.get(`${BASE}/health`, () => HttpResponse.json({ ok: true })),
   http.get(`${BASE}/getblockcount`, () =>
-    HttpResponse.json({ blocks: 5, chain_id: 'tensorium-testnet-0', height: 4 })),
+    HttpResponse.json({ blocks: 5, chain_id: 'tensorium-mainnet-candidate-0', height: 4 })),
   http.get(`${BASE}/getblock/2`, () =>
     HttpResponse.json({
-      header: { height: 2, chain_id: 'tensorium-testnet-0', timestamp_seconds: 1000 },
+      header: { height: 2, chain_id: 'tensorium-mainnet-candidate-0', timestamp_seconds: 1000 },
       transactions: [],
     })),
   http.get(`${BASE}/getutxos/txm1test`, () =>
@@ -1344,7 +1344,7 @@ export function createRpcClient(baseUrl: string): RpcClient {
 }
 
 export const RPC_URLS: Record<string, string> = {
-  testnet: 'https://rpc.tensoriumlabs.com',
+  mainnet: 'https://rpc.tensoriumlabs.com',
   mc: 'https://mc-rpc.tensoriumlabs.com',
 };
 ```
@@ -1551,8 +1551,8 @@ import React from 'react';
 import type { Network } from '@lib/storage';
 
 export function NetworkBadge({ network }: { network: Network }) {
-  const label = network === 'testnet' ? 'Testnet' : network === 'mc' ? 'MC' : 'Custom';
-  const color = network === 'mc' ? '#f59e0b' : network === 'testnet' ? '#22c55e' : '#a78bfa';
+  const label = network === 'mainnet' ? 'Mainnet' : network === 'mc' ? 'MC' : 'Custom';
+  const color = network === 'mc' ? '#f59e0b' : network === 'mainnet' ? '#22c55e' : '#a78bfa';
   return (
     <span style={{
       fontSize: 11, fontWeight: 600, color, background: color + '22',
@@ -1801,7 +1801,7 @@ interface Props { onNav: (p: Page) => void }
 export function Dashboard({ onNav }: Props) {
   const [address, setAddress] = useState('');
   const [balance, setBalance] = useState<number | null>(null);
-  const [network, setNetwork] = useState<Network>('testnet');
+  const [network, setNetwork] = useState<Network>('mainnet');
   const [error, setError] = useState('');
   const [copied, setCopied] = useState(false);
 
@@ -2247,7 +2247,7 @@ import { ErrorBanner } from '../components/ErrorBanner';
 interface Props { onBack: () => void; onLogout: () => void }
 
 export function Settings({ onBack, onLogout }: Props) {
-  const [network, setNetwork] = useState<Network>('testnet');
+  const [network, setNetwork] = useState<Network>('mainnet');
   const [customRpc, setCustomRpc] = useState('');
   const [showPrivKey, setShowPrivKey] = useState(false);
   const [privKey, setPrivKey] = useState('');
@@ -2313,11 +2313,11 @@ export function Settings({ onBack, onLogout }: Props) {
       {/* Network */}
       <section>
         <div style={sectionLabel}>Network</div>
-        {(['testnet', 'mc', 'custom'] as Network[]).map((net) => (
+        {(['mainnet', 'mc', 'custom'] as Network[]).map((net) => (
           <button key={net} onClick={() => saveNetworkSetting(net)}
             style={{ ...optionBtn, borderColor: network === net ? '#0ea5e9' : '#334155',
               color: network === net ? '#38bdf8' : '#94a3b8' }}>
-            {net === 'testnet' ? 'Testnet' : net === 'mc' ? 'Mainnet Candidate' : 'Custom RPC'}
+            {net === 'mainnet' ? 'Mainnet' : net === 'mc' ? 'Mainnet Candidate' : 'Custom RPC'}
           </button>
         ))}
         {network === 'custom' && (
@@ -2473,7 +2473,7 @@ Verify these flows work:
 ```
 □ Click extension icon → popup opens (360px wide, ~580px tall)
 □ Onboarding: "Create New Wallet" → set password → wallet created → backup download → Dashboard
-□ Dashboard shows address and balance (balance = 0 if no UTXOs on testnet)
+□ Dashboard shows address and balance (balance = 0 if no UTXOs on mainnet yet)
 □ Settings → Network → switch to MC → badge changes
 □ Settings → Lock → returns to Locked screen
 □ Locked screen → enter password → unlocks → Dashboard

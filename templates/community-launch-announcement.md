@@ -32,6 +32,6 @@ Safety:
 If you want to help:
 
 - test wallet and faucet flow
-- mine on testnet / MC environment
+- mine on mainnet
 - report bugs and docs gaps
 - build tools on top of the RPC and SDKs

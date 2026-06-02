@@ -68,21 +68,19 @@ mod tests {
 
     #[test]
     fn mainnet_candidate_emission_matches_reference_schedule() {
-        for era in 0..MAINNET_CANDIDATE.max_halving_eras {
-            let height = MAINNET_CANDIDATE.halving_interval_blocks * u64::from(era);
-            assert_eq!(
-                reward_at_height(&MAINNET_CANDIDATE, height),
-                reward_at_height(&TESTNET, height)
-            );
-        }
-
-        assert_eq!(
-            emitted_supply_until_height(
-                &MAINNET_CANDIDATE,
-                MAINNET_CANDIDATE.halving_interval_blocks * 10,
-            ),
-            emitted_supply_until_height(&TESTNET, TESTNET.halving_interval_blocks * 10)
+        // MC uses 25M mining supply with 1_190_279_581 initial reward (tokenomics v2).
+        let mc_supply = emitted_supply_until_height(
+            &MAINNET_CANDIDATE,
+            MAINNET_CANDIDATE.halving_interval_blocks * 10,
         );
+        // Verify total mining supply is close to 25M (minor rounding dust from bit-shifts).
+        assert!(mc_supply <= 25_000_000 * 100_000_000, "must not exceed 25M TXM");
+        assert!(mc_supply >= 25_000_000 * 100_000_000 - MAINNET_CANDIDATE.initial_reward_atoms,
+                "dust must be less than one block reward");
+
+        // MC initial reward differs from testnet (25M vs 32M mining supply).
+        assert_eq!(MAINNET_CANDIDATE.initial_reward_atoms, 1_190_279_581);
+        assert_eq!(TESTNET.initial_reward_atoms, 1_523_557_865);
     }
 
     #[test]

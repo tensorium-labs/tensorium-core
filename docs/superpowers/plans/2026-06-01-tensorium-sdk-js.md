@@ -316,7 +316,7 @@ describe('TxmRPC', () => {
   it('getBlockCount calls /getblockcount', async () => {
     const mockFetch = vi.fn().mockResolvedValue({
       ok: true,
-      json: async () => ({ height: 100, chain_id: 'tensorium-testnet-0' }),
+      json: async () => ({ height: 100, chain_id: 'tensorium-mainnet-candidate-0' }),
     });
     const rpc = new TxmRPC('https://rpc.example.com', mockFetch as any);
     const result = await rpc.getBlockCount();

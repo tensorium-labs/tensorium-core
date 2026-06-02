@@ -28,7 +28,7 @@ body:
     id: version
     attributes:
       label: Version
-      placeholder: v0.1.1-testnet
+      placeholder: v0.3.1-mainnet-candidate
     validations:
       required: true
 
@@ -55,4 +55,4 @@ body:
     id: height
     attributes:
       label: Current chain height (if applicable)
-      description: Output of `curl http://localhost:23332/getblockcount`
+      description: Output of `curl http://localhost:33332/getblockcount`

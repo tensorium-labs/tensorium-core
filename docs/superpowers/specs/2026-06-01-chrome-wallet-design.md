@@ -26,7 +26,7 @@ Before the extension can serve general users, two HTTPS endpoints must be provis
 
 | Subdomain | Proxy target | Node type |
 |-----------|-------------|-----------|
-| `rpc.tensoriumlabs.com` | `127.0.0.1:23332` | Testnet |
+| `rpc.tensoriumlabs.com` | `127.0.0.1:33332` | Mainnet |
 | `mc-rpc.tensoriumlabs.com` | `127.0.0.1:33332` | Mainnet Candidate |
 
 Requirements:
@@ -230,7 +230,7 @@ Send page
 | TX signing compat | Vitest + known vectors | JS-signed tx hash matches Rust-computed hash for same inputs |
 | RPC layer | Vitest + MSW | All RPC wrappers mocked; test happy path and error responses |
 | UI flows | Vitest + React Testing Library | Onboarding, unlock, send, settings |
-| Integration | Manual script | Sign tx in extension JS → submit to testnet node → verify accepted |
+| Integration | Manual script | Sign tx in extension JS → submit to mainnet node → verify accepted |
 
 ---
 

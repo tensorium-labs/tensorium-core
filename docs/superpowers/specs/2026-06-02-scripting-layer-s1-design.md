@@ -11,7 +11,7 @@
 
 Replace the plain `address: String` field in `TxOutput` with a locking script (`script_pubkey: Vec<u8>`), implement a minimal Bitcoin-inspired stack VM, and migrate all existing transaction paths to use P2PK scripts. This is the foundation for multisig (S2) and HTLC/atomic swap (S3).
 
-Both the testnet (fresh genesis 2026-06-02) and MC chain (height=0) have zero existing UTXOs — this is the ideal moment for a clean break.
+The mainnet-candidate chain was still at effectively fresh state when this design was proposed, so it was the ideal moment for a clean break.
 
 ---
 

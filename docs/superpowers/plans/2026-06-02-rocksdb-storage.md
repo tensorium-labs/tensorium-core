@@ -4,7 +4,7 @@
 
 **Verification summary:**
 - `cargo test --workspace` passes after the RocksDB migration was threaded through `tensorium-core`, `tensorium-node`, and `txmwallet`.
-- Local smoke test confirmed `tensorium-node init` now creates `tensorium-testnet-state.db/` persistently and `status` can reopen it.
+- Local smoke test confirmed `tensorium-node init` now creates `state.db/` persistently and `status` can reopen it.
 - Local RPC smoke test against `/getblock/0` returned in ~22.56 ms on the migrated backend.
 
 **Post-plan fix applied during verification:**
@@ -1114,14 +1114,14 @@ test result: ok. 64 passed; 0 failed; 0 ignored
 - [x] **Check disk layout after running a test node:**
 
 ```bash
-# Dry-run: init testnet with existing state.json backup
+# Dry-run: init mainnet with existing state.json backup
 # (DO NOT run on production VPS yet — test locally first)
 cargo run -p tensorium-node -- init 2>&1 | head -10
-ls -lh tensorium-testnet-state.*
+ls -lh state*
 ```
 
 Observed:
-- `tensorium-testnet-state.db/` directory created in a temp workspace
+- `state.db/` directory created in a temp workspace
 - `tensorium-node status` successfully reopened the same DB and reported height `0`
 - Fresh init creates the `.db/` directly; JSON rename only happens on legacy-file migration
 
@@ -1133,7 +1133,7 @@ cargo run -p tensorium-node -- rpc &
 sleep 2
 
 # Time getblock vs old node
-time curl -s http://127.0.0.1:23332/getblock/100 | python3 -m json.tool | head -5
+time curl -s http://127.0.0.1:33332/getblock/100 | python3 -m json.tool | head -5
 
 kill %1
 ```

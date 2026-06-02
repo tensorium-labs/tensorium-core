@@ -103,7 +103,7 @@ Already done in implementation:
 
 Infrastructure:
 
-- [x] DO VPS (157.230.44.162) — MC RPC + P2P + testnet + pool + bridge relayer
+- [x] DO VPS (157.230.44.162) — MC RPC + P2P + pool + bridge relayer
 - [x] Vultr VPS (139.180.137.144) — MC RPC + P2P backup seed node running
 - [x] MC P2P sync test — both nodes at genesis, `already up to date` confirmed 2026-06-01
 - [x] Soak test running — STATUS: OK since 2026-06-01, target done 2026-06-15
