@@ -2,6 +2,36 @@
 
 All notable changes to Tensorium are documented in this file.
 
+## [Phase 9 Ecosystem] — 2026-06-02
+
+**Status: Explorer indexer live. SDK published. Discord community open. Phase 9A (bridge) in progress.**
+
+### Phase 9B — Explorer Indexer (DONE)
+- **`indexer.js`** in-process module: reads `state.json` directly (34k+ blocks in ~2.7s), builds `address→txHistory` + `txid→height` index, persists to `txindex.json`, updates incrementally every 30s
+- **`/api/address/:addr`** now returns full tx history (received, sent, mined), live UTXO balance from RPC, pending balance, indexer status
+- **`/api/tx/:txid`** fast path via index: O(1) txid→height lookup replaces 200-block scan
+- **`/api/search?q=`** global search: block height / 64-hex txid / `txm1…` address
+- **`/api/indexer/status`** endpoint for monitoring
+- **`address.html`** rewritten: balance stats grid, paginated tx history (25/page), Received/Sent/Mined badges, time-ago timestamps
+
+### Phase 9C — SDK (DONE)
+- **`@tensorium/sdk@0.1.1`** published to npm — `npm install @tensorium/sdk`
+- Fixed v0.1.0 bug: ESM output was `index.mjs` (missing) → corrected to `index.js`
+- License corrected MIT → Apache-2.0
+- 13 tests passing; ESM + CJS + TypeScript types
+- https://www.npmjs.com/package/@tensorium/sdk
+
+### Phase 9D — Community / Discord (DONE)
+- **Discord server** live: `discord.gg/KkgGSZKVZw`
+- 7 categories, 20 channels, 9 roles (Founder / Core Dev / Moderator / Top Miner / Miner / Community / Verified Miner / Early Adopter / Bot)
+- **Auto-role bot** (`txm-discord-bot.service`) on VPS: assigns ⭐ Early Adopter + 🌟 Community to every new member; sends DM welcome with key links
+- Channel guides posted: GPU mining, pool mining, node operator, testnet, mainnet-candidate, GPU benchmarks, FAQ, rules, announcements
+- **Discord CTA section** added to `tensoriumlabs.com`
+- Bot renamed to **TXM Bot** globally
+- **Mainnet-candidate launch announcement** pinned in #announcements
+
+---
+
 ## [v0.3.1-mainnet-candidate] — 2026-06-01
 
 **Status: Genesis hardcoded. MC daemon operational. Phase 8 infrastructure complete. Soak test running.**
