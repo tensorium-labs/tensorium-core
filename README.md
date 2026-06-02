@@ -5,7 +5,8 @@ A Proof-of-Work blockchain built in Rust — public GPU-first testnet, CUDA mini
 > **Status:** Public CPU-minable testnet plus mainnet-candidate preparation. The current DigitalOcean VPS is the temporary MC host until a dedicated VPS migration is ready.
 > Chain: `tensorium-testnet-0` | Ticker: `TXM` | P2P port: `23333` | RPC port: `23332`
 
-[![Telegram](https://img.shields.io/badge/Telegram-Community-blue?logo=telegram)](https://t.me/+QOsnpSdhDGZkZGQ1)
+[![Discord](https://img.shields.io/badge/Discord-Join-5865F2?logo=discord&logoColor=white)](https://discord.gg/KkgGSZKVZw)
+[![npm](https://img.shields.io/badge/npm-%40tensorium%2Fsdk-red?logo=npm)](https://www.npmjs.com/package/@tensorium/sdk)
 [![Website](https://img.shields.io/badge/Website-tensoriumlabs.com-black)](https://tensoriumlabs.com)
 [![Docs](https://img.shields.io/badge/Docs-docs.tensoriumlabs.com-7c3aed)](https://docs.tensoriumlabs.com)
 [![Explorer](https://img.shields.io/badge/Explorer-Live-green)](https://explorer.tensoriumlabs.com)

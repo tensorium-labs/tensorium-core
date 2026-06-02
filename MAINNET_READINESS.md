@@ -436,31 +436,38 @@ Execution checklist: see `PHASE9A_EXECUTION_CHECKLIST.md`.
 
 ### 9B — Explorer Improvements
 
-| Feature | Priority |
-|---|---|
-| Address page (`/address/<addr>`) — balance + TX history | High |
-| TX detail page (`/tx/<txid>`) — inputs, outputs, confirmations | High |
-| Global search (block / txid / address) | High |
-| Network stats (hashrate, supply minted, difficulty chart) | Medium |
-| Mempool viewer | Medium |
-| Public REST API (`/api/v1/address/<addr>`, `/api/v1/stats`) | Medium |
+| Feature | Status | Notes |
+|---|---|---|
+| Address page — balance + TX history | **DONE** | In-process indexer reads state.json (34k+ blocks in ~2.7s), builds address→tx index, persists to `txindex.json`. Full sent/received history at O(1). |
+| TX detail page fast path | **DONE** | `/api/tx/:txid` uses index for instant height lookup instead of scanning 200 blocks |
+| Global search | **DONE** | `/api/search?q=` handles block height, 64-hex txid, `txm1…` address |
+| Public REST API | **DONE** | `/api/address/:addr` returns balance+history; `/api/indexer/status`; `/api/search` |
+| `address.html` UI rewrite | **DONE** | Shows spendable balance, pending balance, UTXO count, paginated tx history (25/page) with Received/Sent/Mined badges and time-ago |
+| Network stats / difficulty chart | EXISTING | `/api/charts` endpoint + chart UI on main explorer page |
+| Mempool viewer | EXISTING | `/mempool` page, `/api/mempool` endpoint |
+
+**Indexer architecture:** `indexer.js` is an in-process Node.js module. On first start it parses `state.json` directly (avoids per-block RPC overhead). Persists compact `txindex.json`. Updates incrementally every 30s via RPC for new blocks only.
 
 ### 9C — SDK & Developer Tools
 
-- `tensorium-sdk-js` — code complete, tests/build/pack pass locally, pushed to GitHub; npm publish currently blocked by npm auth policy requiring 2FA-compatible automation token
-- `tensorium-sdk-py` — pip package: same as JS, for scripting/automation
-- RPC API reference docs at `docs.tensoriumlabs.com/api`
-- Example dApp using SDK
+- `tensorium-sdk-js` — **DONE** — published as `@tensorium/sdk@0.1.1` on npm. `npm install @tensorium/sdk`. Fixed ESM output path (`index.js` not `index.mjs`), license Apache-2.0. 13 tests passing. https://www.npmjs.com/package/@tensorium/sdk
+- `tensorium-sdk-py` — TODO — pip package for scripting/automation
+- RPC API reference docs — TODO — `docs.tensoriumlabs.com/api`
+- Example dApp using SDK — TODO
 
 ### 9D — Listing & Community
 
-- CEX outreach (whitepaper, tokenomics, source code ready)
-- Open Telegram to public (currently private invite)
-- Discord server (mining support, dev, governance channels)
-- Twitter/X: announce milestones, mining stats
-- Mining event / competition for hashrate bootstrap
-- Community infrastructure doc ready: `COMMUNITY_INFRASTRUCTURE.md`
-- Community launch announcement template ready: `templates/community-launch-announcement.md`
+| Item | Status | Notes |
+|---|---|---|
+| Discord server | **DONE** | Full setup: 7 categories, 20 channels, 9 roles, invite `discord.gg/KkgGSZKVZw` |
+| Discord auto-role bot | **DONE** | `txm-discord-bot.service` running on VPS — assigns ⭐ Early Adopter + 🌟 Community on join; DMs welcome message |
+| Discord guides | **DONE** | GPU mining guide, pool guide, node operator guide, testnet guide, MC guide all posted |
+| Discord announcement | **DONE** | Mainnet-candidate launch announcement posted and pinned in #announcements |
+| Website Discord CTA | **DONE** | Discord section added to `tensoriumlabs.com` before footer |
+| CEX outreach | TODO | whitepaper, tokenomics, source code ready — needs active outreach |
+| Open Telegram | TODO | currently private invite, deferred |
+| Twitter/X | TODO | deferred |
+| Mining competition | TODO | post-launch |
 
 ---
 
@@ -505,8 +512,8 @@ Execution checklist: see `PHASE9A_EXECUTION_CHECKLIST.md`.
 - [ ] CEX listing
 
 **Developer — Phase 9:**
-- [ ] SDK JS/Python
-  Current status: JS SDK code ready; npm publish blocked on npm token/2FA policy. Python SDK not started.
+- [x] SDK JS — `@tensorium/sdk@0.1.1` live on npm (`npm install @tensorium/sdk`)
+- [ ] SDK Python — not started
 - [ ] Public REST API docs
 - [ ] Developer onboarding guide
 
@@ -518,7 +525,9 @@ Execution checklist: see `PHASE9A_EXECUTION_CHECKLIST.md`.
 **Community & Legal:**
 - [x] Open source license (Apache-2.0)
 - [x] Community infrastructure runbook + announcement template prepared
-- [ ] Telegram public, Discord, Twitter/X
+- [x] Discord server live — `discord.gg/KkgGSZKVZw` — 7 categories, 20 channels, auto-role bot
+- [ ] Telegram public (deferred)
+- [ ] Twitter/X (deferred)
 - [ ] Security audit external
 
 ---
