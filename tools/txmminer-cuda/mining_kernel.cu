@@ -207,8 +207,98 @@ __global__ void mine_kernel_generic(
     }
 }
 
+// ── Pre-allocated mining context ─────────────────────────────────────────────
+// Allocate GPU buffers once, reuse every kernel launch to eliminate
+// cudaMalloc/cudaFree overhead (~16ms per launch → ~0.1ms per launch).
+
+struct MiningCtx {
+    uint32_t *d_midstate;
+    uint8_t  *d_block2_const;
+    uint8_t  *d_header;
+    int      *d_found;
+    uint64_t *d_result_nonce;
+    uint16_t  header_len;
+};
+
 extern "C" {
 
+MiningCtx *mining_ctx_create(uint16_t header_len) {
+    MiningCtx *ctx = (MiningCtx *)malloc(sizeof(MiningCtx));
+    ctx->header_len = header_len;
+    ctx->d_midstate      = nullptr;
+    ctx->d_block2_const  = nullptr;
+    ctx->d_header        = nullptr;
+
+    cudaMalloc(&ctx->d_found,        sizeof(int));
+    cudaMalloc(&ctx->d_result_nonce, sizeof(uint64_t));
+
+    if (header_len == 122) {
+        cudaMalloc(&ctx->d_midstate,     8 * sizeof(uint32_t));
+        cudaMalloc(&ctx->d_block2_const, 50);
+    } else {
+        cudaMalloc(&ctx->d_header, header_len);
+    }
+    return ctx;
+}
+
+void mining_ctx_destroy(MiningCtx *ctx) {
+    if (!ctx) return;
+    if (ctx->d_midstate)     cudaFree(ctx->d_midstate);
+    if (ctx->d_block2_const) cudaFree(ctx->d_block2_const);
+    if (ctx->d_header)       cudaFree(ctx->d_header);
+    cudaFree(ctx->d_found);
+    cudaFree(ctx->d_result_nonce);
+    free(ctx);
+}
+
+int launch_mining_kernel_ctx(
+    MiningCtx      *ctx,
+    const uint8_t  *header_template,
+    uint8_t         difficulty_bits,
+    uint64_t        start_nonce,
+    int             blocks,
+    int             threads,
+    uint32_t        iters_per_thread,
+    uint64_t       *nonce_out
+) {
+    int      h_found = 0;
+    uint64_t h_nonce = UINT64_MAX;
+    cudaMemcpy(ctx->d_found,        &h_found, sizeof(int),      cudaMemcpyHostToDevice);
+    cudaMemcpy(ctx->d_result_nonce, &h_nonce, sizeof(uint64_t), cudaMemcpyHostToDevice);
+
+    if (ctx->header_len == 122) {
+        uint32_t midstate[8];
+        uint8_t  block2_const[50];
+        compute_midstate_64(header_template, midstate);
+        for (int i = 0; i < 50; i++) block2_const[i] = header_template[64 + i];
+
+        cudaMemcpy(ctx->d_midstate,     midstate,     8 * sizeof(uint32_t), cudaMemcpyHostToDevice);
+        cudaMemcpy(ctx->d_block2_const, block2_const, 50,                   cudaMemcpyHostToDevice);
+
+        mine_kernel_122<<<blocks, threads>>>(
+            ctx->d_midstate, ctx->d_block2_const, difficulty_bits,
+            start_nonce, iters_per_thread,
+            ctx->d_found, ctx->d_result_nonce
+        );
+    } else {
+        cudaMemcpy(ctx->d_header, header_template, ctx->header_len, cudaMemcpyHostToDevice);
+        mine_kernel_generic<<<blocks, threads>>>(
+            ctx->d_header, ctx->header_len, difficulty_bits,
+            start_nonce, iters_per_thread,
+            ctx->d_found, ctx->d_result_nonce
+        );
+    }
+
+    cudaDeviceSynchronize();
+
+    cudaMemcpy(&h_found, ctx->d_found,        sizeof(int),      cudaMemcpyDeviceToHost);
+    cudaMemcpy(&h_nonce, ctx->d_result_nonce, sizeof(uint64_t), cudaMemcpyDeviceToHost);
+
+    if (h_found) { *nonce_out = h_nonce; return 1; }
+    return 0;
+}
+
+// Legacy wrapper kept for compatibility — allocates on every call (slow).
 int launch_mining_kernel(
     const uint8_t *header_template,
     uint16_t       header_len,
@@ -219,62 +309,12 @@ int launch_mining_kernel(
     uint32_t       iters_per_thread,
     uint64_t      *nonce_out
 ) {
-    uint8_t  *d_header_template = nullptr;
-    uint32_t *d_midstate = nullptr;
-    uint8_t  *d_block2_const = nullptr;
-    int      *d_found = nullptr;
-    uint64_t *d_result_nonce = nullptr;
-
-    cudaMalloc(&d_found, sizeof(int));
-    cudaMalloc(&d_result_nonce, sizeof(uint64_t));
-
-    int h_found = 0;
-    uint64_t h_nonce = UINT64_MAX;
-    cudaMemcpy(d_found, &h_found, sizeof(int), cudaMemcpyHostToDevice);
-    cudaMemcpy(d_result_nonce, &h_nonce, sizeof(uint64_t), cudaMemcpyHostToDevice);
-
-    if (header_len == 122) {
-        uint32_t midstate[8];
-        uint8_t block2_const[50];
-        compute_midstate_64(header_template, midstate);
-        for (int i = 0; i < 50; i++) block2_const[i] = header_template[64 + i];
-
-        cudaMalloc(&d_midstate, 8 * sizeof(uint32_t));
-        cudaMalloc(&d_block2_const, 50);
-        cudaMemcpy(d_midstate, midstate, 8 * sizeof(uint32_t), cudaMemcpyHostToDevice);
-        cudaMemcpy(d_block2_const, block2_const, 50, cudaMemcpyHostToDevice);
-
-        mine_kernel_122<<<blocks, threads>>>(
-            d_midstate, d_block2_const, difficulty_bits,
-            start_nonce, iters_per_thread,
-            d_found, d_result_nonce
-        );
-    } else {
-        cudaMalloc(&d_header_template, header_len);
-        cudaMemcpy(d_header_template, header_template, header_len, cudaMemcpyHostToDevice);
-        mine_kernel_generic<<<blocks, threads>>>(
-            d_header_template, header_len, difficulty_bits,
-            start_nonce, iters_per_thread,
-            d_found, d_result_nonce
-        );
-    }
-
-    cudaDeviceSynchronize();
-
-    cudaMemcpy(&h_found, d_found, sizeof(int), cudaMemcpyDeviceToHost);
-    cudaMemcpy(&h_nonce, d_result_nonce, sizeof(uint64_t), cudaMemcpyDeviceToHost);
-
-    if (d_header_template) cudaFree(d_header_template);
-    if (d_midstate) cudaFree(d_midstate);
-    if (d_block2_const) cudaFree(d_block2_const);
-    cudaFree(d_found);
-    cudaFree(d_result_nonce);
-
-    if (h_found) {
-        *nonce_out = h_nonce;
-        return 1;
-    }
-    return 0;
+    MiningCtx *ctx = mining_ctx_create(header_len);
+    int ret = launch_mining_kernel_ctx(ctx, header_template, difficulty_bits,
+                                       start_nonce, blocks, threads,
+                                       iters_per_thread, nonce_out);
+    mining_ctx_destroy(ctx);
+    return ret;
 }
 
 } // extern "C"
