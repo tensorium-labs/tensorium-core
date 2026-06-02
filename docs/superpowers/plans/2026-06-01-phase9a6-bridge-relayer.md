@@ -1175,9 +1175,9 @@ Expected: `1` (or more)
 
 ## Task 13: Update checklist + final commit + push
 
-- [ ] **Step 1: Update PHASE9A_EXECUTION_CHECKLIST.md**
+- [ ] **Step 1: Update docs/bridge/phase9a/PHASE9A_EXECUTION_CHECKLIST.md**
 
-In `/root/.openclaw/workspace/tensorium-core/PHASE9A_EXECUTION_CHECKLIST.md`, update Phase 9A.6:
+In `/root/.openclaw/workspace/tensorium-core/docs/bridge/phase9a/PHASE9A_EXECUTION_CHECKLIST.md`, update Phase 9A.6:
 
 ```markdown
 ## Phase 9A.6 — Launch Preparation
@@ -1199,7 +1199,7 @@ Also add to "Already done in implementation":
 
 ```bash
 cd /root/.openclaw/workspace/tensorium-core && \
-git add PHASE9A_EXECUTION_CHECKLIST.md \
+git add docs/bridge/phase9a/PHASE9A_EXECUTION_CHECKLIST.md \
   docs/superpowers/specs/2026-06-01-phase9a6-bridge-relayer-design.md \
   docs/superpowers/plans/2026-06-01-phase9a6-bridge-relayer.md && \
 git commit -m "$(cat <<'EOF'

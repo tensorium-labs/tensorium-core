@@ -22,7 +22,7 @@ This document tracks what must be true before Tensorium mainnet-candidate chain 
 Immediate next phases are tracked in:
 
 - `docs/superpowers/plans/2026-06-02-post-launch-mainnet-phases.md`
-- `RESTORE_RUNBOOK.md` (Phase 10A artifact)
+- `docs/operations/RESTORE_RUNBOOK.md` (Phase 10A artifact)
 
 Recommended order:
 
@@ -39,13 +39,13 @@ Phase 10 status:
 
 Phase 10D artifacts now live in:
 
-- `PUBLIC_RPC_HARDENING_RUNBOOK.md`
-- `PUBLIC_RPC_POSTURE.md`
+- `docs/operations/PUBLIC_RPC_HARDENING_RUNBOOK.md`
+- `docs/operations/PUBLIC_RPC_POSTURE.md`
 - `templates/nginx-public-rpc.conf`
 
 Phase 10E artifact:
 
-- `CANONICAL_ASSET_METADATA.md`
+- `docs/integrations/CANONICAL_ASSET_METADATA.md`
 
 ## Blocking Gates
 
@@ -62,7 +62,7 @@ Phase 10E artifact:
 | Node/pool role boundaries | DONE | Documented in this file; testnet colocates with isolation; mainnet-candidate scaling plan documented. |
 | Monitoring | DONE | `/usr/local/bin/tensorium-monitor.sh` runs every 10 min via cron; checks RPC, P2P, explorer, disk, SSL expiry; logs to `/var/log/tensorium-monitor.log`. |
 | Release reproducibility | DONE | v0.3.0-mainnet-candidate binaries built; SHA256 checksums in CHECKSUMS-v0.3.0-mainnet-candidate.txt. |
-| Risk disclosure | DONE | RISK_DISCLOSURE.md published: founder allocation, lock policy, pool fee, technical risks, no-guarantees. |
+| Risk disclosure | DONE | `docs/project/RISK_DISCLOSURE.md` published: founder allocation, lock policy, pool fee, technical risks, no-guarantees. |
 
 ## Consensus Checklist
 
@@ -379,7 +379,7 @@ Phase 7 is complete. Phase 8 covers everything required before the mainnet-candi
 | MC seed node deployed | DONE | `tensorium-node mainnet-candidate init` + systemd `tensorium-mc-rpc` (127.0.0.1:33332) + `tensorium-mc-p2p` (0.0.0.0:33333) live on VPS 157.230.44.162 since 2026-06-01. |
 | DNS seed | DONE | `seed.tensoriumlabs.com` A → 157.230.44.162 (user confirmed 2026-06-01). `MC_DEFAULT_SEEDS=["seed.tensoriumlabs.com:33333"]` hardcoded in node binary (commit `40f723d`). |
 | MC P2P sync test | DONE | 2026-06-01: second MC node initialized with isolated state file, synced from `seed.tensoriumlabs.com:33333`, matched genesis tip/height (`0`), and served P2P on `:33334` for verification. Repeat after non-genesis MC activity during soak if chain height increases. |
-| Backup seed node | DONE | Vultr `txm-mc-seed-1` (`139.180.137.144`) deployed 2026-06-01 as a second-provider MC seed node. `tensorium-mc-rpc` + `tensorium-mc-p2p` active, sync matches primary seed at height `0`, firewall open for `33333/tcp`, monitoring + soak cron installed. Runbook: `BACKUP_SEED_NODE_RUNBOOK.md`. |
+| Backup seed node | DONE | Vultr `txm-mc-seed-1` (`139.180.137.144`) deployed 2026-06-01 as a second-provider MC seed node. `tensorium-mc-rpc` + `tensorium-mc-p2p` active, sync matches primary seed at height `0`, firewall open for `33333/tcp`, monitoring + soak cron installed. Runbook: `docs/operations/BACKUP_SEED_NODE_RUNBOOK.md`. |
 | Firewall + SSL on MC VPS | DONE | UFW 33333/tcp open; `rpc.tensoriumlabs.com` + `mc-rpc.tensoriumlabs.com` nginx HTTPS proxies live with Let's Encrypt certs (2026-06-01). |
 | Monitor for MC node | DONE | `tensorium-monitor.sh` checks mc_rpc (height), mc_p2p, pub_rpc (https), mc_pub_rpc (https), faucet; all green 2026-06-01. Hourly soak log `/var/log/tensorium-soak.log`. |
 | Testnet auto-miner | DONE | `tensorium-automine.service` runs `txmminer 127.0.0.1:23332` continuously. Blocks mined every few seconds at 20-bit diff. All faucet/wallet txs confirm immediately. |
@@ -420,8 +420,8 @@ Chrome extension wallet stack: TypeScript + React, separate repo `tensorium-wall
 | Working order | DONE | Future flow: local edit -> local checks -> push `tensorium-labs` -> VPS deploy/sync -> smoke checks |
 | Temporary mainnet-candidate host | DECIDED | Use current DigitalOcean VPS first; local + GitHub remain source of truth so migration to Hetzner/dedicated VPS is straightforward later. |
 | Docs: Chrome extension guide | DONE | `https://docs.tensoriumlabs.com/chrome-wallet.html` deployed 2026-06-01. Covers install, create/import, send, network selector, security model, FAQ. |
-| Public RPC endpoints | DONE | `https://rpc.tensoriumlabs.com` (testnet) + `https://mc-rpc.tensoriumlabs.com` (MC) live with CORS + rate limit (10r/s). Used by Chrome extension. Current posture: DO remains primary public RPC host; Vultr backup seed stays seed-only until public RPC split/failover is explicitly activated. See `PUBLIC_RPC_POSTURE.md`. |
-| Risk disclosure on website | DONE | Root site and docs link to `RISK_DISCLOSURE.md` |
+| Public RPC endpoints | DONE | `https://rpc.tensoriumlabs.com` (testnet) + `https://mc-rpc.tensoriumlabs.com` (MC) live with CORS + rate limit (10r/s). Used by Chrome extension. Current posture: DO remains primary public RPC host; Vultr backup seed stays seed-only until public RPC split/failover is explicitly activated. See `docs/operations/PUBLIC_RPC_POSTURE.md`. |
+| Risk disclosure on website | DONE | Root site and docs link to `docs/project/RISK_DISCLOSURE.md` |
 | Announce mainnet-candidate launch | **DONE** | 2026-06-02: Bridge opened, Discord announcement pinned, bridge website live, ecosystem complete. Mainnet declared live. |
 
 ### 8E — Security & Legal
@@ -473,17 +473,17 @@ TXM needs a way to be bought and sold. Three options by complexity:
 2. Bridge to Optimism → wTXM → OP DEX liquidity (wide exposure)
 3. Native atomic swap after scripting layer (Phase 10)
 
-Execution roadmap: see `PHASE9A_SWAP_ROADMAP.md`.
-Bridge trust model decision: see `PHASE9A_BRIDGE_MODEL_DECISION.md`.
-Bridge policy: see `PHASE9A_BRIDGE_POLICY.md`.
-`wTXM` contract spec: see `PHASE9A_WTXM_CONTRACT_SPEC.md`.
-Bridge controller spec: see `PHASE9A_BRIDGE_CONTROLLER_SPEC.md`.
+Execution roadmap: see `docs/bridge/phase9a/PHASE9A_SWAP_ROADMAP.md`.
+Bridge trust model decision: see `docs/bridge/phase9a/PHASE9A_BRIDGE_MODEL_DECISION.md`.
+Bridge policy: see `docs/bridge/phase9a/PHASE9A_BRIDGE_POLICY.md`.
+`wTXM` contract spec: see `docs/bridge/phase9a/PHASE9A_WTXM_CONTRACT_SPEC.md`.
+Bridge controller spec: see `docs/bridge/phase9a/PHASE9A_BRIDGE_CONTROLLER_SPEC.md`.
 Contracts implementation plan: see `contracts/PHASE9A_CONTRACTS_IMPLEMENTATION_PLAN.md`.
 Initial Hardhat workspace and local tests live under `contracts/`.
-Signer/custody layout: see `PHASE9A_SIGNER_CUSTODY_LAYOUT.md`.
-Bridge ledger format: see `PHASE9A_BRIDGE_LEDGER_FORMAT.md`.
-Bridge operator runbook: see `PHASE9A_OPERATOR_RUNBOOK.md`.
-Execution checklist: see `PHASE9A_EXECUTION_CHECKLIST.md`.
+Signer/custody layout: see `docs/bridge/phase9a/PHASE9A_SIGNER_CUSTODY_LAYOUT.md`.
+Bridge ledger format: see `docs/bridge/phase9a/PHASE9A_BRIDGE_LEDGER_FORMAT.md`.
+Bridge operator runbook: see `docs/bridge/phase9a/PHASE9A_OPERATOR_RUNBOOK.md`.
+Execution checklist: see `docs/bridge/phase9a/PHASE9A_EXECUTION_CHECKLIST.md`.
 
 ### 9B — Explorer Improvements
 

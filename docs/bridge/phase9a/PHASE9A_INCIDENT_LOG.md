@@ -5,7 +5,7 @@ Last updated: 2026-06-01
 
 ## Log Location
 
-Primary: `/root/.openclaw/workspace/tensorium-core/PHASE9A_INCIDENT_LOG.md`
+Primary: `/root/.openclaw/workspace/tensorium-core/docs/bridge/phase9a/PHASE9A_INCIDENT_LOG.md`
 
 This file is the canonical incident record. Each entry is appended
 chronologically. Do not edit or delete past entries.

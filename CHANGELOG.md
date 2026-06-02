@@ -8,16 +8,16 @@ All notable changes to Tensorium are documented in this file.
 - `ChainState` now persists blocks in RocksDB with column families for blocks, canonical height mapping, and metadata
 - Automatic one-time migration from legacy `state.json` to `*.db/` on first open
 - Persistent init coverage in `tensorium-node` test suite to ensure `init` produces a reusable on-disk chain state
-- `PUBLIC_RPC_HARDENING_RUNBOOK.md` with alert thresholds and incident response for chain stall, peer isolation, explorer divergence, RPC abuse, backup failure, and disk pressure
+- `docs/operations/PUBLIC_RPC_HARDENING_RUNBOOK.md` with alert thresholds and incident response for chain stall, peer isolation, explorer divergence, RPC abuse, backup failure, and disk pressure
 - `templates/nginx-public-rpc.conf` so public RPC reverse-proxy policy lives in repo instead of tribal knowledge
-- `CANONICAL_ASSET_METADATA.md` as the concise single-source packet for wallets, listing forms, and data providers
+- `docs/integrations/CANONICAL_ASSET_METADATA.md` as the concise single-source packet for wallets, listing forms, and data providers
 - `docs/superpowers/prompts/2026-06-02-claude-code-phase11-handoff.md` as the next-worker handoff prompt after Phase 10 closure
 
 ### Changed
 - `tensorium-node init` now creates persistent RocksDB-backed testnet state instead of building genesis in a tempdir
 - `tensorium-node mainnet-candidate init` and `mainnet-candidate mine-genesis` now persist MC genesis to the configured state path
 - `txmwallet` now reads chain state through the RocksDB loader and rebuilds wallet UTXOs from `canonical_blocks_iter()`
-- `tensorium-pool` now exposes treasury / payout-hot-wallet custody metadata via CLI and HTTP, and pool payout operations are documented in `POOL_PAYOUT_RUNBOOK.md`
+- `tensorium-pool` now exposes treasury / payout-hot-wallet custody metadata via CLI and HTTP, and pool payout operations are documented in `docs/operations/POOL_PAYOUT_RUNBOOK.md`
 - `install.sh` systemd RPC service now binds to `127.0.0.1` by default, matching the node's public-bind guard and intended reverse-proxy posture
 
 ### Verified
@@ -40,7 +40,7 @@ All notable changes to Tensorium are documented in this file.
 - Listing applications sent to 14 exchanges from dev@tensoriumlabs.com
 - Tier 1–2: MEXC Global, Gate.io, CoinEx, OKX, Bybit, BingX, BitMart, XT.com
 - Tier 3: LBank, CoinW, DigiFinex, Hotcoin, BTCC, SafeTrade
-- `CEX_LISTING_PACKAGE.md` added to repo with full token info + templates
+- `docs/integrations/CEX_LISTING_PACKAGE.md` added to repo with full token info + templates
 - Next step: submit to CoinGecko + CMC after Uniswap V3 pool is live
 
 ### Deferred
@@ -109,7 +109,7 @@ Infrastructure stable since 2026-06-01 genesis. Soak test gate removed. TXM mini
 ### Added
 - **MC genesis hardcoded** — nonce `114_103_168_481` mined on RTX 5090 (2.28 GH/s, 24.6s); hash `000000000063ab6f057a16376b1712e709719126ad977a3d4be23f83b89f0392`; includes 1M TXM founder allocation in genesis output. `tensorium-node mainnet-candidate init` requires no argument.
 - **MC RPC/P2P daemon** — `ConsensusParams` threaded through all node functions; subcommands `mainnet-candidate rpc [bind]`, `mainnet-candidate p2p-listen [bind]`, `mainnet-candidate sync [peer]`; env vars `TENSORIUM_MC_MEMPOOL`, `TENSORIUM_MC_BANS` (commit `9286304`)
-- **Backup seed node** — Vultr `txm-mc-seed-1` (`139.180.137.144`) deployed as second-provider MC seed; runbook at `BACKUP_SEED_NODE_RUNBOOK.md`
+- **Backup seed node** — Vultr `txm-mc-seed-1` (`139.180.137.144`) deployed as second-provider MC seed; runbook at `docs/operations/BACKUP_SEED_NODE_RUNBOOK.md`
 - **DNS seed** — `MC_DEFAULT_SEEDS = ["seed.tensoriumlabs.com:33333"]` in node binary; `seed.tensoriumlabs.com` A→`157.230.44.162` (commit `40f723d`)
 - **Public RPC proxies** — `rpc.tensoriumlabs.com` (testnet →23332) and `mc-rpc.tensoriumlabs.com` (MC →33332) via nginx with CORS + rate-limit (`10r/s`) and Let's Encrypt TLS
 - **Chrome wallet extension** — `tensorium-wallet-extension` v0.1.1; TypeScript + React MV3; secp256k1+SHA256d; create/import/send/history/settings; 20/20 tests; Apache-2.0; GitHub release live with manual install ZIP

@@ -10,11 +10,11 @@ First, read these files to rebuild exact context:
 
 1. `MAINNET_READINESS.md`
 2. `docs/superpowers/plans/2026-06-02-post-launch-mainnet-phases.md`
-3. `CANONICAL_ASSET_METADATA.md`
-4. `PUBLIC_RPC_HARDENING_RUNBOOK.md`
-5. `RESTORE_RUNBOOK.md`
-6. `POOL_PAYOUT_RUNBOOK.md`
-7. `CEX_LISTING_PACKAGE.md`
+3. `docs/integrations/CANONICAL_ASSET_METADATA.md`
+4. `docs/operations/PUBLIC_RPC_HARDENING_RUNBOOK.md`
+5. `docs/operations/RESTORE_RUNBOOK.md`
+6. `docs/operations/POOL_PAYOUT_RUNBOOK.md`
+7. `docs/integrations/CEX_LISTING_PACKAGE.md`
 
 Then inspect current git status before changing anything.
 
@@ -26,11 +26,11 @@ Important context:
 - Backup/restore runbook exists and has already been drill-tested.
 - Pool treasury vs payout hot wallet separation is documented and partially surfaced in runtime metadata.
 - Public RPC posture is localhost-only node RPC behind nginx, with a committed hardening template and incident runbook.
-- Canonical integrator/listing metadata now lives in `CANONICAL_ASSET_METADATA.md`.
+- Canonical integrator/listing metadata now lives in `docs/integrations/CANONICAL_ASSET_METADATA.md`.
 
 Your task:
 
-1. Audit the repo for any remaining operator-facing or integrator-facing references that can drift from `CANONICAL_ASSET_METADATA.md`.
+1. Audit the repo for any remaining operator-facing or integrator-facing references that can drift from `docs/integrations/CANONICAL_ASSET_METADATA.md`.
 2. Normalize the remaining active docs so they reference the canonical metadata file instead of duplicating critical values unnecessarily.
 3. Identify the best **Phase 11** candidate and implement the first concrete slice of it, not just a plan.
 

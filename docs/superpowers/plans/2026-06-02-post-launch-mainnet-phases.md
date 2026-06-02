@@ -19,7 +19,7 @@
 **Why first:** Backups without a validated restore path are paperwork, not safety.
 
 **Deliverables:**
-- `RESTORE_RUNBOOK.md` with exact recovery steps for testnet and mainnet-candidate
+- `docs/operations/RESTORE_RUNBOOK.md` with exact recovery steps for testnet and mainnet-candidate
 - Verified restore drill on a clean host or temp data directory
 - Explicit rules for when to restore `*.db/` versus when to fall back to `*.json.migrated`
 - Service restart order documented for RPC, P2P, explorer, and pool
@@ -43,9 +43,9 @@
 - Recovery procedure is stored in repo and referenced from `MAINNET_READINESS.md`
 
 **Progress note (2026-06-02):**
-- `RESTORE_RUNBOOK.md` created
+- `docs/operations/RESTORE_RUNBOOK.md` created
 - restore drill completed in temp environment
-- measured timings captured in `RESTORE_RUNBOOK.md`
+- measured timings captured in `docs/operations/RESTORE_RUNBOOK.md`
 
 ---
 
@@ -110,7 +110,7 @@
 - Pool payout process is repeatable and bounded by a hot-wallet cap
 
 **Progress note (2026-06-02):**
-- `POOL_PAYOUT_RUNBOOK.md` created
+- `docs/operations/POOL_PAYOUT_RUNBOOK.md` created
 - `tensorium-pool` now exposes custody metadata via CLI and HTTP
 - treasury / payout-hot-wallet separation is now explicit in operator-facing docs
 
@@ -146,7 +146,7 @@
 - Main failure modes have a written first response
 
 **Progress note (2026-06-02):**
-- `PUBLIC_RPC_HARDENING_RUNBOOK.md` created
+- `docs/operations/PUBLIC_RPC_HARDENING_RUNBOOK.md` created
 - `templates/nginx-public-rpc.conf` added
 - installer RPC systemd default corrected back to localhost-only bind
 
@@ -182,8 +182,8 @@
 - Exchange/data-provider packet can be handed off without ad-hoc fact gathering
 
 **Progress note (2026-06-02):**
-- `CANONICAL_ASSET_METADATA.md` created as the single-source packet for chain identifiers, URLs, bridge metadata, tokenomics, and support contact
-- `CEX_LISTING_PACKAGE.md` now points integrator-facing consumers to the canonical packet
+- `docs/integrations/CANONICAL_ASSET_METADATA.md` created as the single-source packet for chain identifiers, URLs, bridge metadata, tokenomics, and support contact
+- `docs/integrations/CEX_LISTING_PACKAGE.md` now points integrator-facing consumers to the canonical packet
 
 ---
 
@@ -201,12 +201,12 @@ Status: **COMPLETE** on 2026-06-02.
 
 Closed with these repo artifacts:
 
-- `RESTORE_RUNBOOK.md`
-- `POOL_PAYOUT_RUNBOOK.md`
-- `PUBLIC_RPC_HARDENING_RUNBOOK.md`
-- `PUBLIC_RPC_POSTURE.md`
+- `docs/operations/RESTORE_RUNBOOK.md`
+- `docs/operations/POOL_PAYOUT_RUNBOOK.md`
+- `docs/operations/PUBLIC_RPC_HARDENING_RUNBOOK.md`
+- `docs/operations/PUBLIC_RPC_POSTURE.md`
 - `templates/nginx-public-rpc.conf`
-- `CANONICAL_ASSET_METADATA.md`
+- `docs/integrations/CANONICAL_ASSET_METADATA.md`
 
 Handoff prompt for the next worker:
 
