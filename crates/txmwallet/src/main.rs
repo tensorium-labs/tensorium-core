@@ -166,6 +166,35 @@ fn run() -> Result<(), String> {
             println!("m={m}  n={}", pubkey_refs.len());
             println!("size={} bytes", script.len());
         }
+        "send-from-script" => {
+            let scriptpubkey_hex = args
+                .get(2)
+                .ok_or("usage: txmwallet send-from-script <scriptpubkey_hex> <dest_addr> <atoms> [tx_file] [rpc]")?;
+            let dest_addr = args
+                .get(3)
+                .ok_or("usage: txmwallet send-from-script <scriptpubkey_hex> <dest_addr> <atoms> [tx_file] [rpc]")?;
+            let amount_atoms = args
+                .get(4)
+                .ok_or("missing amount_atoms")?
+                .parse::<u64>()
+                .map_err(|_| "invalid amount_atoms")?;
+            let tx_path = args
+                .get(5)
+                .map(PathBuf::from)
+                .unwrap_or_else(|| PathBuf::from("unsigned-tx.json"));
+            let rpc = args.get(6).map(String::as_str).unwrap_or(DEFAULT_RPC);
+
+            let tx = build_unsigned_multisig_tx(rpc, scriptpubkey_hex, dest_addr, amount_atoms)?;
+            let raw = serde_json::to_string_pretty(&tx)
+                .map_err(|e| format!("serialize tx: {e}"))?;
+            fs::write(&tx_path, &raw)
+                .map_err(|e| format!("write {}: {e}", tx_path.display()))?;
+            println!("unsigned_txid={}", tx.id);
+            println!("inputs={}", tx.inputs.len());
+            println!("outputs={}", tx.outputs.len());
+            println!("written={}", tx_path.display());
+            println!("next: txmwallet multisig-sign {}", tx_path.display());
+        }
         _ => print_help(),
     }
 
@@ -489,6 +518,70 @@ fn build_signed_payment_via_rpc(
     let mut tx = Transaction::payment(inputs, outputs);
     keypair.sign_transaction(&mut tx).map_err(|e| e.to_string())?;
     Ok(tx)
+}
+
+fn build_unsigned_multisig_tx(
+    rpc: &str,
+    scriptpubkey_hex: &str,
+    dest_addr: &str,
+    amount_atoms: u64,
+) -> Result<Transaction, String> {
+    use tensorium_core::block::OutPoint;
+    use tensorium_core::hash::Hash256;
+
+    if amount_atoms == 0 {
+        return Err("amount_atoms must be greater than zero".to_owned());
+    }
+
+    #[derive(serde::Deserialize)]
+    struct RpcUtxo {
+        txid_bytes: Vec<u8>,
+        output_index: u32,
+        value_atoms: u64,
+        mature: bool,
+    }
+    #[derive(serde::Deserialize)]
+    struct RpcUtxoResp { utxos: Vec<RpcUtxo> }
+
+    let body = rpc_get(rpc, &format!("/getutxos/{scriptpubkey_hex}"))?;
+    let resp: RpcUtxoResp = serde_json::from_str(&body)
+        .map_err(|e| format!("UTXO parse error: {e}"))?;
+
+    let mut selected: Vec<(OutPoint, u64)> = Vec::new();
+    let mut selected_atoms = 0u64;
+    for u in resp.utxos {
+        if !u.mature { continue; }
+        let hash = Hash256(
+            u.txid_bytes.as_slice().try_into()
+                .map_err(|_| "invalid txid from RPC".to_owned())?
+        );
+        selected.push((OutPoint { txid: hash, output_index: u.output_index }, u.value_atoms));
+        selected_atoms = selected_atoms.saturating_add(u.value_atoms);
+        if selected_atoms >= amount_atoms { break; }
+    }
+
+    if selected_atoms < amount_atoms {
+        return Err(format!(
+            "insufficient balance: have {selected_atoms}, need {amount_atoms}"
+        ));
+    }
+
+    let inputs: Vec<TxInput> = selected.iter()
+        .map(|(op, _)| TxInput { previous_output: *op, signature_script: Vec::new() })
+        .collect();
+
+    let dest_script = p2pkh_from_address(dest_addr)
+        .map_err(|_| format!("invalid destination address: {dest_addr}"))?;
+    let source_script = hex::decode(scriptpubkey_hex)
+        .map_err(|_| "invalid scriptpubkey hex".to_owned())?;
+
+    let mut outputs = vec![TxOutput { value_atoms: amount_atoms, script_pubkey: dest_script }];
+    let change = selected_atoms - amount_atoms;
+    if change > 0 {
+        outputs.push(TxOutput { value_atoms: change, script_pubkey: source_script });
+    }
+
+    Ok(Transaction::payment(inputs, outputs))
 }
 
 impl WalletFile {
