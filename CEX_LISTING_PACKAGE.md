@@ -2,6 +2,10 @@
 
 Last updated: 2026-06-02
 
+Canonical source for integrator-facing fields:
+
+- `CANONICAL_ASSET_METADATA.md`
+
 ---
 
 ## Token Information
@@ -61,6 +65,8 @@ Key characteristics:
 | Chrome Wallet | https://github.com/tensorium-labs/tensorium-wallet-extension/releases/latest |
 | Discord | https://discord.gg/KkgGSZKVZw |
 | wTXM on OP Explorer | https://optimistic.etherscan.io/address/0x2e71FD45530FAe75B6b427F3e71A0CDEB146C20e |
+
+For wallets, indexers, and listing forms that need one concise reference packet, use `CANONICAL_ASSET_METADATA.md`.
 
 ---
 

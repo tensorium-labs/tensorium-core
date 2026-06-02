@@ -1,7 +1,7 @@
 # Public RPC Posture
 
 Status: current operational decision for Tensorium public RPC exposure.
-Last updated: 2026-06-01
+Last updated: 2026-06-02
 
 This document defines which host serves public RPC now, which host stays
 seed-only, and what conditions justify activating public RPC on the backup host.
@@ -74,13 +74,18 @@ If backup public RPC is enabled later:
 2. keep `tensorium-node` bound to `127.0.0.1:33332`
 3. create a new hostname such as `mc-rpc-backup.tensoriumlabs.com`
 4. proxy nginx `443 -> 127.0.0.1:33332`
-5. apply the same `limit_req` posture used on DigitalOcean
+5. apply the same `limit_req` posture used on DigitalOcean via `templates/nginx-public-rpc.conf`
 6. add CORS headers equivalent to current public RPC
 7. add HTTPS endpoint monitoring to the backup host
 8. decide whether clients use:
    - manual fallback,
    - DNS rotation,
    - active/standby failover
+
+Operational companion artifacts:
+
+- `PUBLIC_RPC_HARDENING_RUNBOOK.md`
+- `templates/nginx-public-rpc.conf`
 
 ## Recommended Near-Term Posture
 

@@ -95,11 +95,23 @@ Prepare runtime folders:
 mkdir -p /root/mc
 ```
 
+Install the backup helper from this repo:
+
+```bash
+install -m 0755 /path/to/tensorium-core/tensorium-backup.sh /usr/local/bin/tensorium-backup.sh
+```
+
 Initialize MC genesis state:
 
 ```bash
 TENSORIUM_MC_STATE=/root/mc/tensorium-mc-state.json \
   /usr/local/bin/tensorium-node mainnet-candidate init
+```
+
+After init, expect RocksDB state at:
+
+```bash
+ls -lah /root/mc/tensorium-mc-state.db
 ```
 
 Initial sync from primary seed:
@@ -228,6 +240,16 @@ Confirm sync status:
 ```bash
 TENSORIUM_MC_STATE=/root/mc/tensorium-mc-state.json \
   /usr/local/bin/tensorium-node mainnet-candidate status
+```
+
+Backup note:
+
+```bash
+tar -czf /root/backups/tensorium-mc-$(date +%F).tgz \
+  /root/mc/tensorium-mc-state.db \
+  /root/mc/tensorium-mc-mempool.json \
+  /root/mc/tensorium-mc-banlist.json \
+  /root/mc/*.json.migrated
 ```
 
 Cross-check against primary seed:

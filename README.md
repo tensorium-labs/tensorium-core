@@ -82,6 +82,13 @@ Tensorium consensus does not include a hidden miner tax.
 
 The current Phase 8 policy allows an official/reference mining pool to charge a transparent `5%` pool fee. This fee is handled by pool payout accounting, sent to a published pool treasury/development wallet, and shown before miners connect. Solo miners who submit blocks directly to their own node are not charged this pool fee by the protocol.
 
+Pool operations now distinguish between:
+
+- pool treasury wallet: receives block rewards / fee revenue
+- payout hot wallet: operational wallet used to pay miners
+
+See `POOL_PAYOUT_RUNBOOK.md` for the refill and payout procedure.
+
 For safety, the node and pool should be separate trust boundaries. The temporary mainnet-candidate setup may colocate services on the current VPS to keep operations moving, as long as processes, folders, env files, logs, and wallet files are isolated. As the network grows, adding more nodes is good for redundancy, sync health, and decentralization; mainnet-candidate infrastructure should add backup seed nodes and split high-risk services when needed.
 
 ---
@@ -211,13 +218,25 @@ txmwallet unlock-check                           verify passphrase can decrypt w
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `TENSORIUM_STATE` | `tensorium-testnet-state.json` | Chain state file |
+| `TENSORIUM_STATE` | `tensorium-testnet-state.json` | Chain state path; JSON paths auto-migrate to `*.db/` RocksDB |
 | `TENSORIUM_MEMPOOL` | `tensorium-testnet-mempool.json` | Mempool file |
 | `TENSORIUM_BANS` | `tensorium-testnet-banlist.json` | Peer ban list file |
 | `TENSORIUM_PEERS` | `""` | Comma-separated peers for block/tx broadcast |
 | `TENSORIUM_NODE_ID` | `node-<timestamp>` | Identity in P2P handshake |
 | `TENSORIUM_WALLET` | `tensorium-wallet.json` | Wallet file |
 | `TENSORIUM_WALLET_PASSPHRASE` | required | Passphrase to decrypt wallet |
+
+---
+
+## Ops Scripts
+
+- `tensorium-backup.sh` — creates rolling tarball backups of RocksDB state directories, mempool/banlist JSON files, and any `*.json.migrated` rollback backups. Deploy to `/usr/local/bin/tensorium-backup.sh` on operators' hosts if you use the runbook defaults.
+- `PUBLIC_RPC_HARDENING_RUNBOOK.md` — public RPC thresholds, incident checklists, and service ownership rules for mainnet operations.
+- `templates/nginx-public-rpc.conf` — nginx reverse-proxy template that keeps node RPC on localhost and applies request/concurrency limits before public exposure.
+
+## Canonical Metadata
+
+- `CANONICAL_ASSET_METADATA.md` — single-source packet for chain metadata, RPC/explorer URLs, bridge data, tokenomics, and support contact used by wallets, data providers, and listing forms.
 
 ---
 
