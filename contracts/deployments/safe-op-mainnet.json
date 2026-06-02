@@ -1,0 +1,15 @@
+{
+  "network": "op-mainnet",
+  "timestamp": "2026-06-02T05:58:46.090Z",
+  "safe": "0x9B3B2DB2eCf2b83f58ed256C252204f0d76dB6e9",
+  "owners": [
+    "0x15a8A0A259417ba0fFE92488FF09D458BE6ef9EB"
+  ],
+  "threshold": 1,
+  "note": "1-of-1 Safe. Add signers B+C via app.safe.global to upgrade to 2-of-3.",
+  "wTXM": "0x2e71FD45530FAe75B6b427F3e71A0CDEB146C20e",
+  "controller": "0x4b31C557AD64609B975610812273BF82F1475384",
+  "wTXM_owner": "0x9B3B2DB2eCf2b83f58ed256C252204f0d76dB6e9",
+  "controller_owner": "0x9B3B2DB2eCf2b83f58ed256C252204f0d76dB6e9",
+  "safeUrl": "https://app.safe.global/home?safe=oeth:0x9B3B2DB2eCf2b83f58ed256C252204f0d76dB6e9"
+}
