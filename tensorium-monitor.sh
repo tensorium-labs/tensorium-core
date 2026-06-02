@@ -1,6 +1,6 @@
 #!/bin/bash
 # tensorium-monitor.sh — Phase 11 enhanced
-# Canonical metadata: CANONICAL_ASSET_METADATA.md in tensorium-core repo
+# Canonical metadata: docs/integrations/CANONICAL_ASSET_METADATA.md in tensorium-core repo
 
 LOG="/var/log/tensorium-monitor.log"
 STATE_FILE="/var/lib/tensorium-monitor/state.json"

@@ -113,8 +113,8 @@ The values here are aligned with:
 - `CEX_LISTING_PACKAGE.md`
 - `MAINNET_READINESS.md`
 - `README.md`
-- `RISK_DISCLOSURE.md`
-- `PUBLIC_RPC_POSTURE.md`
+- `../project/RISK_DISCLOSURE.md`
+- `../operations/PUBLIC_RPC_POSTURE.md`
 
 ## Update Rule
 

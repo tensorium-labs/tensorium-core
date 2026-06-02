@@ -87,7 +87,7 @@ Pool operations now distinguish between:
 - pool treasury wallet: receives block rewards / fee revenue
 - payout hot wallet: operational wallet used to pay miners
 
-See `POOL_PAYOUT_RUNBOOK.md` for the refill and payout procedure.
+See `docs/operations/POOL_PAYOUT_RUNBOOK.md` for the refill and payout procedure.
 
 For safety, the node and pool should be separate trust boundaries. The temporary mainnet-candidate setup may colocate services on the current VPS to keep operations moving, as long as processes, folders, env files, logs, and wallet files are isolated. As the network grows, adding more nodes is good for redundancy, sync health, and decentralization; mainnet-candidate infrastructure should add backup seed nodes and split high-risk services when needed.
 
@@ -231,12 +231,19 @@ txmwallet unlock-check                           verify passphrase can decrypt w
 ## Ops Scripts
 
 - `tensorium-backup.sh` — creates rolling tarball backups of RocksDB state directories, mempool/banlist JSON files, and any `*.json.migrated` rollback backups. Deploy to `/usr/local/bin/tensorium-backup.sh` on operators' hosts if you use the runbook defaults.
-- `PUBLIC_RPC_HARDENING_RUNBOOK.md` — public RPC thresholds, incident checklists, and service ownership rules for mainnet operations.
+- `docs/operations/PUBLIC_RPC_HARDENING_RUNBOOK.md` — public RPC thresholds, incident checklists, and service ownership rules for mainnet operations.
 - `templates/nginx-public-rpc.conf` — nginx reverse-proxy template that keeps node RPC on localhost and applies request/concurrency limits before public exposure.
 
 ## Canonical Metadata
 
-- `CANONICAL_ASSET_METADATA.md` — single-source packet for chain metadata, RPC/explorer URLs, bridge data, tokenomics, and support contact used by wallets, data providers, and listing forms.
+- `docs/integrations/CANONICAL_ASSET_METADATA.md` — single-source packet for chain metadata, RPC/explorer URLs, bridge data, tokenomics, and support contact used by wallets, data providers, and listing forms.
+
+## Documentation Layout
+
+- `docs/operations/` — runbooks for backup/restore, pool payouts, public RPC posture, and other operator workflows
+- `docs/integrations/` — canonical listing/integrator metadata packets
+- `docs/bridge/phase9a/` — bridge-specific Phase 9A specifications, policy, and custody documentation
+- `docs/project/` — project-level references such as risk disclosure, migration notes, and known issues
 
 ---
 

@@ -876,11 +876,11 @@ Expected: `Compiled N Solidity files successfully`
 ## Task 6: Update checklist dan commit
 
 **Files:**
-- Modify: `PHASE9A_EXECUTION_CHECKLIST.md`
+- Modify: `docs/bridge/phase9a/PHASE9A_EXECUTION_CHECKLIST.md`
 
 - [ ] **Step 1: Centang item "Review contract ownership transfer path" di Phase 9A.1**
 
-Di file `PHASE9A_EXECUTION_CHECKLIST.md`, ubah:
+Di file `docs/bridge/phase9a/PHASE9A_EXECUTION_CHECKLIST.md`, ubah:
 ```
 - [ ] Review contract ownership transfer path
 ```
@@ -912,7 +912,7 @@ cd /root/.openclaw/workspace/tensorium-core && git add \
   contracts/scripts/deploy.js \
   contracts/interfaces/IWrappedTensorium.sol \
   contracts/interfaces/ITensoriumBridgeController.sol \
-  PHASE9A_EXECUTION_CHECKLIST.md \
+  docs/bridge/phase9a/PHASE9A_EXECUTION_CHECKLIST.md \
   docs/superpowers/specs/2026-06-01-phase9a-bridge-contracts-design.md \
   docs/superpowers/plans/2026-06-01-phase9a-bridge-contracts-rewrite.md && \
 git commit -m "feat(phase9a): rewrite bridge contracts to production-ready

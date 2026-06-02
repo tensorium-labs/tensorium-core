@@ -3,7 +3,7 @@
 Status: Phase 10D operational runbook
 Last updated: 2026-06-02
 
-> **Canonical RPC URLs and chain identifiers:** see `CANONICAL_ASSET_METADATA.md`.
+> **Canonical RPC URLs and chain identifiers:** see `../integrations/CANONICAL_ASSET_METADATA.md`.
 
 This runbook turns the current public RPC posture into an operator checklist.
 
