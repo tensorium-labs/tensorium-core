@@ -603,4 +603,23 @@ mod tests {
         let got = state.get_block_by_height(0).expect("genesis at height 0");
         assert_eq!(got.header.height, 0);
     }
+
+    #[test]
+    fn state_survives_reopen() {
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("test.db");
+
+        {
+            let mut state = ChainState::open_db(&db_path).unwrap();
+            state.init_genesis(&TEST_PARAMS, 1_700_000_000, 1_000_000).unwrap();
+            state.mine_next_block(&TEST_PARAMS, 1_700_000_060, "miner", 1_000_000).unwrap();
+            assert_eq!(state.height(), Some(1));
+        }
+        // state dropped here — DB closed
+
+        let state = ChainState::open_db(&db_path).unwrap();
+        assert_eq!(state.height(), Some(1));
+        assert_eq!(state.get_block_by_height(0).unwrap().header.height, 0);
+        assert_eq!(state.get_block_by_height(1).unwrap().header.height, 1);
+    }
 }
