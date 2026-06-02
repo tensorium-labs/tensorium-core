@@ -423,11 +423,21 @@ int main(int argc, char *argv[]) {
             else                       printf("%.2f KH/s\n", hashrate / 1e3);
             fflush(stdout);
 
-            if (!submit_block(host, port, tmpl.template_json, winning_nonce))
-                fprintf(stderr, "  ✗ block rejected (stale)\n");
+            // Submit with retries (brief delay after GPU kernel completes)
+            int submitted = 0;
+            for (int r = 0; r < 5 && !submitted; r++) {
+                if (r > 0) { usleep(200000); } // 200ms between retries
+                submitted = submit_block(host, port, tmpl.template_json, winning_nonce);
+            }
+            if (!submitted) fprintf(stderr, "  ✗ block rejected after retries\n");
 
-            // Fresh template after submit
-            if (get_block_template(host, port, miner_addr, &tmpl)) {
+            // Fresh template after submit (with retries)
+            int refreshed = 0;
+            for (int r = 0; r < 5 && !refreshed; r++) {
+                if (r > 0) { usleep(200000); }
+                refreshed = get_block_template(host, port, miner_addr, &tmpl);
+            }
+            if (refreshed) {
                 if (tmpl.height != last_tmpl.height ||
                     memcmp(tmpl.previous_hash, last_tmpl.previous_hash, 32) != 0) {
                     printf("mining  height=%llu  bits=%u\n",
