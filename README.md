@@ -59,19 +59,21 @@ txmminer-cuda 127.0.0.1:33332 YOUR_ADDRESS
 
 # Build from source for your GPU
 cd tools/txmminer-cuda
-make ARCH=sm_86    # RTX 3000/4000
-make ARCH=sm_89    # RTX 4000 Ada
+make ARCH=sm_86    # RTX 3060/3070/3080/3090
+make ARCH=sm_89    # RTX 4060/4070/4080/4090
+make ARCH=sm_120   # RTX 5090 (Blackwell)
 make ARCH=sm_90    # H100/H200
 ```
 
-`txmminer` (CPU) is a development/diagnostic tool only — it cannot mine at mainnet difficulty and must not be used as a production miner.
-
-| GPU | Hashrate | Avg Block Time (diff 36) |
+| GPU | Hashrate | Avg Block Time (diff 40, solo) |
 | --- | --- | --- |
-| RTX 3060 | ~380 MH/s | varies with live mainnet difficulty |
-| RTX 3080 | ~1.2 GH/s | varies with live mainnet difficulty |
-| RTX 4090 | ~2.5 GH/s | ~27 seconds |
-| H100 SXM | ~2 GH/s | ~34 seconds |
+| RTX 3060 | ~380 MH/s | ~48 min |
+| RTX 3080 | ~1.2 GH/s | ~15 min |
+| RTX 4090 | ~2.5 GH/s | ~7 min |
+| RTX 5090 | ~7.8 GH/s | ~2.4 min |
+| H100 SXM | ~2 GH/s | ~9 min |
+
+Pool mining reduces variance — payouts are smoothed across all pool participants.
 
 ---
 
