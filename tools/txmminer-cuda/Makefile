@@ -1,60 +1,57 @@
-# Tensorium CUDA Miner — Makefile
-#
-# Requirements:
-#   - NVIDIA CUDA Toolkit 11.0+ (nvcc)
-#   - GCC or Clang
-#   - GPU with CUDA Compute Capability 6.0+ (Pascal and newer)
-#
-# Build:
-#   make                      # auto-detect GPU arch
-#   make ARCH=sm_89           # RTX 4000 series
-#   make ARCH=sm_86           # RTX 3000 series
-#   make ARCH=sm_80           # A100 / RTX 30 series (Ampere)
-#   make ARCH=sm_75           # RTX 20 series (Turing)
-#   make ARCH=sm_61           # GTX 10 series (Pascal)
-#
-# Common architectures:
-#   sm_61  → GTX 1060/1070/1080
-#   sm_75  → RTX 2060/2070/2080
-#   sm_80  → A100, RTX 30 series (Ampere)
-#   sm_86  → RTX 3060/3070/3080/3090
-#   sm_89  → RTX 4060/4070/4080/4090 (Ada Lovelace)
-#   sm_90  → H100 / H200
-#   sm_120 → RTX 5090 (Blackwell)
-
+# tools/txmminer-cuda/Makefile
 NVCC    ?= nvcc
-CC      ?= gcc
-TARGET  ?= txmminer-cuda
+CXX     ?= g++
+TARGET  ?= tensorium-miner
 
-# Auto-detect GPU architecture if not specified
 ifndef ARCH
   DETECTED := $(shell nvidia-smi --query-gpu=compute_cap --format=csv,noheader 2>/dev/null | head -1 | tr -d .)
   ifneq ($(DETECTED),)
     ARCH := sm_$(DETECTED)
   else
     ARCH := sm_86
-    $(warning "nvidia-smi not found, defaulting to $(ARCH). Set ARCH= if wrong.")
+    $(warning nvidia-smi not found — defaulting to $(ARCH))
   endif
 endif
 
-NVCCFLAGS := -arch=$(ARCH) -O3 --use_fast_math -Xcompiler -O3 \
+NVCCFLAGS := -arch=$(ARCH) -O3 --use_fast_math -Xcompiler "-O3 -pthread" \
              -Xptxas -O3,--warn-on-spills
-CFLAGS    := -O3 -Wall
+CXXFLAGS  := -O3 -Wall -std=c++11 -pthread
 
-.PHONY: all clean info
+SRCS_CU  := gpu_worker.cu mining_kernel.cu
+SRCS_CPP := main.cpp solo_client.cpp stratum_client.cpp
+
+ifdef WITH_NVML
+  SRCS_CPP  += nvml_monitor.cpp
+  NVCCFLAGS += -DWITH_NVML
+  CXXFLAGS  += -DWITH_NVML
+  LDLIBS    += -lnvidia-ml
+endif
+
+OBJS_CU  := $(SRCS_CU:.cu=.o)
+OBJS_CPP := $(SRCS_CPP:.cpp=.o)
 
 all: $(TARGET)
 
-$(TARGET): main.cu mining_kernel.cu sha256d.cuh
-	$(NVCC) $(NVCCFLAGS) -o $@ main.cu mining_kernel.cu
+$(TARGET): $(OBJS_CU) $(OBJS_CPP)
+	$(NVCC) -arch=$(ARCH) -Xcompiler -pthread -o $@ $^ $(LDLIBS)
 	@echo ""
-	@echo "Built: $(TARGET) for $(ARCH)"
-	@echo "Run:   ./$(TARGET) 127.0.0.1:33332 txm1youraddress"
+	@echo "Built: $(TARGET) ($(ARCH))"
+
+%.o: %.cu sha256d.cuh common.h
+	$(NVCC) $(NVCCFLAGS) -c -o $@ $<
+
+%.o: %.cpp common.h
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+install: $(TARGET)
+	sudo cp $(TARGET) /usr/local/bin/tensorium-miner
+	sudo ln -sf /usr/local/bin/tensorium-miner /usr/local/bin/txmminer-cuda
+	@echo "Installed tensorium-miner; txmminer-cuda -> tensorium-miner"
+
+clean:
+	rm -f $(TARGET) txmminer-cuda *.o
 
 info:
 	@echo "ARCH=$(ARCH)"
-	@nvcc --version 2>/dev/null || echo "nvcc not found"
+	@nvcc --version 2>/dev/null | head -1
 	@nvidia-smi --query-gpu=name,compute_cap --format=csv,noheader 2>/dev/null || echo "no GPU detected"
-
-clean:
-	rm -f $(TARGET) *.o *.ptx
