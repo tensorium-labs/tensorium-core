@@ -5,6 +5,7 @@
 #include <string.h>
 #include <pthread.h>
 #include <stdatomic.h>
+#include <unistd.h>
 
 #define TENSORIUM_MINER_VERSION "2.0.0"
 #define DEFAULT_SHARE_DIFF 1048576ULL   /* ~20 bits */
@@ -95,7 +96,12 @@ static inline void shared_state_init(SharedState *s) {
     pthread_mutex_init(&s->job_mutex, NULL);
     pthread_cond_init(&s->job_cond, NULL);
     pthread_mutex_init(&s->share_mutex, NULL);
-    pthread_cond_init(&s->share_cond, NULL);
+    /* Use CLOCK_MONOTONIC for share_cond so NTP adjustments don't affect timeouts */
+    pthread_condattr_t attr;
+    pthread_condattr_init(&attr);
+    pthread_condattr_setclock(&attr, CLOCK_MONOTONIC);
+    pthread_cond_init(&s->share_cond, &attr);
+    pthread_condattr_destroy(&attr);
     pthread_mutex_init(&s->stats_mutex, NULL);
     s->running = 1;
 }
@@ -117,7 +123,13 @@ static inline int share_pop(SharedState *s, ShareResult *r) {
     pthread_mutex_lock(&s->share_mutex);
     while (s->share_count == 0 && s->running) {
         struct timespec ts;
-        clock_gettime(CLOCK_REALTIME, &ts);
+        if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0) {
+            /* clock unavailable — fall back to unconditional wait with short sleep */
+            pthread_mutex_unlock(&s->share_mutex);
+            usleep(50000);
+            pthread_mutex_lock(&s->share_mutex);
+            continue;
+        }
         ts.tv_sec += 1;
         pthread_cond_timedwait(&s->share_cond, &s->share_mutex, &ts);
     }
