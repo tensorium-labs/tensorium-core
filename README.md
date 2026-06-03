@@ -80,12 +80,11 @@ make ARCH=sm_90    # H100/H200
 
 Tensorium is a Proof-of-Work Layer 1 blockchain focused on open mining, transparent tokenomics, and a GPU-first live mainnet direction.
 
-- Max supply: 33,000,000 TXM (1,000,000 founder + 32,000,000 mining)
+- Max supply: 33,000,000 TXM total (8,000,000 pre-mint + 25,000,000 mining)
 - Block time: 60 seconds
-- Initial reward: 15.23557865 TXM/block
+- Initial reward: 11.9027 TXM/block (1,190,279,581 atoms)
 - Halving: every 1,051,200 blocks (~2 years), 10 eras over 20 years
-- Testnet PoW: SHA256d at 20-bit public onboarding difficulty as of 2026-06-01
-- Mainnet-candidate PoW: SHA256d, GPU-first launch posture
+- Mainnet PoW: SHA256d, GPU-first (40-bit initial difficulty)
 - Current phase: post-launch operations; mainnet is live and Phase 10 operational hardening is complete
 
 ### Pool Fee Policy Draft
@@ -140,12 +139,15 @@ cargo test
 
 ## Quick Start — Single Node
 
+> **Mainnet:** use `mainnet-candidate init` / `mainnet-candidate rpc` to connect to the live chain.
+> The bare `init`/`rpc` commands target the local dev chain and are for development only.
+
 ```bash
-# 1. create genesis
-cargo run -p tensorium-node -- init
+# 1. create genesis (mainnet-candidate)
+cargo run -p tensorium-node -- mainnet-candidate init
 
 # 2. start RPC server (terminal 1)
-cargo run -p tensorium-node -- rpc
+cargo run -p tensorium-node -- mainnet-candidate rpc
 
 # 3. create a wallet (terminal 2)
 TENSORIUM_WALLET_PASSPHRASE=yourpass cargo run -p txmwallet -- create

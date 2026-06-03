@@ -77,10 +77,10 @@ Phase 10E artifact:
 
 ## Consensus Checklist
 
-- [x] Confirm max supply: 33,000,000 TXM.
-- [x] Confirm founder allocation: 1,000,000 TXM.
-- [x] Confirm mining allocation: 32,000,000 TXM.
-- [x] Confirm initial reward: 15.23557865 TXM per block.
+- [x] Confirm max supply: 33,000,000 TXM total (8,000,000 pre-mint + 25,000,000 mining).
+- [x] Confirm pre-mint allocation: 8,000,000 TXM (founder + liquidity + ecosystem reserves).
+- [x] Confirm mining allocation: 25,000,000 TXM.
+- [x] Confirm initial reward: 11.9027 TXM per block (1,190,279,581 atoms).
 - [x] Confirm halving interval: 1,051,200 blocks.
 - [x] Confirm max halving eras: 10.
 - [x] Confirm mainnet-candidate coinbase maturity: 100 blocks.
