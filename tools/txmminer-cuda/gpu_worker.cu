@@ -114,6 +114,11 @@ void *gpu_worker_thread(void *arg) {
     GpuWorkerArgs *a = (GpuWorkerArgs *)arg;
     SharedState   *s = a->state;
 
+    if (a->gpu_id < 0 || a->gpu_id >= MAX_GPUS) {
+        fprintf(stderr, "[GPU ?] invalid gpu_id=%d (MAX_GPUS=%d)\n", a->gpu_id, MAX_GPUS);
+        return NULL;
+    }
+
     /* Select CUDA device */
     cudaError_t err = cudaSetDevice(a->gpu_id);
     if (err != cudaSuccess) {
