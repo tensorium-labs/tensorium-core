@@ -1,4 +1,5 @@
 mod accounting;
+mod stratum;
 
 use accounting::{PayoutEntry, PayoutLedger};
 use serde_json::json;
@@ -139,6 +140,13 @@ fn serve() -> Result<(), String> {
         env::var("TENSORIUM_POOL_LEDGER").unwrap_or_else(|_| DEFAULT_LEDGER_PATH.to_owned()),
     );
 
+    let stratum_bind = std::env::var("TENSORIUM_STRATUM_BIND")
+        .unwrap_or_else(|_| "0.0.0.0:3333".to_string());
+    let share_diff: u64 = std::env::var("TENSORIUM_POOL_SHARE_DIFF")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(1_048_576);
+
     println!("tensorium-pool");
     println!("  bind         = {bind}");
     println!("  node_rpc     = {node_rpc}");
@@ -155,17 +163,31 @@ fn serve() -> Result<(), String> {
     );
     println!("  ledger       = {}", ledger_path.display());
     println!("  pool_fee     = {}%", accounting::POOL_FEE_BPS / 100);
+    println!("  stratum      = {stratum_bind}");
+    println!("  share_diff   = {share_diff}");
     println!();
     println!("Miners connect to {bind} using the same RPC interface as the node.");
+    println!("Stratum miners connect to {stratum_bind}.");
     println!("Press Ctrl+C to stop.\n");
 
     let state = Arc::new(Mutex::new(PoolState::new(
-        node_rpc,
-        treasury,
+        node_rpc.clone(),
+        treasury.clone(),
         payout_hot_wallet,
         payout_hot_wallet_max_atoms,
         ledger_path,
     )));
+
+    // ── Stratum server (TCP port 3333) ──────────────────────────────────────
+    let stratum_state = std::sync::Arc::new(std::sync::Mutex::new(
+        stratum::StratumState::new(node_rpc.clone(), treasury.clone(), share_diff),
+    ));
+
+    {
+        let ss   = stratum_state.clone();
+        let bind_str = stratum_bind.clone();
+        std::thread::spawn(move || stratum::run_stratum_server(ss, &bind_str));
+    }
 
     let listener =
         TcpListener::bind(&bind).map_err(|e| format!("bind {bind}: {e}"))?;
