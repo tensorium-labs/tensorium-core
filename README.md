@@ -11,7 +11,7 @@ A Proof-of-Work blockchain built in Rust — live mainnet and CUDA mining.
 [![Website](https://img.shields.io/badge/Website-tensoriumlabs.com-black)](https://tensoriumlabs.com)
 [![Docs](https://img.shields.io/badge/Docs-docs.tensoriumlabs.com-7c3aed)](https://docs.tensoriumlabs.com)
 [![Explorer](https://img.shields.io/badge/Explorer-Live-green)](https://explorer.tensoriumlabs.com)
-[![Release](https://img.shields.io/badge/Release-v0.3.1--mainnet--candidate-orange)](https://github.com/tensorium-labs/tensorium-core/releases/tag/v0.3.1-mainnet-candidate)
+[![Release](https://img.shields.io/badge/Release-v0.3.2--mainnet-orange)](https://github.com/tensorium-labs/tensorium-core/releases/tag/v0.3.2-mainnet)
 
 ## Install (Linux x86_64)
 
@@ -50,9 +50,13 @@ Pool stats and fee disclosure: https://pooltxm.tensoriumlabs.com
 ### GPU Mining
 
 ```bash
-# Pre-built binary (sm_86 = RTX 3000/4000 series)
-chmod +x txmminer-cuda-linux-x86_64-sm86
-sudo mv txmminer-cuda-linux-x86_64-sm86 /usr/local/bin/txmminer-cuda
+# Download pre-built binary for your GPU (from Releases):
+# sm86 = RTX 3060/3070/3080/3090
+# sm89 = RTX 4060/4070/4080/4090
+# sm120 = RTX 5090 (Blackwell)
+curl -fsSL -o txmminer-cuda \
+  https://github.com/tensorium-labs/tensorium-core/releases/latest/download/txmminer-cuda-linux-x86_64-sm86
+chmod +x txmminer-cuda && sudo mv txmminer-cuda /usr/local/bin/txmminer-cuda
 
 # Solo: mine directly against your own node RPC
 txmminer-cuda 127.0.0.1:33332 YOUR_ADDRESS
