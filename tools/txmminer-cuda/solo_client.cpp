@@ -207,7 +207,8 @@ void solo_client_run(const MinerConfig *cfg, SharedState *state) {
 
     JobDesc job;
     memset(&job, 0, sizeof(job));
-    job.share_bits = share_bits_from_diff(cfg->share_diff);
+    /* Solo mode: mine at full network difficulty — no pool, so share_bits = difficulty_bits */
+    job.share_bits = 0; /* will be set from difficulty_bits after fetch */
 
     /* Fetch first template with retries */
     while (state->running && !fetch_template(host, port, cfg->wallet, &job)) {
@@ -217,11 +218,13 @@ void solo_client_run(const MinerConfig *cfg, SharedState *state) {
     }
     if (!state->running) return;
 
-    job.share_bits = share_bits_from_diff(cfg->share_diff);
+    /* In solo mode the kernel must mine at full 40-bit network difficulty.
+       Setting share_bits = difficulty_bits means every found nonce IS a real block. */
+    job.share_bits = job.difficulty_bits;
     job_publish(state, &job);
-    printf("[solo] height=%llu  bits=%u  share_bits=%u\n",
+    printf("[solo] height=%llu  bits=%u  (solo: kernel mines at full difficulty)\n",
            (unsigned long long)job.height,
-           job.difficulty_bits, job.share_bits);
+           job.difficulty_bits);
     fflush(stdout);
 
     time_t last_refresh = time(NULL);
@@ -252,7 +255,7 @@ void solo_client_run(const MinerConfig *cfg, SharedState *state) {
             if (fetch_template(host, port, cfg->wallet, &fresh)) {
                 if (fresh.height != last_height ||
                     memcmp(fresh.previous_hash, job.previous_hash, 32) != 0) {
-                    fresh.share_bits = share_bits_from_diff(cfg->share_diff);
+                    fresh.share_bits = fresh.difficulty_bits; /* solo: kernel mines at full difficulty */
                     job = fresh;
                     last_height = job.height;
                     job_publish(state, &job);
