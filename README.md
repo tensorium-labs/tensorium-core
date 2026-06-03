@@ -24,44 +24,74 @@ The installer is now mainnet-first: it downloads binaries, creates a wallet, ini
 | Binary | Role |
 | --- | --- |
 | `tensorium-node` | Full node (RPC + P2P) |
-| `txmminer-cuda` | **GPU miner** — NVIDIA CUDA, RTX 3000/4000/5000+ |
+| `tensorium-miner` | **GPU miner v2** — NVIDIA CUDA, RTX 3000/4000/5000+, Stratum pool + solo |
+| `txmminer-cuda` | Alias for `tensorium-miner` (backward-compatible) |
 | `txmwallet` | Wallet CLI |
 
 Or download directly from [Releases](https://github.com/tensorium-labs/tensorium-core/releases).
 
 ### Mining Topology
 
-`txmminer-cuda` is the only supported production miner for mainnet. Mainnet initial difficulty (40 leading zero bits) requires a GPU; CPU cannot mine at this difficulty.
+`tensorium-miner` (v2) is the recommended production miner for mainnet. Mainnet initial difficulty (40 leading zero bits) requires a GPU; CPU cannot mine at this difficulty. The binary is also available as `txmminer-cuda` for backward compatibility.
 
-**Solo mining** — miner connects directly to your own node RPC. 0% pool fee. Full block reward goes to your address.
+**Pool mining (Stratum — recommended for consistent payouts):**
 
 ```bash
-txmminer-cuda 127.0.0.1:33332 YOUR_ADDRESS
+tensorium-miner \
+  --mode pool \
+  --pool stratum+tcp://pooltxm.tensoriumlabs.com:3333 \
+  --wallet YOUR_TXM_ADDRESS \
+  --worker WORKER_NAME \
+  --gpu all \
+  --intensity auto
 ```
 
-**Pool mining** — miner connects to the official pool bind address (`pooltxm.tensoriumlabs.com:23336`). The pool charges a **5% fee** on block rewards, disclosed before you connect. Solo miners who run their own node pay no pool fee.
+The pool charges a **5% fee** on block rewards. Pool stats and fee disclosure: https://pooltxm.tensoriumlabs.com
+
+**Solo mining (0% fee — full reward to your address):**
+
+```bash
+tensorium-miner \
+  --mode solo \
+  --rpc http://127.0.0.1:33332 \
+  --wallet YOUR_TXM_ADDRESS \
+  --gpu all \
+  --intensity auto
+```
+
+**Legacy pool mining (RPC mode — still supported):**
 
 ```bash
 txmminer-cuda pooltxm.tensoriumlabs.com:23336 YOUR_ADDRESS
 ```
 
-Pool stats and fee disclosure: https://pooltxm.tensoriumlabs.com
-
 ### GPU Mining
 
+**Download GPU miner:**
+
 ```bash
-# Download pre-built binary for your GPU (from Releases):
-# sm86 = RTX 3060/3070/3080/3090
-# sm89 = RTX 4060/4070/4080/4090
-# sm120 = RTX 5090 (Blackwell)
-curl -fsSL -o txmminer-cuda \
-  https://github.com/tensorium-labs/tensorium-core/releases/latest/download/txmminer-cuda-linux-x86_64-sm86
-chmod +x txmminer-cuda && sudo mv txmminer-cuda /usr/local/bin/txmminer-cuda
+# RTX 3060/3070/3080/3090 (sm_86):
+curl -fsSL -o tensorium-miner \
+  https://github.com/tensorium-labs/tensorium-core/releases/latest/download/tensorium-miner-linux-x86_64-sm86
+chmod +x tensorium-miner && sudo mv tensorium-miner /usr/local/bin/
+sudo ln -sf /usr/local/bin/tensorium-miner /usr/local/bin/txmminer-cuda
 
-# Solo: mine directly against your own node RPC
-txmminer-cuda 127.0.0.1:33332 YOUR_ADDRESS
+# RTX 4060/4070/4080/4090 (sm_89):
+curl -fsSL -o tensorium-miner \
+  https://github.com/tensorium-labs/tensorium-core/releases/latest/download/tensorium-miner-linux-x86_64-sm89
+chmod +x tensorium-miner && sudo mv tensorium-miner /usr/local/bin/
+sudo ln -sf /usr/local/bin/tensorium-miner /usr/local/bin/txmminer-cuda
 
-# Build from source for your GPU
+# RTX 5090 / Blackwell (sm_120):
+curl -fsSL -o tensorium-miner \
+  https://github.com/tensorium-labs/tensorium-core/releases/latest/download/tensorium-miner-linux-x86_64-sm120
+chmod +x tensorium-miner && sudo mv tensorium-miner /usr/local/bin/
+sudo ln -sf /usr/local/bin/tensorium-miner /usr/local/bin/txmminer-cuda
+```
+
+**Build from source for your GPU:**
+
+```bash
 cd tools/txmminer-cuda
 make ARCH=sm_86    # RTX 3060/3070/3080/3090
 make ARCH=sm_89    # RTX 4060/4070/4080/4090
@@ -74,7 +104,7 @@ make ARCH=sm_90    # H100/H200
 | RTX 3060 | ~380 MH/s | ~48 min |
 | RTX 3080 | ~1.2 GH/s | ~15 min |
 | RTX 4090 | ~2.5 GH/s | ~7 min |
-| RTX 5090 | ~7.8 GH/s | ~2.4 min |
+| RTX 5090 | ~40 GH/s | ~23 sec |
 | H100 SXM | ~2 GH/s | ~9 min |
 
 Pool mining reduces variance — payouts are smoothed across all pool participants.
@@ -157,8 +187,11 @@ tensorium-node mainnet-candidate p2p-listen
 TENSORIUM_WALLET_PASSPHRASE=yourpass txmwallet create
 txmwallet getnewaddress
 
-# 5. start GPU miner (terminal 3) — solo mining, 0% fee
-txmminer-cuda 127.0.0.1:33332 YOUR_ADDRESS
+# 5. start GPU miner (terminal 3) — pool mining via Stratum (recommended)
+tensorium-miner --mode pool --pool stratum+tcp://pooltxm.tensoriumlabs.com:3333 --wallet YOUR_ADDRESS --worker $(hostname) --gpu all --intensity auto
+
+# or solo mining (0% fee, needs your own node running)
+tensorium-miner --mode solo --rpc http://127.0.0.1:33332 --wallet YOUR_ADDRESS --gpu all --intensity auto
 
 # 6. check balance (coinbase matures after 100 confirmations)
 txmwallet balance
