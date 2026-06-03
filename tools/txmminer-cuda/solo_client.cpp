@@ -103,6 +103,8 @@ static int extract_byte_array(const char *json, const char *name,
 
 /* Global buf so stack doesn't overflow (template_json is 1 MB) */
 static char s_rpc_buf[RPC_BUF];
+/* Stores raw template JSON: {"header":{...},"transactions":[...]} for submitblock */
+static char s_template_json[RPC_BUF];
 
 static int fetch_template(const char *host, const char *port,
                            const char *wallet, JobDesc *job) {
@@ -132,43 +134,75 @@ static int fetch_template(const char *host, const char *port,
     snprintf(job->job_id, JOB_ID_LEN, "solo-%llu",
              (unsigned long long)job->height);
     job->valid = 1;
+
+    /* Extract and cache raw template JSON for submitblock.
+       The response has: {...,"template":{...},...}
+       We need the value of "template" — the full Block JSON. */
+    const char *tmpl_key = strstr(s_rpc_buf, "\"template\"");
+    s_template_json[0] = '\0';
+    if (tmpl_key) {
+        const char *p = tmpl_key + strlen("\"template\"");
+        while (*p == ' ' || *p == ':') p++;
+        if (*p == '{') {
+            /* Copy the full object by counting braces */
+            int depth = 0;
+            const char *start = p;
+            const char *q = p;
+            int in_str = 0;
+            while (*q) {
+                if (!in_str) {
+                    if (*q == '{') depth++;
+                    else if (*q == '}') { depth--; if (depth == 0) { q++; break; } }
+                    else if (*q == '"') in_str = 1;
+                } else {
+                    if (*q == '"' && *(q-1) != '\\') in_str = 0;
+                }
+                q++;
+            }
+            int len = (int)(q - start);
+            if (len > 0 && len < RPC_BUF - 1) {
+                memcpy(s_template_json, start, len);
+                s_template_json[len] = '\0';
+            }
+        }
+    }
+
     return 1;
 }
 
 // ── Block submit ───────────────────────────────────────────────────────────────
 
-/* Build JSON byte array: "[0,1,2,...]" from raw bytes */
-static void write_byte_array_json(FILE *f, const uint8_t *bytes, int n) {
-    fprintf(f, "[");
-    for (int i = 0; i < n; i++) {
-        fprintf(f, "%u", (unsigned)bytes[i]);
-        if (i < n - 1) fprintf(f, ",");
-    }
-    fprintf(f, "]");
-}
-
 static int submit_block(const char *host, const char *port,
                         const JobDesc *job, uint64_t nonce) {
-    /* Build Block JSON from scratch — /submitblock expects:
-       {"header":{"version":N,"chain_id":"...","height":N,
-         "previous_hash":[...],"merkle_root":[...],"timestamp_seconds":N,
-         "leading_zero_bits":N,"nonce":N},
-        "transactions":[]} */
+    /* Submit the cached template JSON with nonce replaced.
+       s_template_json = {"header":{...,"nonce":0,...},"transactions":[...]}
+       /submitblock expects this exact Block format. */
+    if (s_template_json[0] == '\0') {
+        fprintf(stderr, "[solo] no cached template for submitblock\n");
+        return 0;
+    }
+
+    char *nonce_pos = strstr(s_template_json, "\"nonce\"");
+    if (!nonce_pos) {
+        fprintf(stderr, "[solo] nonce field not found in template\n");
+        return 0;
+    }
+
     FILE *f = fopen("/tmp/txm_submit.json", "w");
     if (!f) return 0;
 
-    fprintf(f, "{\"header\":{");
-    fprintf(f, "\"version\":%llu,", (unsigned long long)job->version);
-    fprintf(f, "\"chain_id\":\"%s\",", job->chain_id);
-    fprintf(f, "\"height\":%llu,", (unsigned long long)job->height);
-    fprintf(f, "\"previous_hash\":");
-    write_byte_array_json(f, job->previous_hash, 32);
-    fprintf(f, ",\"merkle_root\":");
-    write_byte_array_json(f, job->merkle_root, 32);
-    fprintf(f, ",\"timestamp_seconds\":%llu,", (unsigned long long)job->timestamp);
-    fprintf(f, "\"leading_zero_bits\":%u,", (unsigned)job->difficulty_bits);
-    fprintf(f, "\"nonce\":%llu", (unsigned long long)nonce);
-    fprintf(f, "},\"transactions\":[]}");
+    /* Write everything up to "nonce" */
+    int prefix = (int)(nonce_pos - s_template_json);
+    fwrite(s_template_json, 1, prefix, f);
+
+    /* Write new nonce */
+    fprintf(f, "\"nonce\": %llu", (unsigned long long)nonce);
+
+    /* Skip the old nonce value and write the rest */
+    const char *after = nonce_pos + strlen("\"nonce\"");
+    while (*after == ' ' || *after == ':') after++;
+    while (*after && (*after == '-' || (*after >= '0' && *after <= '9'))) after++;
+    fputs(after, f);
     fclose(f);
 
     char cmd[512];
@@ -178,9 +212,11 @@ static int submit_block(const char *host, const char *port,
         host, port);
     FILE *p = popen(cmd, "r");
     if (!p) return 0;
-    char resp[256] = {0};
+    char resp[512] = {0};
     fread(resp, 1, sizeof(resp) - 1, p);
     pclose(p);
+    printf("[solo] submitblock response: %.80s\n", resp);
+    fflush(stdout);
     return strstr(resp, "\"accepted\"") ? 1 : 0;
 }
 
