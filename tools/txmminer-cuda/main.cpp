@@ -288,31 +288,33 @@ run:;
         }
     }
 
-    /* ── Spawn network client thread ── */
-    pthread_t    net_thread;
-    NetThreadArgs net_args = { &cfg, &g_state };
-    pthread_create(&net_thread, NULL,
-                   cfg.mode == MODE_SOLO ? solo_thread : pool_thread,
-                   &net_args);
+    {
+        /* ── Spawn network client thread ── */
+        pthread_t    net_thread;
+        NetThreadArgs net_args = { &cfg, &g_state };
+        pthread_create(&net_thread, NULL,
+                       cfg.mode == MODE_SOLO ? solo_thread : pool_thread,
+                       &net_args);
 
-    /* ── Spawn stats printer thread ── */
-    pthread_t stats_t;
-    pthread_create(&stats_t, NULL, stats_thread, &g_state);
+        /* ── Spawn stats printer thread ── */
+        pthread_t stats_t;
+        pthread_create(&stats_t, NULL, stats_thread, &g_state);
 
 #ifdef WITH_NVML
-    /* ── Spawn NVML monitor thread ── */
-    pthread_t nvml_t;
-    NvmlArgs  nvml_args = { &g_state };
-    pthread_create(&nvml_t, NULL, nvml_monitor_thread, &nvml_args);
+        /* ── Spawn NVML monitor thread ── */
+        pthread_t nvml_t;
+        NvmlArgs  nvml_args = { &g_state };
+        pthread_create(&nvml_t, NULL, nvml_monitor_thread, &nvml_args);
 #endif
 
-    /* ── Wait for all threads ── */
-    for (int i = 0; i < gpu_count; i++) pthread_join(gpu_threads[i], NULL);
-    pthread_join(net_thread, NULL);
-    pthread_join(stats_t, NULL);
+        /* ── Wait for all threads ── */
+        for (int i = 0; i < gpu_count; i++) pthread_join(gpu_threads[i], NULL);
+        pthread_join(net_thread, NULL);
+        pthread_join(stats_t, NULL);
 #ifdef WITH_NVML
-    pthread_join(nvml_t, NULL);
+        pthread_join(nvml_t, NULL);
 #endif
+    }
 
 cleanup:
     return 0;
