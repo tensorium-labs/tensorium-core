@@ -24,7 +24,6 @@ The installer is now mainnet-first: it downloads binaries, creates a wallet, ini
 | Binary | Role |
 | --- | --- |
 | `tensorium-node` | Full node (RPC + P2P) |
-| `txmminer` | CPU miner (dev/test only — diff 36 requires GPU) |
 | `txmminer-cuda` | **GPU miner** — NVIDIA CUDA, RTX 3000/4000/5000+ |
 | `txmwallet` | Wallet CLI |
 
@@ -120,7 +119,6 @@ A self-custody browser wallet for TXM is available as a Chrome extension.
 | --- | --- | --- |
 | `tensorium-core` | library | Block, transaction, UTXO, mempool, wallet, consensus, fork-choice |
 | `tensorium-node` | binary | Full node: HTTP RPC + P2P server |
-| `txmminer` | binary | CPU miner (dev/diagnostic only — cannot mine at mainnet difficulty) |
 | `txmminer-cuda` | binary | NVIDIA CUDA GPU miner |
 | `txmwallet` | binary | CLI wallet |
 
@@ -137,71 +135,48 @@ cargo test
 
 ---
 
-## Quick Start — Single Node
-
-> **Mainnet:** use `mainnet-candidate init` / `mainnet-candidate rpc` to connect to the live chain.
-> The bare `init`/`rpc` commands target the local dev chain and are for development only.
+## Quick Start — Run a Mainnet Node
 
 ```bash
-# 1. create genesis (mainnet-candidate)
-cargo run -p tensorium-node -- mainnet-candidate init
+# 1. initialize mainnet chain state
+tensorium-node mainnet-candidate init
 
-# 2. start RPC server (terminal 1)
-cargo run -p tensorium-node -- mainnet-candidate rpc
+# 2. start RPC (terminal 1)
+tensorium-node mainnet-candidate rpc
 
-# 3. create a wallet (terminal 2)
-TENSORIUM_WALLET_PASSPHRASE=yourpass cargo run -p txmwallet -- create
-export MINER_ADDR=$(cargo run -p txmwallet -- getnewaddress 2>/dev/null)
+# 3. start P2P — auto-connects to seed node (terminal 2)
+tensorium-node mainnet-candidate p2p-listen
 
-# 4. start local miner
-# for real mainnet mining prefer txmminer-cuda; txmminer is diagnostic-only here
-cargo run -p txmminer -- 127.0.0.1:33332 "$MINER_ADDR"
+# 4. create a wallet
+TENSORIUM_WALLET_PASSPHRASE=yourpass txmwallet create
+txmwallet getnewaddress
 
-# 5. check balance (after enough local dev blocks mature)
-cargo run -p txmwallet -- balance
+# 5. start GPU miner (terminal 3) — solo mining, 0% fee
+txmminer-cuda 127.0.0.1:33332 YOUR_ADDRESS
+
+# 6. check balance (coinbase matures after 100 confirmations)
+txmwallet balance
 ```
 
----
-
-## Quick Start — Two Nodes (P2P)
-
-```bash
-# --- Node A (seed) ---
-TENSORIUM_STATE=state-a.json cargo run -p tensorium-node -- init
-TENSORIUM_STATE=state-a.json cargo run -p tensorium-node -- rpc 127.0.0.1:33332 &
-TENSORIUM_STATE=state-a.json cargo run -p tensorium-node -- p2p-listen 127.0.0.1:33333 &
-# dev/diagnostic only — CPU cannot mine at mainnet difficulty
-cargo run -p txmminer -- 127.0.0.1:33332 miner-a
-
-# --- Node B (syncs from A) ---
-TENSORIUM_STATE=state-b.json cargo run -p tensorium-node -- init
-# sync all blocks from A
-TENSORIUM_STATE=state-b.json cargo run -p tensorium-node -- sync 127.0.0.1:33333
-# listen for new blocks broadcast by A
-TENSORIUM_STATE=state-b.json TENSORIUM_NODE_ID=node-b \
-  cargo run -p tensorium-node -- p2p-listen 127.0.0.1:33334 &
-
-# tell A to broadcast to B
-TENSORIUM_PEERS=127.0.0.1:33334 TENSORIUM_STATE=state-a.json \
-  cargo run -p tensorium-node -- rpc 127.0.0.1:33332
-```
+> Sync from seed: if your node is behind, run `tensorium-node mainnet-candidate sync seed.tensoriumlabs.com:33333`
 
 ---
 
 ## Node Commands
 
+All mainnet commands use the `mainnet-candidate` subcommand:
+
 ```
-tensorium-node init                      create mainnet genesis block
-tensorium-node status                    show chain tip and height
-tensorium-node mine-once [addr]          mine one block (diagnostic only)
-tensorium-node rpc [bind]                start HTTP RPC (default 127.0.0.1:33332)
-tensorium-node p2p-listen [bind]         start P2P server (default 0.0.0.0:33333)
-tensorium-node p2p-connect <host:port>   diagnostic handshake to a peer
-tensorium-node sync [host:port]          download missing blocks from a peer
-tensorium-node peers                     print TENSORIUM_PEERS list
-tensorium-node banlist                   show peer ban list
-tensorium-node unban <ip>                remove a ban
-tensorium-node mainnet-candidate ...     explicit alias for the same mainnet chain
+tensorium-node mainnet-candidate init                     initialize mainnet chain state
+tensorium-node mainnet-candidate status                   show chain tip and height
+tensorium-node mainnet-candidate rpc [bind]               start HTTP RPC (default 127.0.0.1:33332)
+tensorium-node mainnet-candidate p2p-listen [bind]        start P2P server (default 0.0.0.0:33333)
+tensorium-node mainnet-candidate sync [host:port]         sync blocks from a peer
+tensorium-node mainnet-candidate p2p-connect <host:port>  test handshake to a peer
+tensorium-node mainnet-candidate peers                    print known peers
+tensorium-node mainnet-candidate banlist                  show peer ban list
+tensorium-node mainnet-candidate unban <ip>               remove a ban
+tensorium-node mainnet-candidate mine-once [addr]         mine one block (diagnostic only)
 ```
 
 ## RPC Endpoints
