@@ -14,13 +14,13 @@
 #   make ARCH=sm_61           # GTX 10 series (Pascal)
 #
 # Common architectures:
-#   sm_61 → GTX 1060/1070/1080
-#   sm_75 → RTX 2060/2070/2080
-#   sm_80 → A100, RTX 30 series (Ampere)
-#   sm_86 → RTX 3060/3070/3080/3090
-#   sm_89 → RTX 4060/4070/4080/4090 (Ada Lovelace)
-#   sm_90 → H100
-#   sm_100 → H200 / Blackwell
+#   sm_61  → GTX 1060/1070/1080
+#   sm_75  → RTX 2060/2070/2080
+#   sm_80  → A100, RTX 30 series (Ampere)
+#   sm_86  → RTX 3060/3070/3080/3090
+#   sm_89  → RTX 4060/4070/4080/4090 (Ada Lovelace)
+#   sm_90  → H100 / H200
+#   sm_120 → RTX 5090 (Blackwell)
 
 NVCC    ?= nvcc
 CC      ?= gcc
@@ -37,7 +37,9 @@ ifndef ARCH
   endif
 endif
 
-NVCCFLAGS := -arch=$(ARCH) -O3 --use_fast_math -Xcompiler -O3
+NVCCFLAGS := -arch=$(ARCH) -O3 --use_fast_math -Xcompiler -O3 \
+             -Xptxas -O3,--warn-on-spills \
+             --maxrregcount=48
 CFLAGS    := -O3 -Wall
 
 .PHONY: all clean info

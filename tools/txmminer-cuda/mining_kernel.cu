@@ -4,6 +4,11 @@
 #include "sha256d.cuh"
 #include <stdint.h>
 
+// ── Constant memory — updated each new block template via cudaMemcpyToSymbol ─
+// Broadcast from L1 constant cache → all 32 threads in a warp share one read.
+__constant__ uint32_t c_midstate[8];
+__constant__ uint8_t  c_block2const[50];
+
 static __host__ __device__ __forceinline__ uint32_t rotr32_hostdev(uint32_t x, int n) {
     return (x >> n) | (x << (32 - n));
 }
@@ -69,102 +74,92 @@ static void compute_midstate_64(const uint8_t *header, uint32_t midstate_out[8])
     midstate_out[4] += e; midstate_out[5] += f; midstate_out[6] += g; midstate_out[7] += h;
 }
 
-// Optimized sha256d for 122-byte Tensorium headers.
-// Works entirely in uint32 (no byte arrays) to minimise register pressure and
-// avoid slow local-memory spills. block2_const is the 50 constant bytes from
-// header[64..113]; nonce occupies header[114..121] (8 bytes LE).
+// sha256d_122 — optimised for 122-byte Tensorium headers.
+// Reads midstate and block2_const from __constant__ memory (L1 broadcast).
+// Returns hash result as uint32[8] big-endian — caller checks difficulty
+// directly on s2[] without converting to bytes.
 //
-// SHA256 padding for 122-byte message:
-//   block2: header[64..121] || 0x80 || 0x00 × 5          (64 bytes)
-//   block3: 0x00 × 56 || 0x000000000000_03D0              (64 bytes, bit-len=976)
-//   block4: SHA256(block1+block2+block3)[0..31] || 0x80
-//           || 0x00 × 23 || 0x0000000000000100            (64 bytes, bit-len=256)
-__device__ __forceinline__ void sha256d_122(
-    const uint32_t midstate[8],      // SHA256 state after first 64 bytes (constant)
-    const uint8_t  b2c[50],          // header[64..113] — constant 50 bytes
-    uint64_t       nonce,            // header[114..121] LE
-    uint8_t        hash_out[32]
-) {
-    // ── Build block2 words directly (no byte intermediate) ───────────────────
-    // b2c[0..47] → W[0..11] big-endian, b2c[48..49] + nonce bytes → W[12..14]
+// SHA256 padding layout (122-byte message):
+//   block1 (64 B): pre-computed as midstate on CPU
+//   block2 (64 B): header[64..121] || 0x80 || 0x00×5     (bit-len in block3)
+//   block3 (64 B): 0x00×56 || 0x000003D0                  (976 bits)
+//   block4 (64 B): inner_hash[0..31] || 0x80 || 0x00×23 || 0x00000100 (256 bits)
+__device__ __forceinline__ void sha256d_122_u32(uint64_t nonce, uint32_t s2_out[8]) {
+    // ── block2: 12 full words from c_block2const, then nonce spliced in ──────
     uint32_t W2[16];
     #pragma unroll
-    for (int i = 0; i < 12; i++) W2[i] = load_be32(b2c + i * 4);
+    for (int i = 0; i < 12; i++) W2[i] = load_be32(c_block2const + i * 4);
 
-    // W[12]: b2c[48], b2c[49], nonce[0], nonce[1]
-    W2[12] = ((uint32_t)b2c[48] << 24) | ((uint32_t)b2c[49] << 16)
+    W2[12] = ((uint32_t)c_block2const[48] << 24) | ((uint32_t)c_block2const[49] << 16)
            | ((uint32_t)(nonce & 0xff) << 8) | (uint32_t)((nonce >> 8) & 0xff);
-    // W[13]: nonce[2..5]
     W2[13] = ((uint32_t)((nonce >> 16) & 0xff) << 24)
            | ((uint32_t)((nonce >> 24) & 0xff) << 16)
            | ((uint32_t)((nonce >> 32) & 0xff) << 8)
            |  (uint32_t)((nonce >> 40) & 0xff);
-    // W[14]: nonce[6], nonce[7], 0x80, 0x00
     W2[14] = ((uint32_t)((nonce >> 48) & 0xff) << 24)
            | ((uint32_t)((nonce >> 56) & 0xff) << 16)
            | 0x00008000u;
     W2[15] = 0x00000000u;
 
-    // ── First SHA256: compress block2 and block3 ─────────────────────────────
+    // ── inner SHA256: block2 + block3 ────────────────────────────────────────
     uint32_t s[8];
     #pragma unroll
-    for (int i = 0; i < 8; i++) s[i] = midstate[i];
+    for (int i = 0; i < 8; i++) s[i] = c_midstate[i];
     sha256_compress(s, W2);
 
-    // block3: all zeros except W[15] = bit-length 976 = 0x000003D0
     uint32_t W3[16] = {0};
-    W3[15] = 0x000003D0u;
+    W3[15] = 0x000003D0u;  // 976 bits
     sha256_compress(s, W3);
 
-    // ── Build block4 directly from s[] (no byte intermediate) ────────────────
-    // block4 = s[0..7] || 0x80000000 || 0 × 5 || bit-length 256 = 0x00000100
+    // ── outer SHA256: block4 from inner hash ─────────────────────────────────
     uint32_t W4[16];
     #pragma unroll
     for (int i = 0; i < 8; i++) W4[i] = s[i];
-    W4[8]  = 0x80000000u;
-    W4[9]  = 0; W4[10] = 0; W4[11] = 0;
+    W4[8] = 0x80000000u;
+    W4[9] = 0; W4[10] = 0; W4[11] = 0;
     W4[12] = 0; W4[13] = 0; W4[14] = 0;
     W4[15] = 0x00000100u;  // 256 bits
 
-    // ── Second SHA256 ─────────────────────────────────────────────────────────
-    uint32_t s2[8] = {
-        0x6a09e667u, 0xbb67ae85u, 0x3c6ef372u, 0xa54ff53au,
-        0x510e527fu, 0x9b05688cu, 0x1f83d9abu, 0x5be0cd19u,
-    };
-    sha256_compress(s2, W4);
+    s2_out[0] = 0x6a09e667u; s2_out[1] = 0xbb67ae85u;
+    s2_out[2] = 0x3c6ef372u; s2_out[3] = 0xa54ff53au;
+    s2_out[4] = 0x510e527fu; s2_out[5] = 0x9b05688cu;
+    s2_out[6] = 0x1f83d9abu; s2_out[7] = 0x5be0cd19u;
+    sha256_compress(s2_out, W4);
+}
 
-    #pragma unroll
+// Direct uint32 difficulty check — avoids byte-store + byte-loop.
+// s2 is big-endian: s2[0]=bytes[0..3], s2[1]=bytes[4..7], etc.
+__device__ __forceinline__ bool passes_difficulty(const uint32_t s2[8], uint8_t bits) {
+    // Full 32-bit words that must be zero
+    uint8_t full = bits >> 5;
+    uint8_t rem  = bits & 31;
+    #pragma unroll 8
     for (int i = 0; i < 8; i++) {
-        hash_out[i*4+0] = (uint8_t)(s2[i] >> 24);
-        hash_out[i*4+1] = (uint8_t)(s2[i] >> 16);
-        hash_out[i*4+2] = (uint8_t)(s2[i] >>  8);
-        hash_out[i*4+3] = (uint8_t)(s2[i]);
+        if (i < full && s2[i] != 0) return false;
     }
+    if (rem == 0) return true;
+    return (full < 8) && ((s2[full] >> (32u - rem)) == 0);
 }
 
 __global__ void mine_kernel_122(
-    const uint32_t *midstate,
-    const uint8_t  *block2_const,
-    uint8_t         difficulty_bits,
-    uint64_t        start_nonce,
-    uint32_t        iters,
-    int            *found,
-    uint64_t       *result_nonce
+    uint8_t   difficulty_bits,
+    uint64_t  start_nonce,
+    uint32_t  iters,
+    int      *found,
+    uint64_t *result_nonce
 ) {
-    if (*found) return;
+    if (__ldg(found)) return;
 
-    uint32_t gid = blockIdx.x * blockDim.x + threadIdx.x;
-    uint64_t stride = (uint64_t)gridDim.x * blockDim.x;
-    uint64_t nonce = start_nonce + gid;
-    uint8_t hash[32];
+    uint64_t gid    = (uint64_t)blockIdx.x * blockDim.x + threadIdx.x;
+    uint64_t stride = (uint64_t)gridDim.x  * blockDim.x;
+    uint64_t nonce  = start_nonce + gid;
+    uint32_t s2[8];
 
     for (uint32_t i = 0; i < iters; i++) {
-        if (*found) return;
-        sha256d_122(midstate, block2_const, nonce, hash);
-        if (leading_zero_bits(hash) >= (int)difficulty_bits) {
-            if (atomicCAS(found, 0, 1) == 0) {
-                *result_nonce = nonce;
-            }
+        if (__ldg(found)) return;
+        sha256d_122_u32(nonce, s2);
+        if (passes_difficulty(s2, difficulty_bits)) {
+            if (atomicCAS(found, 0, 1) == 0) *result_nonce = nonce;
             return;
         }
         nonce += stride;
@@ -234,18 +229,15 @@ extern "C" {
 
 MiningCtx *mining_ctx_create(uint16_t header_len) {
     MiningCtx *ctx = (MiningCtx *)malloc(sizeof(MiningCtx));
-    ctx->header_len = header_len;
-    ctx->d_midstate      = nullptr;
-    ctx->d_block2_const  = nullptr;
+    ctx->header_len      = header_len;
+    ctx->d_midstate      = nullptr;  // unused for 122-byte path (now __constant__)
+    ctx->d_block2_const  = nullptr;  // unused for 122-byte path (now __constant__)
     ctx->d_header        = nullptr;
 
     cudaMalloc(&ctx->d_found,        sizeof(int));
     cudaMalloc(&ctx->d_result_nonce, sizeof(uint64_t));
 
-    if (header_len == 122) {
-        cudaMalloc(&ctx->d_midstate,     8 * sizeof(uint32_t));
-        cudaMalloc(&ctx->d_block2_const, 50);
-    } else {
+    if (header_len != 122) {
         cudaMalloc(&ctx->d_header, header_len);
     }
     return ctx;
@@ -284,12 +276,12 @@ int launch_mining_kernel_ctx(
         compute_midstate_64(header_template, midstate);
         for (int i = 0; i < 50; i++) block2_const[i] = header_template[64 + i];
 
-        cudaMemcpy(ctx->d_midstate,     midstate,     8 * sizeof(uint32_t), cudaMemcpyHostToDevice);
-        cudaMemcpy(ctx->d_block2_const, block2_const, 50,                   cudaMemcpyHostToDevice);
+        // Upload to __constant__ memory — L1 broadcast for all warps
+        cudaMemcpyToSymbol(c_midstate,    midstate,     8 * sizeof(uint32_t));
+        cudaMemcpyToSymbol(c_block2const, block2_const, 50);
 
         mine_kernel_122<<<blocks, threads>>>(
-            ctx->d_midstate, ctx->d_block2_const, difficulty_bits,
-            start_nonce, iters_per_thread,
+            difficulty_bits, start_nonce, iters_per_thread,
             ctx->d_found, ctx->d_result_nonce
         );
     } else {
