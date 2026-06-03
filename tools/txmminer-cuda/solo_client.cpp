@@ -137,39 +137,51 @@ static int fetch_template(const char *host, const char *port,
 
 // ── Block submit ───────────────────────────────────────────────────────────────
 
-static int submit_block(const char *host, const char *port, uint64_t nonce) {
-    /* Inject nonce into cached template JSON, write to temp file, submit via curl */
-    char *nonce_pos = strstr(s_rpc_buf, "\"nonce\"");
-    if (!nonce_pos) return 0;
+/* Build JSON byte array: "[0,1,2,...]" from raw bytes */
+static void write_byte_array_json(FILE *f, const uint8_t *bytes, int n) {
+    fprintf(f, "[");
+    for (int i = 0; i < n; i++) {
+        fprintf(f, "%u", (unsigned)bytes[i]);
+        if (i < n - 1) fprintf(f, ",");
+    }
+    fprintf(f, "]");
+}
 
+static int submit_block(const char *host, const char *port,
+                        const JobDesc *job, uint64_t nonce) {
+    /* Build Block JSON from scratch — /submitblock expects:
+       {"header":{"version":N,"chain_id":"...","height":N,
+         "previous_hash":[...],"merkle_root":[...],"timestamp_seconds":N,
+         "leading_zero_bits":N,"nonce":N},
+        "transactions":[]} */
     FILE *f = fopen("/tmp/txm_submit.json", "w");
     if (!f) return 0;
 
-    /* Copy up to the nonce value, replace it, copy the rest */
-    int prefix = (int)(nonce_pos - s_rpc_buf);
-    fwrite(s_rpc_buf, 1, prefix, f);
-    fprintf(f, "\"nonce\": %llu", (unsigned long long)nonce);
-
-    /* Skip original nonce value: find next comma or closing brace */
-    const char *after = nonce_pos + strlen("\"nonce\"");
-    while (*after == ' ' || *after == ':') after++;
-    /* skip the number */
-    while (*after && (*after == '-' || (*after >= '0' && *after <= '9'))) after++;
-    fputs(after, f);
+    fprintf(f, "{\"header\":{");
+    fprintf(f, "\"version\":%llu,", (unsigned long long)job->version);
+    fprintf(f, "\"chain_id\":\"%s\",", job->chain_id);
+    fprintf(f, "\"height\":%llu,", (unsigned long long)job->height);
+    fprintf(f, "\"previous_hash\":");
+    write_byte_array_json(f, job->previous_hash, 32);
+    fprintf(f, ",\"merkle_root\":");
+    write_byte_array_json(f, job->merkle_root, 32);
+    fprintf(f, ",\"timestamp_seconds\":%llu,", (unsigned long long)job->timestamp);
+    fprintf(f, "\"leading_zero_bits\":%u,", (unsigned)job->difficulty_bits);
+    fprintf(f, "\"nonce\":%llu", (unsigned long long)nonce);
+    fprintf(f, "},\"transactions\":[]}");
     fclose(f);
 
     char cmd[512];
     snprintf(cmd, sizeof(cmd),
         "curl -s -X POST http://%s:%s/submitblock "
-        "-H 'Content-Type: application/json' -d @/tmp/txm_submit.json",
+        "-H \"Content-Type: application/json\" -d @/tmp/txm_submit.json",
         host, port);
     FILE *p = popen(cmd, "r");
     if (!p) return 0;
     char resp[256] = {0};
     fread(resp, 1, sizeof(resp) - 1, p);
     pclose(p);
-    return (strstr(resp, "accepted") || strstr(resp, "\"ok\"") ||
-            strstr(resp, "true")) ? 1 : 0;
+    return strstr(resp, "\"accepted\"") ? 1 : 0;
 }
 
 // ── build_header ───────────────────────────────────────────────────────────────
@@ -235,17 +247,35 @@ void solo_client_run(const MinerConfig *cfg, SharedState *state) {
         ShareResult share;
         if (share_pop(state, &share)) {
             if (share.is_block) {
-                printf("[solo] BLOCK FOUND! height=%llu  nonce=%llu  GPU=%d\n",
+                printf("[solo] ⛏ BLOCK FOUND! height=%llu  nonce=%llu  GPU=%d\n",
                        (unsigned long long)job.height,
                        (unsigned long long)share.nonce, share.gpu_id);
                 fflush(stdout);
-                if (submit_block(host, port, share.nonce))
-                    printf("[solo] block submitted OK\n");
+                if (submit_block(host, port, &job, share.nonce))
+                    printf("[solo] block submitted OK — fetching new template\n");
                 else
                     fprintf(stderr, "[solo] block submission failed\n");
                 fflush(stdout);
+
+                /* Force immediate template refresh so GPU stops re-mining same nonce */
+                JobDesc fresh;
+                memset(&fresh, 0, sizeof(fresh));
+                for (int r = 0; r < 5 && state->running; r++) {
+                    if (fetch_template(host, port, cfg->wallet, &fresh)) {
+                        fresh.share_bits = fresh.difficulty_bits;
+                        job = fresh;
+                        last_height = job.height;
+                        last_refresh = time(NULL);
+                        job_publish(state, &job);
+                        printf("[solo] mining height=%llu  bits=%u\n",
+                               (unsigned long long)job.height, job.difficulty_bits);
+                        fflush(stdout);
+                        break;
+                    }
+                    sleep(1);
+                }
             }
-            /* Solo mode: only blocks are submitted, shares are informational only */
+            /* Solo mode: non-block shares are discarded */
         }
 
         /* Refresh template every 10s or if chain advanced */
@@ -255,7 +285,7 @@ void solo_client_run(const MinerConfig *cfg, SharedState *state) {
             if (fetch_template(host, port, cfg->wallet, &fresh)) {
                 if (fresh.height != last_height ||
                     memcmp(fresh.previous_hash, job.previous_hash, 32) != 0) {
-                    fresh.share_bits = fresh.difficulty_bits; /* solo: kernel mines at full difficulty */
+                    fresh.share_bits = fresh.difficulty_bits;
                     job = fresh;
                     last_height = job.height;
                     job_publish(state, &job);
