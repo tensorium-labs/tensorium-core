@@ -38,8 +38,7 @@ ifndef ARCH
 endif
 
 NVCCFLAGS := -arch=$(ARCH) -O3 --use_fast_math -Xcompiler -O3 \
-             -Xptxas -O3,--warn-on-spills \
-             --maxrregcount=48
+             -Xptxas -O3,--warn-on-spills
 CFLAGS    := -O3 -Wall
 
 .PHONY: all clean info
