@@ -35,8 +35,8 @@ static void print_usage(const char *prog) {
 
 /* intensity 1-10 → cuda_blocks, cuda_threads */
 static void intensity_to_launch(int intensity, int *blocks, int *threads) {
-    /* auto = 7 */
-    if (intensity <= 0) intensity = 7;
+    /* auto = 8: 8192 blocks × 256 threads — optimal for RTX 3000+ */
+    if (intensity <= 0) intensity = 8;
     if (intensity > 10) intensity = 10;
     static const int BLOCKS[10]  = {1024,1024,2048,2048,4096,4096,8192,8192,12288,16384};
     static const int THREADS[10] = {128,  256, 128, 256, 128, 256, 128, 256,  256,  256};
