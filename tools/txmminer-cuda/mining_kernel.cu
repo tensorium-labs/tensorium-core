@@ -5,9 +5,11 @@
 #include <stdint.h>
 
 // ── Constant memory — updated each new block template via cudaMemcpyToSymbol ─
-// Broadcast from L1 constant cache → all 32 threads in a warp share one read.
+// All reads are aligned uint32 → single ld.const.u32 per access (not 4× bytes).
 __constant__ uint32_t c_midstate[8];
-__constant__ uint8_t  c_block2const[50];
+// c_W2_fixed[0..11]: big-endian words from header[64..111], pre-packed on host.
+// c_W2_fixed[12]:    (b2c[48]<<24)|(b2c[49]<<16) — top 16 bits fixed, bottom filled by nonce.
+__constant__ uint32_t c_W2_fixed[13];  // 12 full words + partial word 12
 
 static __host__ __device__ __forceinline__ uint32_t rotr32_hostdev(uint32_t x, int n) {
     return (x >> n) | (x << (32 - n));
@@ -85,17 +87,22 @@ static void compute_midstate_64(const uint8_t *header, uint32_t midstate_out[8])
 //   block3 (64 B): 0x00×56 || 0x000003D0                  (976 bits)
 //   block4 (64 B): inner_hash[0..31] || 0x80 || 0x00×23 || 0x00000100 (256 bits)
 __device__ __forceinline__ void sha256d_122_u32(uint64_t nonce, uint32_t s2_out[8]) {
-    // ── block2: 12 full words from c_block2const, then nonce spliced in ──────
+    // ── block2: aligned uint32 reads from constant memory (ld.const.u32) ─────
+    // c_W2_fixed[0..11]: pre-packed big-endian words (header[64..111])
+    // c_W2_fixed[12]:    (b2c[48]<<24)|(b2c[49]<<16) with nonce[0..1] ORed in
     uint32_t W2[16];
     #pragma unroll
-    for (int i = 0; i < 12; i++) W2[i] = load_be32(c_block2const + i * 4);
+    for (int i = 0; i < 12; i++) W2[i] = c_W2_fixed[i];
 
-    W2[12] = ((uint32_t)c_block2const[48] << 24) | ((uint32_t)c_block2const[49] << 16)
+    // Word 12: top 16 bits pre-packed, splice nonce[0..1] (little-endian)
+    W2[12] = c_W2_fixed[12]
            | ((uint32_t)(nonce & 0xff) << 8) | (uint32_t)((nonce >> 8) & 0xff);
+    // Word 13: nonce[2..5]
     W2[13] = ((uint32_t)((nonce >> 16) & 0xff) << 24)
            | ((uint32_t)((nonce >> 24) & 0xff) << 16)
            | ((uint32_t)((nonce >> 32) & 0xff) << 8)
            |  (uint32_t)((nonce >> 40) & 0xff);
+    // Word 14: nonce[6..7], 0x80 padding
     W2[14] = ((uint32_t)((nonce >> 48) & 0xff) << 24)
            | ((uint32_t)((nonce >> 56) & 0xff) << 16)
            | 0x00008000u;
@@ -230,8 +237,8 @@ extern "C" {
 MiningCtx *mining_ctx_create(uint16_t header_len) {
     MiningCtx *ctx = (MiningCtx *)malloc(sizeof(MiningCtx));
     ctx->header_len      = header_len;
-    ctx->d_midstate      = nullptr;  // unused for 122-byte path (now __constant__)
-    ctx->d_block2_const  = nullptr;  // unused for 122-byte path (now __constant__)
+    ctx->d_midstate      = nullptr;  // unused — midstate in __constant__ c_midstate
+    ctx->d_block2_const  = nullptr;  // unused — pre-packed W2 in __constant__ c_W2_fixed
     ctx->d_header        = nullptr;
 
     cudaMalloc(&ctx->d_found,        sizeof(int));
@@ -272,13 +279,21 @@ int launch_mining_kernel_ctx(
 
     if (ctx->header_len == 122) {
         uint32_t midstate[8];
-        uint8_t  block2_const[50];
         compute_midstate_64(header_template, midstate);
-        for (int i = 0; i < 50; i++) block2_const[i] = header_template[64 + i];
 
-        // Upload to __constant__ memory — L1 broadcast for all warps
-        cudaMemcpyToSymbol(c_midstate,    midstate,     8 * sizeof(uint32_t));
-        cudaMemcpyToSymbol(c_block2const, block2_const, 50);
+        // Pre-pack W2[0..12] as aligned uint32 — avoids 4× byte reads per word on device.
+        // header[64..111] → W2[0..11] big-endian; header[112..113] → top 16 bits of W2[12].
+        const uint8_t *b2c = header_template + 64;
+        uint32_t W2_fixed[13];
+        for (int i = 0; i < 12; i++) {
+            W2_fixed[i] = ((uint32_t)b2c[i*4]   << 24) | ((uint32_t)b2c[i*4+1] << 16)
+                        | ((uint32_t)b2c[i*4+2]  <<  8) |  (uint32_t)b2c[i*4+3];
+        }
+        // W2[12] top 16 bits: b2c[48], b2c[49] — nonce bytes will OR into low 16 bits on device
+        W2_fixed[12] = ((uint32_t)b2c[48] << 24) | ((uint32_t)b2c[49] << 16);
+
+        cudaMemcpyToSymbol(c_midstate,  midstate, 8 * sizeof(uint32_t));
+        cudaMemcpyToSymbol(c_W2_fixed,  W2_fixed, 13 * sizeof(uint32_t));
 
         mine_kernel_122<<<blocks, threads>>>(
             difficulty_bits, start_nonce, iters_per_thread,
