@@ -123,7 +123,7 @@ int main(int argc, char *argv[]) {
     cfg.gpu_count  = 0;   /* 0 = all GPUs */
     cfg.share_diff = DEFAULT_SHARE_DIFF;
 
-    int use_intensity = 7; /* default auto = 7 */
+    int use_intensity = 0; /* 0 = auto (intensity_to_launch defaults to 8 = 8192×256) */
 
     /* ── Backward-compat mode: tensorium-miner HOST:PORT ADDR [dev] [blks] [thr] ── */
     if (argc >= 3 && argv[1][0] != '-') {
@@ -196,7 +196,7 @@ int main(int argc, char *argv[]) {
         }
         else if (strcmp(argv[i], "--intensity") == 0) {
             const char *iv = NEXTARG();
-            use_intensity = (strcmp(iv, "auto") == 0) ? 7 : atoi(iv);
+            use_intensity = (strcmp(iv, "auto") == 0) ? 0 : atoi(iv);
         }
         else if (strcmp(argv[i], "--share-diff") == 0) {
             cfg.share_diff = (uint64_t)strtoull(NEXTARG(), NULL, 10);
