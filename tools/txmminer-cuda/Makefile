@@ -37,10 +37,24 @@ $(TARGET): $(OBJS_CU) $(OBJS_CPP)
 	@echo ""
 	@echo "Built: $(TARGET) ($(ARCH))"
 
-%.o: %.cu sha256d.cuh common.h
+# Explicit rules for CUDA sources (only gpu_worker.cu and mining_kernel.cu)
+gpu_worker.o: gpu_worker.cu sha256d.cuh common.h gpu_worker.h
 	$(NVCC) $(NVCCFLAGS) -c -o $@ $<
 
-%.o: %.cpp common.h
+mining_kernel.o: mining_kernel.cu sha256d.cuh common.h
+	$(NVCC) $(NVCCFLAGS) -c -o $@ $<
+
+# Explicit rules for C++ sources (main.cpp, not main.cu)
+main.o: main.cpp common.h solo_client.h stratum_client.h gpu_worker.h nvml_monitor.h
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+solo_client.o: solo_client.cpp solo_client.h common.h
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+stratum_client.o: stratum_client.cpp stratum_client.h common.h
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+nvml_monitor.o: nvml_monitor.cpp nvml_monitor.h common.h
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
 install: $(TARGET)
