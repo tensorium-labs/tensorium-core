@@ -38,7 +38,8 @@ If another document disagrees with this file, update the other document.
 | P2P seed | `seed.tensoriumlabs.com:33333` |
 | Public RPC | `https://mc-rpc.tensoriumlabs.com` |
 | Public explorer | https://explorer.tensoriumlabs.com |
-| Backup seed | `139.180.137.144:33333` |
+| Backup seed | `mc-rpc2.tensoriumlabs.com:33333` |
+| Backup RPC | `https://mc-rpc2.tensoriumlabs.com` |
 
 ## Wrapped Asset Metadata
 
