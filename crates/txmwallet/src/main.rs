@@ -13,11 +13,12 @@ use chacha20poly1305::{
 };
 use rand_core::{OsRng, RngCore};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use tensorium_core::{
     block::{Transaction, TxInput, TxOutput},
     chain::MAINNET_CANDIDATE,
     script::standard::{multisig_script, multisig_script_sig, extract_multisig,
-                       p2pkh_from_address, p2pkh_from_pubkey},
+                       p2pkh_from_address, p2pkh_from_pubkey, htlc_script},
     ChainState, UtxoSet, WalletKeypair,
 };
 
@@ -290,6 +291,42 @@ fn run() -> Result<(), String> {
             println!("sigs_applied={}", collected_sigs.len());
             println!("written={}", tx_path.display());
             println!("ready to broadcast: txmwallet broadcast {}", tx_path.display());
+        }
+        "htlc-secret" => {
+            let mut preimage = [0u8; 32];
+            OsRng.fill_bytes(&mut preimage);
+            let hash = Sha256::digest(preimage);
+            println!("preimage: {}", hex::encode(preimage));
+            println!("sha256:   {}", hex::encode(hash));
+            println!("keep the preimage secret; share only the sha256 hash");
+        }
+        "htlc-script" => {
+            let usage =
+                "usage: txmwallet htlc-script <hash_hex> <recipient_addr> <refund_addr> <locktime_height>";
+            let hash_hex = args.get(2).ok_or(usage)?;
+            let recipient_addr = args.get(3).ok_or(usage)?;
+            let refund_addr = args.get(4).ok_or(usage)?;
+            let locktime: u64 = args
+                .get(5)
+                .ok_or(usage)?
+                .parse()
+                .map_err(|_| "invalid locktime height".to_owned())?;
+
+            let hash_vec = hex::decode(hash_hex).map_err(|_| "invalid hash hex".to_owned())?;
+            if hash_vec.len() != 32 {
+                return Err("hash must be 32 bytes (SHA256)".to_owned());
+            }
+            let mut hash = [0u8; 32];
+            hash.copy_from_slice(&hash_vec);
+
+            let recipient_hash = address_to_hash20(recipient_addr)?;
+            let refund_hash = address_to_hash20(refund_addr)?;
+
+            let script = htlc_script(&hash, &recipient_hash, &refund_hash, locktime);
+            println!("scriptpubkey: {}", hex::encode(&script));
+            println!("locktime_height: {locktime}");
+            println!("size={} bytes", script.len());
+            println!("fund it by sending TXM to this scriptpubkey (send-from-script or a script output)");
         }
         _ => print_help(),
     }
@@ -681,6 +718,15 @@ fn build_unsigned_multisig_tx(
     }
 
     Ok(Transaction::payment(inputs, outputs))
+}
+
+/// Decode a txm1 bech32 address to its 20-byte pubkey hash by reusing the P2PKH builder.
+fn address_to_hash20(addr: &str) -> Result<[u8; 20], String> {
+    let script = p2pkh_from_address(addr).map_err(|_| format!("invalid address: {addr}"))?;
+    // P2PKH layout: OP_DUP OP_HASH160 0x14 <hash20> OP_EQUALVERIFY OP_CHECKSIG
+    let mut h = [0u8; 20];
+    h.copy_from_slice(&script[3..23]);
+    Ok(h)
 }
 
 impl WalletFile {
