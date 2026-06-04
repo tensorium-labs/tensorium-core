@@ -61,7 +61,7 @@ The founder commits to a **voluntary 24-month lock** starting from mainnet genes
 ### Mining
 - Mainnet-candidate requires GPU mining (initial difficulty: 40 leading zero bits, ~2^40 hashes per block).
 - CPU mining at mainnet-candidate difficulty is not practical.
-- GPU mining requires an NVIDIA RTX 3060 or equivalent (sm86 CUDA architecture) for the included `txmminer-cuda` binary.
+- GPU mining requires an NVIDIA RTX 3060 or equivalent (sm86 CUDA architecture) for the included `tensorium-miner` binary.
 - Other GPU architectures may require compiling from source.
 
 ### Network

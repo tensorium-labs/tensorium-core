@@ -10,7 +10,7 @@ Last updated: 2026-06-02
 ### KI-001: Stale block logged as accepted by losing miner
 
 **Severity:** Low (cosmetic)
-**Component:** txmminer
+**Component:** tensorium-miner
 **Description:** When two miners mine the same block simultaneously, the second miner to submit receives `AlreadyKnown` from the node, which returns `accepted: true` with the existing height. The miner prints `✓` rather than logging a stale event. Functionally the miner continues correctly to the next block.
 **Impact:** None — mining continues normally. Log is slightly misleading.
 **Fix planned:** Phase 7 readiness — return `accepted: false` for `AlreadyKnown` in RPC response.
@@ -22,7 +22,7 @@ Last updated: 2026-06-02
 **Severity:** Low
 **Component:** tensorium-node (mine-once command)
 **Description:** `tensorium-node mine-once` uses a single-threaded nonce search. At current GPU-first mainnet difficulty, this command is only useful for development diagnostics and should not be treated as a real miner.
-**Workaround:** Use `txmminer-cuda` for GPU mining or `txmminer` only for low-difficulty/dev testing.
+**Workaround:** Use `tensorium-miner` for GPU mining or `txmminer` only for low-difficulty/dev testing.
 
 ---
 

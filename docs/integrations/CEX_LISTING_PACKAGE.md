@@ -81,7 +81,7 @@ For wallets, indexers, and listing forms that need one concise reference packet,
 | Backup seed | `139.180.137.144:33333` |
 | Node software | `tensorium-node` (Rust, open source) |
 | Wallet | `txmwallet` CLI + Chrome extension |
-| Mining software | `txmminer` (CPU diagnostic/dev), `txmminer-cuda` (NVIDIA CUDA, practical mainnet mining) |
+| Mining software | `txmminer` (CPU diagnostic/dev), `tensorium-miner` (NVIDIA CUDA, practical mainnet mining) |
 
 **wTXM Bridge (Optimism mainnet):**
 

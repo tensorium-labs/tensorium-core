@@ -25,14 +25,13 @@ The installer is now mainnet-first: it downloads binaries, creates a wallet, ini
 | --- | --- |
 | `tensorium-node` | Full node (RPC + P2P) |
 | `tensorium-miner` | **GPU miner v2** — NVIDIA CUDA, RTX 3000/4000/5000+, Stratum pool + solo |
-| `txmminer-cuda` | Alias for `tensorium-miner` (backward-compatible) |
 | `txmwallet` | Wallet CLI |
 
 Or download directly from [Releases](https://github.com/tensorium-labs/tensorium-core/releases).
 
 ### Mining Topology
 
-`tensorium-miner` (v2) is the recommended production miner for mainnet. Mainnet initial difficulty (40 leading zero bits) requires a GPU; CPU cannot mine at this difficulty. The binary is also available as `txmminer-cuda` for backward compatibility.
+`tensorium-miner` (v2) is the recommended production miner for mainnet. Mainnet initial difficulty (40 leading zero bits) requires a GPU; CPU cannot mine at this difficulty.
 
 **Pool mining (Stratum — recommended for consistent payouts):**
 
@@ -59,12 +58,6 @@ tensorium-miner \
   --intensity auto
 ```
 
-**Legacy pool mining (RPC mode — still supported):**
-
-```bash
-txmminer-cuda pooltxm.tensoriumlabs.com:23336 YOUR_ADDRESS
-```
-
 ### GPU Mining
 
 **Download GPU miner:**
@@ -74,19 +67,16 @@ txmminer-cuda pooltxm.tensoriumlabs.com:23336 YOUR_ADDRESS
 curl -fsSL -o tensorium-miner \
   https://github.com/tensorium-labs/tensorium-core/releases/latest/download/tensorium-miner-linux-x86_64-sm86
 chmod +x tensorium-miner && sudo mv tensorium-miner /usr/local/bin/
-sudo ln -sf /usr/local/bin/tensorium-miner /usr/local/bin/txmminer-cuda
 
 # RTX 4060/4070/4080/4090 (sm_89):
 curl -fsSL -o tensorium-miner \
   https://github.com/tensorium-labs/tensorium-core/releases/latest/download/tensorium-miner-linux-x86_64-sm89
 chmod +x tensorium-miner && sudo mv tensorium-miner /usr/local/bin/
-sudo ln -sf /usr/local/bin/tensorium-miner /usr/local/bin/txmminer-cuda
 
 # RTX 5090 / Blackwell (sm_120):
 curl -fsSL -o tensorium-miner \
   https://github.com/tensorium-labs/tensorium-core/releases/latest/download/tensorium-miner-linux-x86_64-sm120
 chmod +x tensorium-miner && sudo mv tensorium-miner /usr/local/bin/
-sudo ln -sf /usr/local/bin/tensorium-miner /usr/local/bin/txmminer-cuda
 ```
 
 **Build from source for your GPU:**
@@ -157,7 +147,7 @@ A self-custody browser wallet for TXM is available as a Chrome extension.
 | `tensorium-node` | binary | Full node: HTTP RPC + P2P server |
 | `tensorium-pool` | binary | Stratum + RPC mining pool (5% fee accounting, payout ledger) |
 | `txmwallet` | binary | CLI wallet (P2PKH, multisig, HTLC) |
-| `tensorium-miner` | tool (`tools/txmminer-cuda`) | NVIDIA CUDA GPU miner v2 — Stratum pool + solo, multi-GPU (alias `txmminer-cuda`) |
+| `tensorium-miner` | tool (`tools/txmminer-cuda`) | NVIDIA CUDA GPU miner v2 — Stratum pool + solo, multi-GPU |
 
 ---
 
