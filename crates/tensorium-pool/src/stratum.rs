@@ -107,10 +107,27 @@ fn build_header(job: &StratumJob, nonce: u64) -> Vec<u8> {
     h
 }
 
+// ── Nonce encoding helpers ─────────────────────────────────────────────────────
+
+/// Parse a nonce from the little-endian hex string sent by the miner.
+/// The miner encodes the nonce as 8 LE bytes formatted as hex (LSB first),
+/// e.g. nonce=1000 (0x3E8) → "e803000000000000".
+fn le_hex_to_u64(s: &str) -> Option<u64> {
+    let s = s.trim_start_matches("0x");
+    let mut bytes = [0u8; 8];
+    let pairs = s.len() / 2;
+    for i in 0..pairs.min(8) {
+        bytes[i] = u8::from_str_radix(&s[i * 2..i * 2 + 2], 16).ok()?;
+    }
+    Some(u64::from_le_bytes(bytes))
+}
+
 // ── Share validation ───────────────────────────────────────────────────────────
 
 fn validate_share(job: &StratumJob, nonce_hex: &str, share_diff: u64) -> Option<(u8, bool, bool)> {
-    let nonce = u64::from_str_radix(nonce_hex.trim_start_matches("0x"), 16).ok()?;
+    // Miner sends nonce as little-endian hex bytes (LSB first).
+    // Parse byte-by-byte and reconstruct as LE u64.
+    let nonce = le_hex_to_u64(nonce_hex)?;
     let header = build_header(job, nonce);
     let hash   = sha256d(&header);
     let zeros  = leading_zero_bits(&hash);
@@ -401,8 +418,7 @@ fn handle_stratum_conn(
                     match validate_share(job, &nonce_hex, share_diff) {
                         Some((_, true, is_block)) => {
                             if is_block {
-                                let nonce = u64::from_str_radix(
-                                    nonce_hex.trim_start_matches("0x"), 16).unwrap_or(0);
+                                let nonce = le_hex_to_u64(&nonce_hex).unwrap_or(0);
                                 let node_rpc = state.lock().unwrap().node_rpc.clone();
                                 submit_block(&node_rpc, job, nonce);
                                 state.lock().unwrap().blocks_found += 1;
