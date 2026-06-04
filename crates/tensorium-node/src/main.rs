@@ -204,6 +204,39 @@ fn run() -> Result<(), String> {
                         &MAINNET_CANDIDATE,
                     )?;
                 }
+                "daemon" => {
+                    // Run RPC + P2P in a single process so they share the same DB path without
+                    // fighting over the RocksDB exclusive lock.  The retry logic in open_rocksdb
+                    // (state.rs) handles the brief moment when both threads open simultaneously.
+                    let rpc_bind = args
+                        .get(3)
+                        .map(String::as_str)
+                        .unwrap_or(DEFAULT_MC_RPC_BIND)
+                        .to_owned();
+                    let p2p_bind = args
+                        .get(4)
+                        .map(String::as_str)
+                        .unwrap_or(DEFAULT_MC_P2P_BIND)
+                        .to_owned();
+                    let state_path  = mc_state_path_from_env();
+                    let mempool_path = mc_mempool_path_from_env();
+                    let ban_path    = mc_ban_path_from_env();
+
+                    println!(
+                        "tensorium mainnet-candidate daemon  rpc={rpc_bind}  p2p={p2p_bind}"
+                    );
+
+                    let rpc_state   = state_path.clone();
+                    let rpc_mempool = mempool_path.clone();
+                    let rpc_handle  = thread::spawn(move || {
+                        serve_rpc(&rpc_bind, rpc_state, rpc_mempool, &MAINNET_CANDIDATE)
+                    });
+
+                    serve_p2p(&p2p_bind, state_path, mempool_path, ban_path, &MAINNET_CANDIDATE)?;
+
+                    // If P2P exits (error), surface the RPC thread's result too.
+                    rpc_handle.join().map_err(|_| "RPC thread panicked".to_owned())??;
+                }
                 "sync" => {
                     let peers = configured_mc_peers();
                     let peer = args
@@ -642,8 +675,9 @@ fn print_help_mc() {
     println!("tensorium-node mainnet-candidate <subcommand>\n");
     println!("subcommands:");
     println!("  init [genesis_nonce]    initialize mc state (uses hardcoded nonce by default)");
-    println!("  rpc [bind]              start mainnet-candidate RPC server");
-    println!("  p2p-listen [bind]       start mainnet-candidate P2P server");
+    println!("  daemon [rpc_bind] [p2p_bind]  start RPC + P2P in one process (recommended)");
+    println!("  rpc [bind]              start mainnet-candidate RPC server only");
+    println!("  p2p-listen [bind]       start mainnet-candidate P2P server only");
     println!("  sync [peer]             sync mc chain from a peer");
     println!("  mine-genesis [threads]  CPU-mine the mc genesis nonce");
     println!("  status                  show mc chain status");

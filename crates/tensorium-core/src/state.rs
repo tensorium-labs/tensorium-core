@@ -29,8 +29,20 @@ fn open_rocksdb(path: &Path) -> DB {
     let mut opts = Options::default();
     opts.create_if_missing(true);
     opts.create_missing_column_families(true);
-    DB::open_cf_descriptors(&opts, path, cf_options())
-        .unwrap_or_else(|e| panic!("Failed to open RocksDB at {}: {e}", path.display()))
+    // Retry on transient lock contention (e.g. daemon mode where RPC + P2P share the same DB path).
+    let mut wait_ms = 10u64;
+    loop {
+        match DB::open_cf_descriptors(&opts, path, cf_options()) {
+            Ok(db) => return db,
+            Err(e) if e.to_string().contains("temporarily unavailable")
+                   || e.to_string().contains("lock") =>
+            {
+                std::thread::sleep(std::time::Duration::from_millis(wait_ms));
+                wait_ms = (wait_ms * 2).min(400);
+            }
+            Err(e) => panic!("Failed to open RocksDB at {}: {e}", path.display()),
+        }
+    }
 }
 
 pub struct ChainState {
