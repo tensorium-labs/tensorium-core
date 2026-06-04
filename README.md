@@ -49,14 +49,17 @@ The pool charges a **5% fee** on block rewards. Pool stats and fee disclosure: h
 
 **Solo mining (0% fee — full reward to your address):**
 
+No local node needed — use the public RPC endpoint:
+
 ```bash
 tensorium-miner \
   --mode solo \
-  --rpc http://127.0.0.1:33332 \
+  --rpc http://mc-rpc.tensoriumlabs.com \
   --wallet YOUR_TXM_ADDRESS \
-  --gpu all \
-  --intensity auto
+  --gpu all
 ```
+
+Or point to your own local node if you run one (`--rpc http://127.0.0.1:33332`).
 
 ### GPU Mining
 
@@ -168,21 +171,21 @@ cargo test
 # 1. initialize mainnet chain state
 tensorium-node mainnet-candidate init
 
-# 2. start RPC (terminal 1)
-tensorium-node mainnet-candidate rpc
+# 2. start node daemon (RPC + P2P in one process)
+tensorium-node mainnet-candidate daemon
 
-# 3. start P2P — auto-connects to seed node (terminal 2)
-tensorium-node mainnet-candidate p2p-listen
-
-# 4. create a wallet
+# 3. create a wallet
 TENSORIUM_WALLET_PASSPHRASE=yourpass txmwallet create
 txmwallet getnewaddress
 
-# 5. start GPU miner (terminal 3) — pool mining via Stratum (recommended)
-tensorium-miner --mode pool --pool stratum+tcp://pooltxm.tensoriumlabs.com:3333 --wallet YOUR_ADDRESS --worker $(hostname) --gpu all --intensity auto
+# 4. start GPU miner — pool mining via Stratum (recommended, 5% fee)
+tensorium-miner --mode pool --pool stratum+tcp://pooltxm.tensoriumlabs.com:3333 --wallet YOUR_ADDRESS --gpu all
 
-# or solo mining (0% fee, needs your own node running)
-tensorium-miner --mode solo --rpc http://127.0.0.1:33332 --wallet YOUR_ADDRESS --gpu all --intensity auto
+# or solo mining — no local node needed, use public RPC (0% fee)
+tensorium-miner --mode solo --rpc http://mc-rpc.tensoriumlabs.com --wallet YOUR_ADDRESS --gpu all
+
+# or solo mining against your own local node
+tensorium-miner --mode solo --rpc http://127.0.0.1:33332 --wallet YOUR_ADDRESS --gpu all
 
 # 6. check balance (coinbase matures after 100 confirmations)
 txmwallet balance
@@ -199,8 +202,9 @@ All mainnet commands use the `mainnet-candidate` subcommand:
 ```
 tensorium-node mainnet-candidate init                     initialize mainnet chain state
 tensorium-node mainnet-candidate status                   show chain tip and height
-tensorium-node mainnet-candidate rpc [bind]               start HTTP RPC (default 127.0.0.1:33332)
-tensorium-node mainnet-candidate p2p-listen [bind]        start P2P server (default 0.0.0.0:33333)
+tensorium-node mainnet-candidate daemon [rpc_bind] [p2p_bind]  start RPC + P2P in one process (recommended)
+tensorium-node mainnet-candidate rpc [bind]               start HTTP RPC only (default 127.0.0.1:33332)
+tensorium-node mainnet-candidate p2p-listen [bind]        start P2P server only (default 0.0.0.0:33333)
 tensorium-node mainnet-candidate sync [host:port]         sync blocks from a peer
 tensorium-node mainnet-candidate p2p-connect <host:port>  test handshake to a peer
 tensorium-node mainnet-candidate peers                    print known peers
