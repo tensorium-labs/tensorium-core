@@ -47,13 +47,6 @@ tensorium-miner \
 Pool stats and payout history: https://pooltxm.tensoriumlabs.com  
 Fee: **5%** of block reward. Treasury: `txm13vgxzj5ulrfhe7x0mlzxg0q6veq42tkku4g3jr`
 
-Backup pool endpoint (Vultr):
-```bash
-tensorium-miner --mode pool \
-  --pool stratum+tcp://mc-rpc2.tensoriumlabs.com:3333 \
-  --wallet YOUR_TXM_ADDRESS --gpu all
-```
-
 **Solo mining (0% fee — full block reward to your address):**
 
 No local node needed — connect directly to the public RPC:
@@ -65,8 +58,6 @@ tensorium-miner \
   --wallet YOUR_TXM_ADDRESS \
   --gpu all
 ```
-
-Backup public RPC: `http://mc-rpc2.tensoriumlabs.com` (Vultr seed node)
 
 Or point to your own local node if you run one:
 ```bash
@@ -160,7 +151,7 @@ Pool operations now distinguish between:
 
 See `docs/operations/POOL_PAYOUT_RUNBOOK.md` for the refill and payout procedure.
 
-For safety, the node and pool should be separate trust boundaries. The current infrastructure runs two independent nodes (DO + Vultr) with two independent pool instances, keeping processes, folders, env files, logs, and wallet files isolated.
+For safety, the node and pool should be separate trust boundaries.
 
 ---
 
@@ -217,14 +208,11 @@ tensorium-miner --mode pool \
   --pool stratum+tcp://pooltxm.tensoriumlabs.com:3333 \
   --wallet YOUR_TXM_ADDRESS \
   --gpu all
-# Backup pool: stratum+tcp://mc-rpc2.tensoriumlabs.com:3333
-
 # Or: Solo mining — 0% fee, uses public node (no local node required)
 tensorium-miner --mode solo \
   --rpc http://mc-rpc.tensoriumlabs.com \
   --wallet YOUR_TXM_ADDRESS \
   --gpu all
-# Backup RPC: http://mc-rpc2.tensoriumlabs.com
 ```
 
 ### Option B — Run your own full node + mine
@@ -248,8 +236,7 @@ tensorium-miner --mode solo --rpc http://127.0.0.1:33332 --wallet YOUR_ADDRESS -
 txmwallet balance
 ```
 
-> **Sync from seed:** `tensorium-node mainnet-candidate sync seed.tensoriumlabs.com:33333`  
-> Backup seed: `tensorium-node mainnet-candidate sync mc-rpc2.tensoriumlabs.com:33333`
+> **Sync from seed:** `tensorium-node mainnet-candidate sync seed.tensoriumlabs.com:33333`
 
 ---
 
@@ -442,13 +429,13 @@ HTLCs across chains, enabling **trustless atomic swaps** (e.g. TXM ⇄ wTXM on O
 
 ## Network Infrastructure
 
-| Service | Primary (DO) | Backup (Vultr) |
-|---|---|---|
-| P2P seed | `seed.tensoriumlabs.com:33333` | `mc-rpc2.tensoriumlabs.com:33333` |
-| Public RPC | `https://mc-rpc.tensoriumlabs.com` | `https://mc-rpc2.tensoriumlabs.com` |
-| Stratum pool | `pooltxm.tensoriumlabs.com:3333` | `mc-rpc2.tensoriumlabs.com:3333` |
-| Explorer | [explorer.tensoriumlabs.com](https://explorer.tensoriumlabs.com) | — |
-| Pool stats | [pooltxm.tensoriumlabs.com](https://pooltxm.tensoriumlabs.com) | — |
+| Service | Endpoint |
+|---|---|
+| P2P seed | `seed.tensoriumlabs.com:33333` |
+| Public RPC | `https://mc-rpc.tensoriumlabs.com` |
+| Stratum pool | `pooltxm.tensoriumlabs.com:3333` |
+| Explorer | [explorer.tensoriumlabs.com](https://explorer.tensoriumlabs.com) |
+| Pool stats | [pooltxm.tensoriumlabs.com](https://pooltxm.tensoriumlabs.com) |
 
 ---
 
