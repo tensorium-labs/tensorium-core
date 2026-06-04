@@ -1,7 +1,10 @@
 use bech32::{self, FromBase32, ToBase32, Variant};
 use sha2::{Digest, Sha256};
 
-use crate::script::{ScriptError, OP_CHECKSIG, OP_CHECKMULTISIG, OP_DUP, OP_EQUALVERIFY, OP_HASH160, OP_1};
+use crate::script::{
+    ScriptError, OP_CHECKSIG, OP_CHECKMULTISIG, OP_DUP, OP_EQUALVERIFY, OP_HASH160, OP_1,
+    OP_0, OP_IF, OP_ELSE, OP_ENDIF, OP_SHA256, OP_DROP, OP_CHECKLOCKTIMEVERIFY,
+};
 
 const ADDRESS_HRP: &str = "txm";
 
@@ -145,6 +148,133 @@ pub fn extract_multisig(script_pubkey: &[u8]) -> Option<(u8, Vec<Vec<u8>>)> {
     Some((m, pubkeys))
 }
 
+/// Encode a u64 locktime as minimal little-endian bytes (at least 1 byte).
+fn encode_locktime(locktime: u64) -> Vec<u8> {
+    let bytes = locktime.to_le_bytes();
+    let mut len = 8usize;
+    while len > 1 && bytes[len - 1] == 0 {
+        len -= 1;
+    }
+    bytes[..len].to_vec()
+}
+
+/// Build an HTLC (Hash Time Locked Contract) locking script.
+///
+/// Claim branch (IF): reveal a preimage whose SHA256 equals `hash`, signed by the
+/// recipient key (hash160 == `recipient_hash`).
+/// Refund branch (ELSE): only valid once `block_height >= locktime`, signed by the
+/// refund key (hash160 == `refund_hash`).
+pub fn htlc_script(
+    hash: &[u8; 32],
+    recipient_hash: &[u8; 20],
+    refund_hash: &[u8; 20],
+    locktime: u64,
+) -> Vec<u8> {
+    let lt = encode_locktime(locktime);
+    let mut s = Vec::with_capacity(70 + lt.len());
+    s.push(OP_IF);
+    s.push(OP_SHA256);
+    s.push(0x20);
+    s.extend_from_slice(hash);
+    s.push(OP_EQUALVERIFY);
+    s.push(OP_DUP);
+    s.push(OP_HASH160);
+    s.push(0x14);
+    s.extend_from_slice(recipient_hash);
+    s.push(OP_EQUALVERIFY);
+    s.push(OP_CHECKSIG);
+    s.push(OP_ELSE);
+    s.push(lt.len() as u8);
+    s.extend_from_slice(&lt);
+    s.push(OP_CHECKLOCKTIMEVERIFY);
+    s.push(OP_DROP);
+    s.push(OP_DUP);
+    s.push(OP_HASH160);
+    s.push(0x14);
+    s.extend_from_slice(refund_hash);
+    s.push(OP_EQUALVERIFY);
+    s.push(OP_CHECKSIG);
+    s.push(OP_ENDIF);
+    s
+}
+
+/// Build an HTLC claim scriptSig: [sig][pubkey][preimage] OP_1.
+pub fn htlc_claim_script_sig(der_sig: &[u8], pubkey: &[u8], preimage: &[u8]) -> Vec<u8> {
+    let mut s = Vec::with_capacity(3 + der_sig.len() + pubkey.len() + preimage.len());
+    s.push(der_sig.len() as u8);
+    s.extend_from_slice(der_sig);
+    s.push(pubkey.len() as u8);
+    s.extend_from_slice(pubkey);
+    s.push(preimage.len() as u8);
+    s.extend_from_slice(preimage);
+    s.push(OP_1);
+    s
+}
+
+/// Build an HTLC refund scriptSig: [sig][pubkey] OP_0.
+pub fn htlc_refund_script_sig(der_sig: &[u8], pubkey: &[u8]) -> Vec<u8> {
+    let mut s = Vec::with_capacity(2 + der_sig.len() + pubkey.len() + 1);
+    s.push(der_sig.len() as u8);
+    s.extend_from_slice(der_sig);
+    s.push(pubkey.len() as u8);
+    s.extend_from_slice(pubkey);
+    s.push(OP_0);
+    s
+}
+
+/// Parse an HTLC scriptPubKey built by `htlc_script`.
+/// Returns Some((hash32, recipient_hash20, refund_hash20, locktime)) on match.
+pub fn extract_htlc(spk: &[u8]) -> Option<([u8; 32], [u8; 20], [u8; 20], u64)> {
+    // Claim-branch prefix is fixed at 61 bytes, then OP_ELSE at index 61.
+    if spk.len() < 62 {
+        return None;
+    }
+    if spk[0] != OP_IF || spk[1] != OP_SHA256 || spk[2] != 0x20 {
+        return None;
+    }
+    let mut hash = [0u8; 32];
+    hash.copy_from_slice(&spk[3..35]);
+    if spk[35] != OP_EQUALVERIFY || spk[36] != OP_DUP || spk[37] != OP_HASH160 || spk[38] != 0x14 {
+        return None;
+    }
+    let mut recipient_hash = [0u8; 20];
+    recipient_hash.copy_from_slice(&spk[39..59]);
+    if spk[59] != OP_EQUALVERIFY || spk[60] != OP_CHECKSIG || spk[61] != OP_ELSE {
+        return None;
+    }
+    let lt_len = spk[62] as usize;
+    if lt_len == 0 || lt_len > 8 {
+        return None;
+    }
+    let lt_start = 63;
+    let lt_end = lt_start + lt_len;
+    // remaining after locktime: CLTV DROP DUP HASH160 0x14 <20> EQUALVERIFY CHECKSIG ENDIF = 28 bytes
+    if spk.len() != lt_end + 28 {
+        return None;
+    }
+    let mut lt_buf = [0u8; 8];
+    lt_buf[..lt_len].copy_from_slice(&spk[lt_start..lt_end]);
+    let locktime = u64::from_le_bytes(lt_buf);
+
+    let i = lt_end;
+    if spk[i] != OP_CHECKLOCKTIMEVERIFY
+        || spk[i + 1] != OP_DROP
+        || spk[i + 2] != OP_DUP
+        || spk[i + 3] != OP_HASH160
+        || spk[i + 4] != 0x14
+    {
+        return None;
+    }
+    let r_start = i + 5;
+    let r_end = r_start + 20;
+    let mut refund_hash = [0u8; 20];
+    refund_hash.copy_from_slice(&spk[r_start..r_end]);
+    if spk[r_end] != OP_EQUALVERIFY || spk[r_end + 1] != OP_CHECKSIG || spk[r_end + 2] != OP_ENDIF {
+        return None;
+    }
+    Some((hash, recipient_hash, refund_hash, locktime))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -213,5 +343,149 @@ mod tests {
         assert_eq!(script_sig[72], 70);
         assert_eq!(&script_sig[73..143], &[0xbb_u8; 70]);
         assert_eq!(script_sig.len(), 1 + 71 + 1 + 70);
+    }
+
+    fn htlc_test_keypair() -> (k256::ecdsa::SigningKey, Vec<u8>, [u8; 20]) {
+        use k256::ecdsa::SigningKey;
+        use k256::elliptic_curve::sec1::ToEncodedPoint;
+        use rand_core::OsRng;
+        let sk = SigningKey::random(&mut OsRng);
+        let pubkey = sk.verifying_key().to_encoded_point(true).as_bytes().to_vec();
+        let mut hash20 = [0u8; 20];
+        hash20.copy_from_slice(&Sha256::digest(&pubkey)[..20]);
+        (sk, pubkey, hash20)
+    }
+
+    #[test]
+    fn htlc_script_roundtrip() {
+        let hash = [0x11u8; 32];
+        let recipient = [0x22u8; 20];
+        let refund = [0x33u8; 20];
+        let script = htlc_script(&hash, &recipient, &refund, 500);
+        let (h, r, f, lt) = extract_htlc(&script).unwrap();
+        assert_eq!(h, hash);
+        assert_eq!(r, recipient);
+        assert_eq!(f, refund);
+        assert_eq!(lt, 500);
+    }
+
+    #[test]
+    fn htlc_extract_rejects_non_htlc() {
+        assert_eq!(extract_htlc(&[0xac]), None);
+        assert_eq!(extract_htlc(&[]), None);
+    }
+
+    #[test]
+    fn htlc_claim_valid() {
+        use crate::hash::Hash256;
+        use crate::script::vm::{execute, ScriptContext};
+        use k256::ecdsa::{signature::Signer, Signature};
+
+        let (recipient_sk, recipient_pk, recipient_hash) = htlc_test_keypair();
+        let (_refund_sk, _refund_pk, refund_hash) = htlc_test_keypair();
+        let preimage = b"the secret preimage value!!!1234".to_vec();
+        let mut hash = [0u8; 32];
+        hash.copy_from_slice(&Sha256::digest(&preimage));
+
+        let spk = htlc_script(&hash, &recipient_hash, &refund_hash, 100);
+
+        let msg = Hash256([5u8; 32]);
+        let sig: Signature = recipient_sk.sign(&msg.0);
+        let der = sig.to_der().as_bytes().to_vec();
+        let script_sig = htlc_claim_script_sig(&der, &recipient_pk, &preimage);
+
+        let ctx = ScriptContext { sig_hash: msg, block_height: 0 };
+        assert!(execute(&script_sig, &spk, &ctx).unwrap(), "valid claim must succeed");
+    }
+
+    #[test]
+    fn htlc_claim_wrong_preimage_fails() {
+        use crate::hash::Hash256;
+        use crate::script::vm::{execute, ScriptContext};
+        use k256::ecdsa::{signature::Signer, Signature};
+
+        let (recipient_sk, recipient_pk, recipient_hash) = htlc_test_keypair();
+        let (_r_sk, _r_pk, refund_hash) = htlc_test_keypair();
+        let preimage = b"the real secret preimage value..".to_vec();
+        let mut hash = [0u8; 32];
+        hash.copy_from_slice(&Sha256::digest(&preimage));
+
+        let spk = htlc_script(&hash, &recipient_hash, &refund_hash, 100);
+
+        let msg = Hash256([5u8; 32]);
+        let sig: Signature = recipient_sk.sign(&msg.0);
+        let der = sig.to_der().as_bytes().to_vec();
+        let wrong = b"a totally different fake preimage".to_vec();
+        let script_sig = htlc_claim_script_sig(&der, &recipient_pk, &wrong);
+
+        let ctx = ScriptContext { sig_hash: msg, block_height: 0 };
+        let result = execute(&script_sig, &spk, &ctx);
+        assert!(result.is_err() || !result.unwrap(), "wrong preimage must fail");
+    }
+
+    #[test]
+    fn htlc_claim_wrong_sig_fails() {
+        use crate::hash::Hash256;
+        use crate::script::vm::{execute, ScriptContext};
+        use k256::ecdsa::{signature::Signer, Signature};
+
+        let (recipient_sk, recipient_pk, recipient_hash) = htlc_test_keypair();
+        let (_r_sk, _r_pk, refund_hash) = htlc_test_keypair();
+        let preimage = b"the real secret preimage value..".to_vec();
+        let mut hash = [0u8; 32];
+        hash.copy_from_slice(&Sha256::digest(&preimage));
+
+        let spk = htlc_script(&hash, &recipient_hash, &refund_hash, 100);
+
+        // Correct preimage + correct pubkey, but signature over a DIFFERENT message.
+        let signed_msg = Hash256([9u8; 32]);
+        let verify_msg = Hash256([5u8; 32]);
+        let sig: Signature = recipient_sk.sign(&signed_msg.0);
+        let der = sig.to_der().as_bytes().to_vec();
+        let script_sig = htlc_claim_script_sig(&der, &recipient_pk, &preimage);
+
+        let ctx = ScriptContext { sig_hash: verify_msg, block_height: 0 };
+        let result = execute(&script_sig, &spk, &ctx);
+        assert!(result.is_err() || !result.unwrap(), "wrong signature must fail");
+    }
+
+    #[test]
+    fn htlc_refund_valid_after_locktime() {
+        use crate::hash::Hash256;
+        use crate::script::vm::{execute, ScriptContext};
+        use k256::ecdsa::{signature::Signer, Signature};
+
+        let (_recipient_sk, _recipient_pk, recipient_hash) = htlc_test_keypair();
+        let (refund_sk, refund_pk, refund_hash) = htlc_test_keypair();
+        let hash = [0x44u8; 32];
+        let spk = htlc_script(&hash, &recipient_hash, &refund_hash, 100);
+
+        let msg = Hash256([6u8; 32]);
+        let sig: Signature = refund_sk.sign(&msg.0);
+        let der = sig.to_der().as_bytes().to_vec();
+        let script_sig = htlc_refund_script_sig(&der, &refund_pk);
+
+        let ctx = ScriptContext { sig_hash: msg, block_height: 150 };
+        assert!(execute(&script_sig, &spk, &ctx).unwrap(), "refund after locktime must succeed");
+    }
+
+    #[test]
+    fn htlc_refund_before_locktime_fails() {
+        use crate::hash::Hash256;
+        use crate::script::vm::{execute, ScriptContext};
+        use k256::ecdsa::{signature::Signer, Signature};
+
+        let (_recipient_sk, _recipient_pk, recipient_hash) = htlc_test_keypair();
+        let (refund_sk, refund_pk, refund_hash) = htlc_test_keypair();
+        let hash = [0x44u8; 32];
+        let spk = htlc_script(&hash, &recipient_hash, &refund_hash, 100);
+
+        let msg = Hash256([6u8; 32]);
+        let sig: Signature = refund_sk.sign(&msg.0);
+        let der = sig.to_der().as_bytes().to_vec();
+        let script_sig = htlc_refund_script_sig(&der, &refund_pk);
+
+        let ctx = ScriptContext { sig_hash: msg, block_height: 99 };
+        assert_eq!(execute(&script_sig, &spk, &ctx), Err(ScriptError::LockTimeNotMet));
     }
 }
