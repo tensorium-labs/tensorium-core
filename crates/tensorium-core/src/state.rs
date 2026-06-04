@@ -30,22 +30,23 @@ fn open_rocksdb(path: &Path) -> DB {
         .unwrap_or_else(|e| panic!("Failed to open RocksDB at {}: {e}", path.display()))
 }
 
-/// Try to open RocksDB, retrying briefly on transient lock contention.
-/// Returns Err if the DB is still locked after ~600 ms (6 attempts).
-/// Used by the RPC handler so it can return 503 instead of blocking forever.
+/// Try to open RocksDB, retrying on transient lock contention.
+/// Returns Err if the DB is still locked after ~10 s (30 attempts).
+/// Used everywhere that must not panic when another thread holds the lock
+/// (RPC handler, P2P sync threads, etc.).
 pub fn try_open_rocksdb(path: &Path) -> Result<DB, String> {
     let mut opts = Options::default();
     opts.create_if_missing(true);
     opts.create_missing_column_families(true);
     let mut wait_ms = 10u64;
-    for _ in 0..6 {
+    for _ in 0..30 {
         match DB::open_cf_descriptors(&opts, path, cf_options()) {
             Ok(db) => return Ok(db),
             Err(e) if e.to_string().contains("temporarily unavailable")
                    || e.to_string().contains("lock") =>
             {
                 std::thread::sleep(std::time::Duration::from_millis(wait_ms));
-                wait_ms = (wait_ms * 2).min(200);
+                wait_ms = (wait_ms * 2).min(500);
             }
             Err(e) => return Err(e.to_string()),
         }

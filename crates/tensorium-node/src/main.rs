@@ -451,7 +451,7 @@ fn load_state(path: &Path) -> Result<ChainState, String> {
         eprintln!("[storage] Migration complete. Backup at {}", backup.display());
     }
 
-    ChainState::open_db(&db_path)
+    ChainState::try_open_db(&db_path)
 }
 
 /// Load mempool, or return an empty one if the file does not exist yet.
