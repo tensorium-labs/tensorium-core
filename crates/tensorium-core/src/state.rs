@@ -26,23 +26,31 @@ fn cf_options() -> Vec<ColumnFamilyDescriptor> {
 }
 
 fn open_rocksdb(path: &Path) -> DB {
+    try_open_rocksdb(path)
+        .unwrap_or_else(|e| panic!("Failed to open RocksDB at {}: {e}", path.display()))
+}
+
+/// Try to open RocksDB, retrying briefly on transient lock contention.
+/// Returns Err if the DB is still locked after ~600 ms (6 attempts).
+/// Used by the RPC handler so it can return 503 instead of blocking forever.
+pub fn try_open_rocksdb(path: &Path) -> Result<DB, String> {
     let mut opts = Options::default();
     opts.create_if_missing(true);
     opts.create_missing_column_families(true);
-    // Retry on transient lock contention (e.g. daemon mode where RPC + P2P share the same DB path).
     let mut wait_ms = 10u64;
-    loop {
+    for _ in 0..6 {
         match DB::open_cf_descriptors(&opts, path, cf_options()) {
-            Ok(db) => return db,
+            Ok(db) => return Ok(db),
             Err(e) if e.to_string().contains("temporarily unavailable")
                    || e.to_string().contains("lock") =>
             {
                 std::thread::sleep(std::time::Duration::from_millis(wait_ms));
-                wait_ms = (wait_ms * 2).min(400);
+                wait_ms = (wait_ms * 2).min(200);
             }
-            Err(e) => panic!("Failed to open RocksDB at {}: {e}", path.display()),
+            Err(e) => return Err(e.to_string()),
         }
     }
+    Err(format!("DB at {} is locked by another thread", path.display()))
 }
 
 pub struct ChainState {
@@ -69,6 +77,20 @@ impl ChainState {
             path.to_path_buf()
         };
         let db = open_rocksdb(&db_path);
+        let mut s = ChainState { db, _tmpdir: None, tip_cache: None, height_cache: None };
+        s.reload_caches();
+        Ok(s)
+    }
+
+    /// Like `open_db` but returns Err instead of panicking if DB is locked.
+    /// Used by the RPC handler so it can return 503 without blocking the accept loop.
+    pub fn try_open_db(path: &Path) -> Result<Self, String> {
+        let db_path: PathBuf = if path.extension().map(|e| e == "json").unwrap_or(false) {
+            path.with_extension("db")
+        } else {
+            path.to_path_buf()
+        };
+        let db = try_open_rocksdb(&db_path)?;
         let mut s = ChainState { db, _tmpdir: None, tip_cache: None, height_cache: None };
         s.reload_caches();
         Ok(s)

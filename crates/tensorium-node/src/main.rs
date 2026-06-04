@@ -1444,6 +1444,20 @@ fn ensure_safe_rpc_bind(bind: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Load chain state for an RPC handler.  Returns a 503 and propagates Err if the DB is
+/// temporarily locked (daemon mode: P2P thread holds the lock).  This keeps the RPC accept
+/// loop unblocked — callers use `?` to return early on lock contention.
+fn rpc_state(stream: &mut TcpStream, path: &Path) -> Result<ChainState, String> {
+    ChainState::try_open_db(path).map_err(|e| {
+        let _ = write_json_response(
+            stream,
+            503,
+            &json!({ "error": "node busy — DB locked by P2P sync, retry in 1s" }),
+        );
+        e
+    })
+}
+
 fn handle_rpc_stream(
     stream: &mut TcpStream,
     state_path: &Path,
@@ -1474,7 +1488,7 @@ fn handle_rpc_stream(
         }
 
         ("GET", "/getdifficulty") => {
-            let state = load_state(state_path)?;
+            let state = rpc_state(stream, state_path)?;
             let Some(tip) = state.tip() else {
                 return write_json_response(stream, 404, &RpcError::new("chain state is empty"));
             };
@@ -1494,7 +1508,7 @@ fn handle_rpc_stream(
                 .trim_start_matches("/getblock/")
                 .parse::<u64>()
                 .map_err(|err| format!("invalid block height: {err}"))?;
-            let state = load_state(state_path)?;
+            let state = rpc_state(stream, state_path)?;
             let Some(block) = state.get_block_by_height(height) else {
                 return write_json_response(stream, 404, &RpcError::new("block not found"));
             };
@@ -1513,7 +1527,7 @@ fn handle_rpc_stream(
             if miner.is_empty() {
                 return write_json_response(stream, 404, &RpcError::new("missing miner address"));
             }
-            let state = load_state(state_path)?;
+            let state = rpc_state(stream, state_path)?;
             let mempool = load_mempool(&mempool_path);
             let extra_txs = mempool.select_for_block();
             let block = state
@@ -1544,7 +1558,7 @@ fn handle_rpc_stream(
                     )
                 }
             };
-            let mut state = load_state(state_path)?;
+            let mut state = rpc_state(stream, state_path)?;
 
             let accepted = match state.submit_block(params, block.clone(), now_seconds()) {
                 Ok(b) => b,
@@ -1592,7 +1606,7 @@ fn handle_rpc_stream(
                 }
             };
             let txid = tx.id;
-            let state = load_state(state_path)?;
+            let state = rpc_state(stream, state_path)?;
             let utxos = build_utxo_set(&state, params)?;
             let tip_height = state.height().unwrap_or(0);
 
@@ -1702,7 +1716,7 @@ fn handle_rpc_stream(
                     ),
                 }
             };
-            let state = load_state(state_path)?;
+            let state = rpc_state(stream, state_path)?;
             let utxos = build_utxo_set(&state, params)?;
             let tip_height = state.height().unwrap_or(0);
             let entries: Vec<serde_json::Value> = utxos
