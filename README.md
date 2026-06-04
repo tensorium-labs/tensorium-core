@@ -47,6 +47,8 @@ tensorium-miner \
 Pool stats and payout history: https://pooltxm.tensoriumlabs.com  
 Fee: **5%** of block reward. Treasury: `txm13vgxzj5ulrfhe7x0mlzxg0q6veq42tkku4g3jr`
 
+Backup pool: `stratum+tcp://mc-rpc2.tensoriumlabs.com:3333`
+
 **Solo mining (0% fee — full block reward to your address):**
 
 No local node needed — connect directly to the public RPC:
@@ -58,6 +60,8 @@ tensorium-miner \
   --wallet YOUR_TXM_ADDRESS \
   --gpu all
 ```
+
+Backup RPC: `http://mc-rpc2.tensoriumlabs.com`
 
 Or point to your own local node if you run one:
 ```bash
@@ -213,6 +217,7 @@ tensorium-miner --mode solo \
   --rpc http://mc-rpc.tensoriumlabs.com \
   --wallet YOUR_TXM_ADDRESS \
   --gpu all
+# Backup RPC: http://mc-rpc2.tensoriumlabs.com
 ```
 
 ### Option B — Run your own full node + mine
@@ -236,7 +241,8 @@ tensorium-miner --mode solo --rpc http://127.0.0.1:33332 --wallet YOUR_ADDRESS -
 txmwallet balance
 ```
 
-> **Sync from seed:** `tensorium-node mainnet-candidate sync seed.tensoriumlabs.com:33333`
+> **Sync from seed:** `tensorium-node mainnet-candidate sync seed.tensoriumlabs.com:33333`  
+> Backup: `tensorium-node mainnet-candidate sync mc-rpc2.tensoriumlabs.com:33333`
 
 ---
 
@@ -429,13 +435,13 @@ HTLCs across chains, enabling **trustless atomic swaps** (e.g. TXM ⇄ wTXM on O
 
 ## Network Infrastructure
 
-| Service | Endpoint |
-|---|---|
-| P2P seed | `seed.tensoriumlabs.com:33333` |
-| Public RPC | `https://mc-rpc.tensoriumlabs.com` |
-| Stratum pool | `pooltxm.tensoriumlabs.com:3333` |
-| Explorer | [explorer.tensoriumlabs.com](https://explorer.tensoriumlabs.com) |
-| Pool stats | [pooltxm.tensoriumlabs.com](https://pooltxm.tensoriumlabs.com) |
+| Service | Primary | Backup |
+|---|---|---|
+| P2P seed | `seed.tensoriumlabs.com:33333` | `mc-rpc2.tensoriumlabs.com:33333` |
+| Public RPC | `https://mc-rpc.tensoriumlabs.com` | `https://mc-rpc2.tensoriumlabs.com` |
+| Stratum pool | `pooltxm.tensoriumlabs.com:3333` | `mc-rpc2.tensoriumlabs.com:3333` |
+| Explorer | [explorer.tensoriumlabs.com](https://explorer.tensoriumlabs.com) | — |
+| Pool stats | [pooltxm.tensoriumlabs.com](https://pooltxm.tensoriumlabs.com) | — |
 
 ---
 
