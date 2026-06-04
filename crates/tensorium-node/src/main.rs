@@ -931,8 +931,13 @@ fn handle_p2p_connection(
         ));
     }
 
-    let state = load_state(state_path)?;
-    write_p2p_line(stream, &local_hello(&state, params))?;
+    // Build hello from current state, then drop state immediately so the DB
+    // lock is released before entering the long-lived message loop.
+    let my_hello = {
+        let state = load_state(state_path)?;
+        local_hello(&state, params)
+    };
+    write_p2p_line(stream, &my_hello)?;
 
     println!(
         "p2p accepted peer={} ip={remote_ip} chain_id={} height={} tip={}",
