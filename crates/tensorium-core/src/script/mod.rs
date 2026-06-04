@@ -4,6 +4,9 @@ pub mod vm;
 // ── Data push (0x01–0x4b push the next N bytes) ───────────────────────────────
 // Any byte 0x01..=0x4b encountered during execution pushes the next N bytes.
 
+// ── Push false / zero ─────────────────────────────────────────────────────────
+pub const OP_0:           u8 = 0x00;
+
 // ── Stack ─────────────────────────────────────────────────────────────────────
 pub const OP_DUP:         u8 = 0x76;
 pub const OP_DROP:        u8 = 0x75;
@@ -50,6 +53,10 @@ pub const OP_ELSE:        u8 = 0x67;
 pub const OP_ENDIF:       u8 = 0x68;
 pub const OP_RETURN:      u8 = 0x6a;
 
+// ── Timelock ──────────────────────────────────────────────────────────────────
+/// Absolute timelock: fails the script unless ctx.block_height >= top-of-stack value.
+pub const OP_CHECKLOCKTIMEVERIFY: u8 = 0xb1;
+
 // ── Limits ────────────────────────────────────────────────────────────────────
 pub const MAX_STACK_DEPTH:   usize = 100;
 pub const MAX_SCRIPT_SIZE:   usize = 10_000;
@@ -69,6 +76,7 @@ pub enum ScriptError {
     VerifyFailed,
     UnexpectedEndOfScript,
     ScriptInSigContainsChecksig,
+    LockTimeNotMet,
 }
 
 impl std::fmt::Display for ScriptError {

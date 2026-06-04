@@ -244,6 +244,28 @@ pub(crate) fn run(
                 }
             }
 
+            OP_0 => {
+                if stack.len() >= MAX_STACK_DEPTH {
+                    return Err(ScriptError::StackOverflow);
+                }
+                stack.push(Vec::new());
+            }
+
+            OP_CHECKLOCKTIMEVERIFY => {
+                // Peek (do NOT pop) the top item as a little-endian u64 locktime.
+                let top = stack.last().ok_or(ScriptError::StackUnderflow)?;
+                if top.len() > 8 {
+                    return Err(ScriptError::LockTimeNotMet); // malformed → fail closed
+                }
+                let mut buf = [0u8; 8];
+                buf[..top.len()].copy_from_slice(top);
+                let locktime = u64::from_le_bytes(buf);
+                if ctx.block_height < locktime {
+                    return Err(ScriptError::LockTimeNotMet);
+                }
+                // value stays on the stack; the script removes it with OP_DROP next.
+            }
+
             other => return Err(ScriptError::InvalidOpcode(other)),
         }
     }
@@ -491,6 +513,41 @@ mod tests {
 
         let result = execute(&[], &spk, &fake_ctx());
         assert!(result.is_err(), "m > n should return error");
+    }
+
+    #[test]
+    fn op_0_pushes_empty() {
+        use crate::script::OP_0;
+        let mut stack: Vec<Vec<u8>> = Vec::new();
+        run(&mut stack, &[OP_0], &fake_ctx(), false).unwrap();
+        assert_eq!(stack, vec![Vec::<u8>::new()]);
+    }
+
+    #[test]
+    fn cltv_passes_when_height_ge_locktime() {
+        use crate::script::{OP_CHECKLOCKTIMEVERIFY, OP_DROP, OP_1};
+        // push 100 (0x64), CLTV, DROP, OP_1(true)
+        let script = [0x01, 0x64, OP_CHECKLOCKTIMEVERIFY, OP_DROP, OP_1];
+        let ctx = ScriptContext { sig_hash: Hash256::ZERO, block_height: 100 };
+        let ok = execute(&[], &script, &ctx).unwrap();
+        assert!(ok, "height == locktime should pass");
+    }
+
+    #[test]
+    fn cltv_fails_below_locktime() {
+        use crate::script::OP_CHECKLOCKTIMEVERIFY;
+        let script = [0x01, 0x64, OP_CHECKLOCKTIMEVERIFY]; // locktime 100
+        let ctx = ScriptContext { sig_hash: Hash256::ZERO, block_height: 99 };
+        assert_eq!(execute(&[], &script, &ctx), Err(ScriptError::LockTimeNotMet));
+    }
+
+    #[test]
+    fn cltv_leaves_value_on_stack() {
+        use crate::script::OP_CHECKLOCKTIMEVERIFY;
+        let mut stack: Vec<Vec<u8>> = vec![vec![0x64u8]]; // locktime 100 already on stack
+        let ctx = ScriptContext { sig_hash: Hash256::ZERO, block_height: 200 };
+        run(&mut stack, &[OP_CHECKLOCKTIMEVERIFY], &ctx, true).unwrap();
+        assert_eq!(stack, vec![vec![0x64u8]], "CLTV must not pop its operand");
     }
 
     #[test]
