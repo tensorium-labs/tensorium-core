@@ -11,7 +11,7 @@ A Proof-of-Work blockchain built in Rust — live mainnet and CUDA mining.
 [![Website](https://img.shields.io/badge/Website-tensoriumlabs.com-black)](https://tensoriumlabs.com)
 [![Docs](https://img.shields.io/badge/Docs-docs.tensoriumlabs.com-7c3aed)](https://docs.tensoriumlabs.com)
 [![Explorer](https://img.shields.io/badge/Explorer-Live-green)](https://explorer.tensoriumlabs.com)
-[![Release](https://img.shields.io/badge/Release-v0.3.2--mainnet-orange)](https://github.com/tensorium-labs/tensorium-core/releases/tag/v0.3.2-mainnet)
+[![Release](https://img.shields.io/badge/Release-v0.3.3--mainnet-orange)](https://github.com/tensorium-labs/tensorium-core/releases/tag/v0.3.3-mainnet)
 
 ## Install (Linux x86_64)
 
@@ -104,7 +104,7 @@ make ARCH=sm_90    # H100/H200
 | RTX 3060 | ~380 MH/s | ~48 min |
 | RTX 3080 | ~1.2 GH/s | ~15 min |
 | RTX 4090 | ~2.5 GH/s | ~7 min |
-| RTX 5090 | ~40 GH/s | ~23 sec |
+| RTX 5090 | ~8 GH/s | ~2.3 min |
 | H100 SXM | ~2 GH/s | ~9 min |
 
 Pool mining reduces variance — payouts are smoothed across all pool participants.
@@ -153,10 +153,11 @@ A self-custody browser wallet for TXM is available as a Chrome extension.
 
 | Crate | Type | Role |
 | --- | --- | --- |
-| `tensorium-core` | library | Block, transaction, UTXO, mempool, wallet, consensus, fork-choice |
+| `tensorium-core` | library | Block, transaction, UTXO, mempool, wallet, consensus, fork-choice, script VM |
 | `tensorium-node` | binary | Full node: HTTP RPC + P2P server |
-| `txmminer-cuda` | binary | NVIDIA CUDA GPU miner |
-| `txmwallet` | binary | CLI wallet |
+| `tensorium-pool` | binary | Stratum + RPC mining pool (5% fee accounting, payout ledger) |
+| `txmwallet` | binary | CLI wallet (P2PKH, multisig, HTLC) |
+| `tensorium-miner` | tool (`tools/txmminer-cuda`) | NVIDIA CUDA GPU miner v2 — Stratum pool + solo, multi-GPU (alias `txmminer-cuda`) |
 
 ---
 
@@ -243,6 +244,27 @@ txmwallet balance                                scan chain state for wallet UTX
 txmwallet send <to_addr> <atoms> [file]          build and sign a transaction file
 txmwallet broadcast [tx_file] [rpc_addr]         submit signed tx to a node
 txmwallet unlock-check                           verify passphrase can decrypt wallet
+```
+
+**Multisig (m-of-n) — see Scripting below:**
+
+```
+txmwallet multisig-script <m> <pubkey_hex...>    print an m-of-n scriptPubKey hex
+txmwallet send-from-script <spk_hex> <dest> <atoms> [file] [rpc]
+                                                 build an unsigned spend from a script UTXO
+txmwallet multisig-sign <tx_file>                sign an input with this wallet (offline)
+txmwallet multisig-combine <tx_file> <sig...>    combine signatures into a broadcast-ready tx
+```
+
+**HTLC (Hash Time Locked Contracts — atomic swaps & timelocks):**
+
+```
+txmwallet htlc-secret                            generate a 32-byte preimage + its sha256 hash
+txmwallet htlc-script <hash_hex> <recipient_addr> <refund_addr> <locktime_height>
+                                                 print an HTLC scriptPubKey hex
+txmwallet htlc-claim <spk_hex> <dest> <preimage_hex> [rpc]
+                                                 spend an HTLC by revealing the preimage
+txmwallet htlc-refund <spk_hex> <dest> [rpc]     reclaim an HTLC after its locktime height
 ```
 
 ## Environment Variables
@@ -342,6 +364,27 @@ Ban duration: 1 hour. Persisted to `tensorium-mainnet-banlist.json`.
 | Max future timestamp | 2 hours |
 | P2P port | 33333 |
 | RPC port | 33332 |
+
+---
+
+## Script System
+
+Tensorium uses a Bitcoin-style stack script VM for transaction outputs. Supported standard scripts:
+
+| Script | Purpose |
+| --- | --- |
+| **P2PKH** | Pay-to-Public-Key-Hash — the default single-key address (`txm1...`) |
+| **Multisig** | Bare m-of-n (`OP_CHECKMULTISIG`) — treasury / shared custody |
+| **HTLC** | Hash Time Locked Contract — trustless atomic swaps and timelocked escrow |
+
+Opcodes include `OP_DUP`, `OP_HASH160` (`SHA256(x)[0..20]`), `OP_CHECKSIG`, `OP_CHECKMULTISIG`,
+`OP_SHA256`, `OP_IF/ELSE/ENDIF`, and `OP_CHECKLOCKTIMEVERIFY` (absolute block-height timelock).
+
+**HTLC** has two spend paths: a *claim* branch (reveal a `SHA256` preimage + recipient signature)
+and a *refund* branch (after a block-height `locktime`, the sender reclaims with the refund key).
+Because the hashlock is `SHA256` — also an EVM precompile — the same secret can unlock matching
+HTLCs across chains, enabling **trustless atomic swaps** (e.g. TXM ⇄ wTXM on Optimism). See
+[`docs/integrations/ATOMIC_SWAP_HTLC.md`](docs/integrations/ATOMIC_SWAP_HTLC.md) for a full walkthrough.
 
 ---
 
