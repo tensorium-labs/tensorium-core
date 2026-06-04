@@ -196,8 +196,9 @@ fn serve() -> Result<(), String> {
         match stream {
             Ok(stream) => {
                 let state = state.clone();
+                let stratum_state = stratum_state.clone();
                 std::thread::spawn(move || {
-                    if let Err(e) = handle_connection(stream, state) {
+                    if let Err(e) = handle_connection(stream, state, stratum_state) {
                         eprintln!("connection error: {e}");
                     }
                 });
@@ -211,6 +212,7 @@ fn serve() -> Result<(), String> {
 fn handle_connection(
     mut stream: TcpStream,
     state: Arc<Mutex<PoolState>>,
+    stratum_state: Arc<Mutex<stratum::StratumState>>,
 ) -> Result<(), String> {
     stream
         .set_read_timeout(Some(Duration::from_secs(HTTP_TIMEOUT_SECS)))
@@ -236,6 +238,7 @@ fn handle_connection(
             write_response(&mut stream, 200, &json!({"ok": true}).to_string())
         }
         ("GET", "/pool/stats") => handle_pool_stats(&mut stream, &state),
+        ("GET", "/pool/stratum") => handle_pool_stratum(&mut stream, &stratum_state),
         ("GET", "/pool/accounting") => handle_pool_accounting(&mut stream, &state),
         ("GET", "/pool/custody") => handle_pool_custody(&mut stream, &state),
         ("GET", path) if path.starts_with("/pool/pending/") => {
@@ -392,6 +395,14 @@ fn handle_submit_block(
 fn handle_pool_stats(stream: &mut TcpStream, state: &Arc<Mutex<PoolState>>) -> Result<(), String> {
     let stats = state.lock().unwrap().ledger.stats();
     write_response(stream, 200, &serde_json::to_string(&stats).unwrap())
+}
+
+fn handle_pool_stratum(
+    stream: &mut TcpStream,
+    stratum_state: &Arc<Mutex<stratum::StratumState>>,
+) -> Result<(), String> {
+    let body = stratum_state.lock().unwrap().stats_json().to_string();
+    write_response(stream, 200, &body)
 }
 
 fn handle_pool_accounting(

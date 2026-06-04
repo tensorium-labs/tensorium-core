@@ -26,13 +26,26 @@ pub struct StratumJob {
     pub version:         u32,
 }
 
+#[derive(Clone, Debug)]
+pub struct WorkerSession {
+    pub connection_id: String,
+    pub worker_name: String,
+    pub wallet_address: String,
+    pub peer_addr: String,
+    pub authorized_at_unix: u64,
+    pub last_seen_at_unix: u64,
+    pub accepted_shares: u64,
+    pub rejected_shares: u64,
+    pub last_submit_result: String,
+}
+
 pub struct StratumState {
     pub current_job:      Option<StratumJob>,
     pub share_diff:       u64,
     pub node_rpc:         String,
     pub treasury:         String,
-    /// worker_name → wallet_address
-    pub workers:          HashMap<String, String>,
+    /// connection_id → worker session
+    pub workers:          HashMap<String, WorkerSession>,
     pub shares_accepted:  u64,
     pub shares_rejected:  u64,
     pub blocks_found:     u64,
@@ -57,15 +70,42 @@ impl StratumState {
 
     /// Stats for HTTP /api/stratum endpoint
     pub fn stats_json(&self) -> serde_json::Value {
+        let active_workers: Vec<Value> = self
+            .workers
+            .values()
+            .map(|worker| {
+                json!({
+                    "connection_id": worker.connection_id,
+                    "worker_name": worker.worker_name,
+                    "wallet_address": worker.wallet_address,
+                    "peer_addr": worker.peer_addr,
+                    "authorized_at_unix": worker.authorized_at_unix,
+                    "last_seen_at_unix": worker.last_seen_at_unix,
+                    "accepted_shares": worker.accepted_shares,
+                    "rejected_shares": worker.rejected_shares,
+                    "last_submit_result": worker.last_submit_result,
+                })
+            })
+            .collect();
+
         json!({
             "stratum_workers": self.job_senders.len(),
+            "authorized_workers": self.workers.len(),
             "stratum_port": 3333,
             "share_difficulty": self.share_diff,
             "shares_accepted": self.shares_accepted,
             "shares_rejected": self.shares_rejected,
             "blocks_found": self.blocks_found,
+            "active_workers": active_workers,
         })
     }
+}
+
+fn unix_now() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
 }
 
 // ── SHA256d ───────────────────────────────────────────────────────────────────
@@ -302,6 +342,12 @@ fn handle_stratum_conn(
     state:  Arc<Mutex<StratumState>>,
     job_rx: std::sync::mpsc::Receiver<StratumJob>,
 ) {
+    let peer_addr = stream
+        .peer_addr()
+        .map(|addr| addr.to_string())
+        .unwrap_or_else(|_| "unknown".to_string());
+    let connection_id = format!("{}-{}", unix_now(), peer_addr);
+
     // Short read timeout so the pool can proactively send pings even when the
     // miner is silent (e.g. immediately after a new job before the first share).
     stream.set_read_timeout(Some(Duration::from_secs(5))).ok();
@@ -377,7 +423,17 @@ fn handle_stratum_conn(
 
                 {
                     let mut s = state.lock().unwrap();
-                    s.workers.insert(wname, wallet);
+                    s.workers.insert(connection_id.clone(), WorkerSession {
+                        connection_id: connection_id.clone(),
+                        worker_name: wname,
+                        wallet_address: wallet,
+                        peer_addr: peer_addr.clone(),
+                        authorized_at_unix: unix_now(),
+                        last_seen_at_unix: unix_now(),
+                        accepted_shares: 0,
+                        rejected_shares: 0,
+                        last_submit_result: "authorized".to_string(),
+                    });
                 }
 
                 authorized = true;
@@ -430,11 +486,27 @@ fn handle_stratum_conn(
                                 state.lock().unwrap().blocks_found += 1;
                                 eprintln!("[stratum] BLOCK by {} nonce={}", worker_name, nonce_hex);
                             }
-                            state.lock().unwrap().shares_accepted += 1;
+                            let mut s = state.lock().unwrap();
+                            s.shares_accepted += 1;
+                            if let Some(worker) = s.workers.get_mut(&connection_id) {
+                                worker.last_seen_at_unix = unix_now();
+                                worker.accepted_shares += 1;
+                                worker.last_submit_result = if is_block {
+                                    "block".to_string()
+                                } else {
+                                    "accepted".to_string()
+                                };
+                            }
                             "accepted"
                         }
                         Some((_, false, _)) | None => {
-                            state.lock().unwrap().shares_rejected += 1;
+                            let mut s = state.lock().unwrap();
+                            s.shares_rejected += 1;
+                            if let Some(worker) = s.workers.get_mut(&connection_id) {
+                                worker.last_seen_at_unix = unix_now();
+                                worker.rejected_shares += 1;
+                                worker.last_submit_result = "rejected".to_string();
+                            }
                             "rejected"
                         }
                     }
@@ -449,6 +521,8 @@ fn handle_stratum_conn(
             _ => { /* ignore unknown methods */ }
         }
     }
+
+    state.lock().unwrap().workers.remove(&connection_id);
 }
 
 // ── Job poller + broadcaster ───────────────────────────────────────────────────
