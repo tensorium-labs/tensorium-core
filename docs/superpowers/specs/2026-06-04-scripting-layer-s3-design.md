@@ -16,7 +16,11 @@ S1 (P2PKH) and S2 (multisig). **No chain reset, no consensus-field changes.**
 - Standard builders: `htlc_script`, `htlc_claim_script_sig`, `htlc_refund_script_sig`, `extract_htlc`
 - Wallet CLI: `htlc-secret`, `htlc-script`, `htlc-claim`, `htlc-refund`
 - Atomic swap integration guide: `docs/integrations/ATOMIC_SWAP_HTLC.md`
-- `wallet.rs` local-verify uses RPC tip height (was hardcoded `block_height: 0`)
+
+HTLC validation (including `OP_CHECKLOCKTIMEVERIFY`) is enforced at the node during
+mempool/block validation, where `utxo.rs` already passes the real chain height into
+`ScriptContext`. No library-side (`wallet.rs`) or node changes are required — the
+claim path has no CLTV, and the refund path is validated on-chain by the node.
 
 ### Out of scope (explicit)
 
@@ -157,31 +161,24 @@ Decode the two bech32 addresses to their 20-byte pubkey hashes, build the HTLC
 scriptPubKey, print as hex. The hex is the funding target for `send-from-script`
 (from S2) or a plain payment.
 
-### `txmwallet htlc-claim <spk_hex> <dest_addr> <atoms> <preimage_hex> [rpc_addr]`
+### `txmwallet htlc-claim <spk_hex> <dest_addr> <preimage_hex> [rpc_addr]`
 
-Discover a UTXO locked to `spk_hex` via `/getutxos/<spk_hex>` (S2 extension),
-build an unsigned spend to `dest_addr`, sign with the loaded wallet key, assemble
+Discover the first mature UTXO locked to `spk_hex` via `/getutxos/<spk_hex>` (S2
+extension), build an unsigned spend of its **full value** to `dest_addr` (no
+change — HTLC outputs are single-value), sign with the loaded wallet key, assemble
 the claim scriptSig (revealing the preimage), and write a broadcast-ready
 `htlc-claim-tx.json`.
 
-### `txmwallet htlc-refund <spk_hex> <dest_addr> <atoms> [rpc_addr]`
+### `txmwallet htlc-refund <spk_hex> <dest_addr> [rpc_addr]`
 
-Same discovery/build/sign flow but assembles the refund scriptSig. The resulting
-transaction is only accepted once `block_height ≥ locktime`; the node enforces
-this via `OP_CHECKLOCKTIMEVERIFY`. Writes `htlc-refund-tx.json`.
+Same discovery/build/sign flow (full-value spend) but assembles the refund
+scriptSig. The resulting transaction is only accepted once `block_height ≥
+locktime`; the node enforces this via `OP_CHECKLOCKTIMEVERIFY`. Writes
+`htlc-refund-tx.json`.
 
 Both `htlc-claim`/`htlc-refund` sign over `tx.signature_hash()` (same scheme as
 S2 multisig). Funding and UTXO discovery reuse existing endpoints — **no node
 changes**.
-
-## wallet.rs Local-Verify Update
-
-`wallet.rs` currently constructs `ScriptContext { sig_hash, block_height: 0 }` for
-local pre-broadcast verification. With `block_height: 0`, a refund script would
-fail CLTV locally even when it would be valid on-chain. Update the local verifier
-to fetch the current tip height via RPC (`/getblockcount`) when an RPC endpoint is
-available, falling back to `0` (or skipping CLTV-strict verification) when offline.
-Claim-path verification is unaffected (no CLTV in the IF branch).
 
 ## Atomic Swap Integration Guide
 
@@ -208,7 +205,6 @@ compose the HTLC primitive into a trustless cross-chain swap:
 | `crates/tensorium-core/src/script/mod.rs` | Add `OP_0`, `OP_CHECKLOCKTIMEVERIFY` constants; `LockTimeNotMet` error |
 | `crates/tensorium-core/src/script/vm.rs` | Execute `OP_0` and `OP_CHECKLOCKTIMEVERIFY` |
 | `crates/tensorium-core/src/script/standard.rs` | Add `htlc_script`, `htlc_claim_script_sig`, `htlc_refund_script_sig`, `extract_htlc` |
-| `crates/tensorium-core/src/wallet.rs` | Local-verify uses RPC tip height |
 | `crates/txmwallet/src/main.rs` | Add `htlc-secret`, `htlc-script`, `htlc-claim`, `htlc-refund` subcommands |
 | `docs/integrations/ATOMIC_SWAP_HTLC.md` | New atomic swap guide |
 
@@ -217,18 +213,19 @@ consensus parameters.
 
 ## Tests
 
-~10 unit tests across `vm.rs` and `standard.rs`:
+11 unit tests across `vm.rs` (4) and `standard.rs` (7):
 
 1. `op_0_pushes_empty` — `OP_0` pushes a falsy empty element
 2. `cltv_passes_when_height_ge_locktime` — `block_height ≥ N` → continues
 3. `cltv_fails_below_locktime` — `block_height < N` → `Err(LockTimeNotMet)`
 4. `cltv_leaves_value_on_stack` — operand still present after CLTV (for `OP_DROP`)
-5. `htlc_claim_valid` — correct preimage + recipient sig → true
-6. `htlc_claim_wrong_preimage_fails` — bad preimage → `EQUALVERIFY` failure
-7. `htlc_claim_wrong_sig_fails` — bad signature → false / failure
-8. `htlc_refund_valid` — `block_height ≥ locktime` + refund sig → true
-9. `htlc_refund_before_locktime_fails` — `block_height < locktime` → `LockTimeNotMet`
-10. `htlc_script_roundtrip` — `htlc_script` then `extract_htlc` → same fields
+5. `htlc_script_roundtrip` — `htlc_script` then `extract_htlc` → same fields
+6. `htlc_extract_rejects_non_htlc` — non-HTLC bytes → `None`
+7. `htlc_claim_valid` — correct preimage + recipient sig → true
+8. `htlc_claim_wrong_preimage_fails` — bad preimage → `EQUALVERIFY` failure
+9. `htlc_claim_wrong_sig_fails` — bad signature → false / failure
+10. `htlc_refund_valid_after_locktime` — `block_height ≥ locktime` + refund sig → true
+11. `htlc_refund_before_locktime_fails` — `block_height < locktime` → `LockTimeNotMet`
 
 ## Constraints
 
