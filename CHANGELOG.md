@@ -2,6 +2,21 @@
 
 All notable changes to Tensorium are documented in this file.
 
+## [v0.3.3-mainnet — Scripting S3: CLTV + HTLC] — 2026-06-04
+
+### Added
+- **`OP_CHECKLOCKTIMEVERIFY` (0xb1)** — absolute block-height timelock opcode. Reads `ctx.block_height` directly (no new transaction fields, no consensus break, no chain reset).
+- **`OP_0` (0x00)** — push empty/false element, enabling HTLC branch selection.
+- **HTLC (Hash Time Locked Contract) scripts** in `tensorium-core` — `htlc_script`, `htlc_claim_script_sig`, `htlc_refund_script_sig`, `extract_htlc`. Hashlock is `SHA256` (matches the EVM precompile) for cross-chain atomic swaps.
+- **`txmwallet` HTLC commands** — `htlc-secret`, `htlc-script`, `htlc-claim`, `htlc-refund`.
+- **`docs/integrations/ATOMIC_SWAP_HTLC.md`** — trustless TXM ⇄ wTXM atomic-swap walkthrough.
+
+### Verified
+- `cargo test --workspace` — 95 tests pass, 0 failures (12 new S3 tests).
+- Deployed to mainnet node + wallet; chain tip preserved (additive change).
+
+---
+
 ## [Genesis v3 — Post-S1 Re-mine] — 2026-06-02
 
 ### Changed
