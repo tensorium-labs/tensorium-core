@@ -393,7 +393,7 @@ HTLCs across chains, enabling **trustless atomic swaps** (e.g. TXM ⇄ wTXM on O
 | | |
 |---|---|
 | 🌐 Website | [tensoriumlabs.com](https://tensoriumlabs.com) — project homepage |
-| 💬 Telegram | [t.me/+QOsnpSdhDGZkZGQ1](https://t.me/+QOsnpSdhDGZkZGQ1) — chat, mining help, announcements |
+| 💬 Discord | [discord.gg/KkgGSZKVZw](https://discord.gg/KkgGSZKVZw) — chat, mining help, announcements |
 | 🐛 Issues | [github.com/tensorium-labs/tensorium-core/issues](https://github.com/tensorium-labs/tensorium-core/issues) — bug reports and feature requests |
 | 📖 Docs | [docs.tensoriumlabs.com](https://docs.tensoriumlabs.com) — node setup, mining guide, RPC reference |
 | 📄 Whitepaper | [whitepaper.tensoriumlabs.com](https://whitepaper.tensoriumlabs.com) — technical design and tokenomics |
