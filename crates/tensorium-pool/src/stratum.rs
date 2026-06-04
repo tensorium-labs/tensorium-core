@@ -302,7 +302,9 @@ fn handle_stratum_conn(
     state:  Arc<Mutex<StratumState>>,
     job_rx: std::sync::mpsc::Receiver<StratumJob>,
 ) {
-    stream.set_read_timeout(Some(Duration::from_secs(60))).ok();
+    // Short read timeout so the pool can proactively send pings even when the
+    // miner is silent (e.g. immediately after a new job before the first share).
+    stream.set_read_timeout(Some(Duration::from_secs(5))).ok();
     stream.set_write_timeout(Some(Duration::from_secs(10))).ok();
 
     let mut writer = match stream.try_clone() {
@@ -326,15 +328,19 @@ fn handle_stratum_conn(
             }
         }
 
-        /* Keepalive ping every 30s */
-        if last_ping.elapsed().as_secs() >= 30 {
-            let ping = json!({"id":null,"method":"mining.ping","params":[]});
-            if !send_line(&mut writer, &ping) { return; }
-            last_ping = Instant::now();
-        }
-
         let line = match line_res {
-            Ok(l)  => l,
+            Ok(l) => l,
+            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock
+                   || e.kind() == std::io::ErrorKind::TimedOut => {
+                // Read timeout — send ping every 5s to break the miner's recv
+                // block so it can submit any GPU shares it has queued up.
+                if authorized && last_ping.elapsed().as_secs() >= 5 {
+                    let ping = json!({"id":null,"method":"mining.ping","params":[]});
+                    if !send_line(&mut writer, &ping) { return; }
+                    last_ping = Instant::now();
+                }
+                continue;
+            }
             Err(_) => return,
         };
         if line.is_empty() { continue; }
