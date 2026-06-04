@@ -2,8 +2,8 @@ use bech32::{self, FromBase32, ToBase32, Variant};
 use sha2::{Digest, Sha256};
 
 use crate::script::{
-    ScriptError, OP_CHECKSIG, OP_CHECKMULTISIG, OP_DUP, OP_EQUALVERIFY, OP_HASH160, OP_1,
-    OP_0, OP_IF, OP_ELSE, OP_ENDIF, OP_SHA256, OP_DROP, OP_CHECKLOCKTIMEVERIFY,
+    ScriptError, OP_0, OP_1, OP_CHECKLOCKTIMEVERIFY, OP_CHECKMULTISIG, OP_CHECKSIG, OP_DROP,
+    OP_DUP, OP_ELSE, OP_ENDIF, OP_EQUALVERIFY, OP_HASH160, OP_IF, OP_SHA256,
 };
 
 const ADDRESS_HRP: &str = "txm";
@@ -85,12 +85,12 @@ pub fn multisig_script(m: u8, pubkeys: &[&[u8]]) -> Result<Vec<u8>, ScriptError>
         }
     }
     let mut s = Vec::with_capacity(1 + n * 34 + 2);
-    s.push(OP_1 - 1 + m);          // OP_m: OP_1=0x51, so OP_m = 0x50 + m
+    s.push(OP_1 - 1 + m); // OP_m: OP_1=0x51, so OP_m = 0x50 + m
     for pk in pubkeys {
-        s.push(0x21);               // push 33 bytes
+        s.push(0x21); // push 33 bytes
         s.extend_from_slice(pk);
     }
-    s.push(OP_1 - 1 + n as u8);    // OP_n
+    s.push(OP_1 - 1 + n as u8); // OP_n
     s.push(OP_CHECKMULTISIG);
     Ok(s)
 }
@@ -354,7 +354,11 @@ mod tests {
         use k256::ecdsa::SigningKey;
         use rand_core::OsRng;
         let sk = SigningKey::random(&mut OsRng);
-        let pubkey = sk.verifying_key().to_encoded_point(true).as_bytes().to_vec();
+        let pubkey = sk
+            .verifying_key()
+            .to_encoded_point(true)
+            .as_bytes()
+            .to_vec();
         let mut hash20 = [0u8; 20];
         hash20.copy_from_slice(&Sha256::digest(&pubkey)[..20]);
         (sk, pubkey, hash20)
@@ -398,8 +402,14 @@ mod tests {
         let der = sig.to_der().as_bytes().to_vec();
         let script_sig = htlc_claim_script_sig(&der, &recipient_pk, &preimage);
 
-        let ctx = ScriptContext { sig_hash: msg, block_height: 0 };
-        assert!(execute(&script_sig, &spk, &ctx).unwrap(), "valid claim must succeed");
+        let ctx = ScriptContext {
+            sig_hash: msg,
+            block_height: 0,
+        };
+        assert!(
+            execute(&script_sig, &spk, &ctx).unwrap(),
+            "valid claim must succeed"
+        );
     }
 
     #[test]
@@ -422,9 +432,15 @@ mod tests {
         let wrong = b"a totally different fake preimage".to_vec();
         let script_sig = htlc_claim_script_sig(&der, &recipient_pk, &wrong);
 
-        let ctx = ScriptContext { sig_hash: msg, block_height: 0 };
+        let ctx = ScriptContext {
+            sig_hash: msg,
+            block_height: 0,
+        };
         let result = execute(&script_sig, &spk, &ctx);
-        assert!(result.is_err() || !result.unwrap(), "wrong preimage must fail");
+        assert!(
+            result.is_err() || !result.unwrap(),
+            "wrong preimage must fail"
+        );
     }
 
     #[test]
@@ -448,9 +464,15 @@ mod tests {
         let der = sig.to_der().as_bytes().to_vec();
         let script_sig = htlc_claim_script_sig(&der, &recipient_pk, &preimage);
 
-        let ctx = ScriptContext { sig_hash: verify_msg, block_height: 0 };
+        let ctx = ScriptContext {
+            sig_hash: verify_msg,
+            block_height: 0,
+        };
         let result = execute(&script_sig, &spk, &ctx);
-        assert!(result.is_err() || !result.unwrap(), "wrong signature must fail");
+        assert!(
+            result.is_err() || !result.unwrap(),
+            "wrong signature must fail"
+        );
     }
 
     #[test]
@@ -469,8 +491,14 @@ mod tests {
         let der = sig.to_der().as_bytes().to_vec();
         let script_sig = htlc_refund_script_sig(&der, &refund_pk);
 
-        let ctx = ScriptContext { sig_hash: msg, block_height: 150 };
-        assert!(execute(&script_sig, &spk, &ctx).unwrap(), "refund after locktime must succeed");
+        let ctx = ScriptContext {
+            sig_hash: msg,
+            block_height: 150,
+        };
+        assert!(
+            execute(&script_sig, &spk, &ctx).unwrap(),
+            "refund after locktime must succeed"
+        );
     }
 
     #[test]
@@ -489,8 +517,14 @@ mod tests {
         let der = sig.to_der().as_bytes().to_vec();
         let script_sig = htlc_refund_script_sig(&der, &refund_pk);
 
-        let ctx = ScriptContext { sig_hash: msg, block_height: 99 };
-        assert_eq!(execute(&script_sig, &spk, &ctx), Err(ScriptError::LockTimeNotMet));
+        let ctx = ScriptContext {
+            sig_hash: msg,
+            block_height: 99,
+        };
+        assert_eq!(
+            execute(&script_sig, &spk, &ctx),
+            Err(ScriptError::LockTimeNotMet)
+        );
     }
 
     #[test]
@@ -511,8 +545,14 @@ mod tests {
         let der = sig.to_der().as_bytes().to_vec();
         let script_sig = htlc_refund_script_sig(&der, &recipient_pk);
 
-        let ctx = ScriptContext { sig_hash: msg, block_height: 150 };
+        let ctx = ScriptContext {
+            sig_hash: msg,
+            block_height: 150,
+        };
         let result = execute(&script_sig, &spk, &ctx);
-        assert!(result.is_err() || !result.unwrap(), "refund with wrong key must fail");
+        assert!(
+            result.is_err() || !result.unwrap(),
+            "refund with wrong key must fail"
+        );
     }
 }

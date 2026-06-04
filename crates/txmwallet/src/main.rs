@@ -8,8 +8,7 @@ use std::{
 use argon2::{Algorithm, Argon2, Params, Version};
 use chacha20poly1305::{
     aead::{Aead, KeyInit},
-    XChaCha20Poly1305,
-    XNonce,
+    XChaCha20Poly1305, XNonce,
 };
 use rand_core::{OsRng, RngCore};
 use serde::{Deserialize, Serialize};
@@ -17,9 +16,10 @@ use sha2::{Digest, Sha256};
 use tensorium_core::{
     block::{Transaction, TxInput, TxOutput},
     chain::MAINNET_CANDIDATE,
-    script::standard::{multisig_script, multisig_script_sig, extract_multisig,
-                       p2pkh_from_address, p2pkh_from_pubkey, htlc_script,
-                       htlc_claim_script_sig, htlc_refund_script_sig},
+    script::standard::{
+        extract_multisig, htlc_claim_script_sig, htlc_refund_script_sig, htlc_script,
+        multisig_script, multisig_script_sig, p2pkh_from_address, p2pkh_from_pubkey,
+    },
     ChainState, UtxoSet, WalletKeypair,
 };
 
@@ -100,12 +100,14 @@ fn run() -> Result<(), String> {
             print_balance(&wallet, &state)?;
         }
         "send" => {
-            let to_address = args
-                .get(2)
-                .ok_or_else(|| "usage: txmwallet send <to_address> <amount_atoms> [tx_file]".to_owned())?;
+            let to_address = args.get(2).ok_or_else(|| {
+                "usage: txmwallet send <to_address> <amount_atoms> [tx_file]".to_owned()
+            })?;
             let amount_atoms = args
                 .get(3)
-                .ok_or_else(|| "usage: txmwallet send <to_address> <amount_atoms> [tx_file]".to_owned())?
+                .ok_or_else(|| {
+                    "usage: txmwallet send <to_address> <amount_atoms> [tx_file]".to_owned()
+                })?
                 .parse::<u64>()
                 .map_err(|err| format!("invalid amount_atoms: {err}"))?;
             let tx_path = args
@@ -118,12 +120,13 @@ fn run() -> Result<(), String> {
             // Prefer RPC-based UTXO lookup (avoids RocksDB LOCK conflict when
             // the node is running alongside txmwallet).
             let rpc = env::var("TENSORIUM_RPC").unwrap_or_else(|_| DEFAULT_RPC.to_owned());
-            let tx = build_signed_payment_via_rpc(&wallet, &keypair, &rpc, to_address, amount_atoms)
-                .or_else(|_rpc_err| {
-                    // Fall back to state.db if RPC is not available.
-                    let state = load_state(&state_path_from_env())?;
-                    build_signed_payment(&wallet, &keypair, &state, to_address, amount_atoms)
-                })?;
+            let tx =
+                build_signed_payment_via_rpc(&wallet, &keypair, &rpc, to_address, amount_atoms)
+                    .or_else(|_rpc_err| {
+                        // Fall back to state.db if RPC is not available.
+                        let state = load_state(&state_path_from_env())?;
+                        build_signed_payment(&wallet, &keypair, &state, to_address, amount_atoms)
+                    })?;
             let raw = serde_json::to_string_pretty(&tx)
                 .map_err(|err| format!("failed to serialize signed tx: {err}"))?;
             fs::write(&tx_path, raw)
@@ -187,10 +190,9 @@ fn run() -> Result<(), String> {
             let rpc = args.get(6).map(String::as_str).unwrap_or(DEFAULT_RPC);
 
             let tx = build_unsigned_multisig_tx(rpc, scriptpubkey_hex, dest_addr, amount_atoms)?;
-            let raw = serde_json::to_string_pretty(&tx)
-                .map_err(|e| format!("serialize tx: {e}"))?;
-            fs::write(&tx_path, &raw)
-                .map_err(|e| format!("write {}: {e}", tx_path.display()))?;
+            let raw =
+                serde_json::to_string_pretty(&tx).map_err(|e| format!("serialize tx: {e}"))?;
+            fs::write(&tx_path, &raw).map_err(|e| format!("write {}: {e}", tx_path.display()))?;
             println!("unsigned_txid={}", tx.id);
             println!("inputs={}", tx.inputs.len());
             println!("outputs={}", tx.outputs.len());
@@ -199,7 +201,8 @@ fn run() -> Result<(), String> {
         }
         "multisig-sign" => {
             let tx_path = PathBuf::from(
-                args.get(2).ok_or("usage: txmwallet multisig-sign <tx_file>")?
+                args.get(2)
+                    .ok_or("usage: txmwallet multisig-sign <tx_file>")?,
             );
             let passphrase = passphrase_from_env()?;
             let wallet = load_wallet(&wallet_path)?;
@@ -207,11 +210,12 @@ fn run() -> Result<(), String> {
 
             let raw = fs::read_to_string(&tx_path)
                 .map_err(|e| format!("read {}: {e}", tx_path.display()))?;
-            let tx: Transaction = serde_json::from_str(&raw)
-                .map_err(|e| format!("parse tx: {e}"))?;
+            let tx: Transaction =
+                serde_json::from_str(&raw).map_err(|e| format!("parse tx: {e}"))?;
 
             let sig_hash = tx.signature_hash();
-            let der_sig = keypair.sign_hash(&sig_hash)
+            let der_sig = keypair
+                .sign_hash(&sig_hash)
                 .map_err(|e| format!("sign: {e:?}"))?;
 
             let sigs: Vec<MultisigSig> = (0..tx.inputs.len())
@@ -238,9 +242,9 @@ fn run() -> Result<(), String> {
             println!("written={}", sig_path.display());
         }
         "multisig-combine" => {
-            let tx_path = PathBuf::from(
-                args.get(2).ok_or("usage: txmwallet multisig-combine <tx_file> <sig_file1> <sig_file2> [...]")?
-            );
+            let tx_path = PathBuf::from(args.get(2).ok_or(
+                "usage: txmwallet multisig-combine <tx_file> <sig_file1> <sig_file2> [...]",
+            )?);
             if args.len() < 5 {
                 return Err("multisig-combine requires at least 2 sig files".to_owned());
             }
@@ -248,8 +252,8 @@ fn run() -> Result<(), String> {
 
             let raw = fs::read_to_string(&tx_path)
                 .map_err(|e| format!("read {}: {e}", tx_path.display()))?;
-            let mut tx: Transaction = serde_json::from_str(&raw)
-                .map_err(|e| format!("parse tx: {e}"))?;
+            let mut tx: Transaction =
+                serde_json::from_str(&raw).map_err(|e| format!("parse tx: {e}"))?;
 
             let expected_txid = hex::encode(&tx.id.0);
 
@@ -262,15 +266,19 @@ fn run() -> Result<(), String> {
                 if sig_file.unsigned_txid != expected_txid {
                     return Err(format!(
                         "sig file {} txid mismatch: expected {}, got {}",
-                        sig_path.display(), expected_txid, sig_file.unsigned_txid
+                        sig_path.display(),
+                        expected_txid,
+                        sig_file.unsigned_txid
                     ));
                 }
-                let sig = sig_file.sigs.iter()
+                let sig = sig_file
+                    .sigs
+                    .iter()
                     .find(|s| s.input_index == 0)
                     .ok_or_else(|| format!("no sig for input 0 in {}", sig_path.display()))?;
                 collected_sigs.push(
                     hex::decode(&sig.der_sig_hex)
-                        .map_err(|_| format!("invalid sig hex in {}", sig_path.display()))?
+                        .map_err(|_| format!("invalid sig hex in {}", sig_path.display()))?,
                 );
             }
 
@@ -291,7 +299,10 @@ fn run() -> Result<(), String> {
             println!("inputs={}", tx.inputs.len());
             println!("sigs_applied={}", collected_sigs.len());
             println!("written={}", tx_path.display());
-            println!("ready to broadcast: txmwallet broadcast {}", tx_path.display());
+            println!(
+                "ready to broadcast: txmwallet broadcast {}",
+                tx_path.display()
+            );
         }
         "htlc-secret" => {
             let mut preimage = [0u8; 32];
@@ -327,24 +338,28 @@ fn run() -> Result<(), String> {
             println!("scriptpubkey: {}", hex::encode(&script));
             println!("locktime_height: {locktime}");
             println!("size={} bytes", script.len());
-            println!("fund it by sending TXM to this scriptpubkey (send-from-script or a script output)");
+            println!(
+                "fund it by sending TXM to this scriptpubkey (send-from-script or a script output)"
+            );
         }
         "htlc-claim" => {
-            let usage =
-                "usage: txmwallet htlc-claim <spk_hex> <dest_addr> <preimage_hex> [rpc]";
+            let usage = "usage: txmwallet htlc-claim <spk_hex> <dest_addr> <preimage_hex> [rpc]";
             let spk_hex = args.get(2).ok_or(usage)?;
             let dest_addr = args.get(3).ok_or(usage)?;
             let preimage_hex = args.get(4).ok_or(usage)?;
             let rpc = args.get(5).map(String::as_str).unwrap_or(DEFAULT_RPC);
 
-            let preimage = hex::decode(preimage_hex).map_err(|_| "invalid preimage hex".to_owned())?;
+            let preimage =
+                hex::decode(preimage_hex).map_err(|_| "invalid preimage hex".to_owned())?;
             let passphrase = passphrase_from_env()?;
             let wallet = load_wallet(&wallet_path)?;
             let keypair = wallet.decrypt(&passphrase)?;
 
             let mut tx = build_unsigned_htlc_spend(rpc, spk_hex, dest_addr)?;
             let sig_hash = tx.signature_hash();
-            let der_sig = keypair.sign_hash(&sig_hash).map_err(|e| format!("sign: {e:?}"))?;
+            let der_sig = keypair
+                .sign_hash(&sig_hash)
+                .map_err(|e| format!("sign: {e:?}"))?;
             let pubkey = hex::decode(&wallet.public_key_hex)
                 .map_err(|_| "invalid wallet pubkey hex".to_owned())?;
             let script_sig = htlc_claim_script_sig(&der_sig, &pubkey, &preimage);
@@ -372,7 +387,9 @@ fn run() -> Result<(), String> {
 
             let mut tx = build_unsigned_htlc_spend(rpc, spk_hex, dest_addr)?;
             let sig_hash = tx.signature_hash();
-            let der_sig = keypair.sign_hash(&sig_hash).map_err(|e| format!("sign: {e:?}"))?;
+            let der_sig = keypair
+                .sign_hash(&sig_hash)
+                .map_err(|e| format!("sign: {e:?}"))?;
             let pubkey = hex::decode(&wallet.public_key_hex)
                 .map_err(|_| "invalid wallet pubkey hex".to_owned())?;
             let script_sig = htlc_refund_script_sig(&der_sig, &pubkey);
@@ -438,7 +455,10 @@ fn load_state(path: &Path) -> Result<ChainState, String> {
         tensorium_core::storage::migration::migrate_json_to_rocksdb(path, &db_path)?;
         let backup = path.with_extension("json.migrated");
         let _ = fs::rename(path, &backup);
-        eprintln!("[storage] Migration complete. Backup at {}", backup.display());
+        eprintln!(
+            "[storage] Migration complete. Backup at {}",
+            backup.display()
+        );
     }
 
     ChainState::open_db(&db_path)
@@ -468,9 +488,8 @@ fn print_balance(wallet: &WalletFile, state: &ChainState) -> Result<(), String> 
     let tip_height = state.height().unwrap_or(0);
     let mut mature_atoms = 0u64;
     let mut immature_atoms = 0u64;
-    let expected_script = p2pkh_from_pubkey(
-        &hex::decode(&wallet.public_key_hex).unwrap_or_default()
-    );
+    let expected_script =
+        p2pkh_from_pubkey(&hex::decode(&wallet.public_key_hex).unwrap_or_default());
     for entry in utxos.entries.values() {
         if entry.output.script_pubkey != expected_script {
             continue;
@@ -517,9 +536,8 @@ fn build_signed_payment(
     let tip_height = state.height().unwrap_or(0);
     let mut selected = Vec::new();
     let mut selected_atoms = 0u64;
-    let expected_script = p2pkh_from_pubkey(
-        &hex::decode(&wallet.public_key_hex).unwrap_or_default()
-    );
+    let expected_script =
+        p2pkh_from_pubkey(&hex::decode(&wallet.public_key_hex).unwrap_or_default());
     for (outpoint, entry) in &utxos.entries {
         if entry.output.script_pubkey != expected_script {
             continue;
@@ -586,20 +604,34 @@ fn print_help() {
     println!("commands:");
     println!("  create                                        create a local wallet file");
     println!("  getnewaddress                                 print wallet address");
-    println!("  balance                                       scan local chain state for wallet balance");
+    println!(
+        "  balance                                       scan local chain state for wallet balance"
+    );
     println!("  send <to> <atoms> [tx_file]                   build and sign a transaction file");
     println!("  broadcast [tx_file] [rpc]                     submit signed tx file to node RPC");
     println!("  show                                          print wallet public summary");
-    println!("  unlock-check                                  verify passphrase can decrypt wallet");
-    println!("  multisig-script <m> <pubkey_hex>...           print scriptPubKey for m-of-n multisig");
+    println!(
+        "  unlock-check                                  verify passphrase can decrypt wallet"
+    );
+    println!(
+        "  multisig-script <m> <pubkey_hex>...           print scriptPubKey for m-of-n multisig"
+    );
     println!("  send-from-script <spk_hex> <to> <atoms>       build unsigned multisig spend tx");
     println!("  multisig-sign <tx_file>                       sign a multisig tx with this wallet");
-    println!("  multisig-combine <tx_file> <sig1> <sig2>...   combine partial sigs into broadcast tx");
+    println!(
+        "  multisig-combine <tx_file> <sig1> <sig2>...   combine partial sigs into broadcast tx"
+    );
+    println!("  htlc-secret                                            generate a 32-byte preimage + its sha256 hash");
+    println!("  htlc-script <hash_hex> <recipient_addr> <refund_addr> <locktime_height>");
+    println!("  htlc-claim <spk_hex> <dest_addr> <preimage_hex> [rpc]  spend HTLC via preimage (claim branch)");
+    println!("  htlc-refund <spk_hex> <dest_addr> [rpc]                spend HTLC after locktime (refund branch)");
     println!();
     println!("env:");
     println!("  TENSORIUM_WALLET             wallet file, default {DEFAULT_WALLET_PATH}");
     println!("  TENSORIUM_STATE              chain state, default {DEFAULT_STATE_PATH}");
-    println!("  TENSORIUM_WALLET_PASSPHRASE  required for create, send, unlock-check, multisig-sign");
+    println!(
+        "  TENSORIUM_WALLET_PASSPHRASE  required for create, send, unlock-check, multisig-sign"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -632,15 +664,18 @@ fn rpc_post(rpc: &str, path: &str, body: &str) -> Result<String, String> {
 }
 
 fn rpc_get(rpc: &str, path: &str) -> Result<String, String> {
-    let request = format!(
-        "GET {path} HTTP/1.1\r\nhost: {rpc}\r\nconnection: close\r\n\r\n"
-    );
-    let mut stream =
-        TcpStream::connect(rpc).map_err(|err| format!("RPC connect {rpc}: {err}"))?;
-    stream.write_all(request.as_bytes()).map_err(|e| format!("RPC write: {e}"))?;
+    let request = format!("GET {path} HTTP/1.1\r\nhost: {rpc}\r\nconnection: close\r\n\r\n");
+    let mut stream = TcpStream::connect(rpc).map_err(|err| format!("RPC connect {rpc}: {err}"))?;
+    stream
+        .write_all(request.as_bytes())
+        .map_err(|e| format!("RPC write: {e}"))?;
     let mut response = String::new();
-    stream.read_to_string(&mut response).map_err(|e| format!("RPC read: {e}"))?;
-    let (head, body) = response.split_once("\r\n\r\n").ok_or("invalid HTTP response")?;
+    stream
+        .read_to_string(&mut response)
+        .map_err(|e| format!("RPC read: {e}"))?;
+    let (head, body) = response
+        .split_once("\r\n\r\n")
+        .ok_or("invalid HTTP response")?;
     if !head.starts_with("HTTP/1.1 200") {
         return Err(format!("RPC error: {body}"));
     }
@@ -669,24 +704,35 @@ fn build_signed_payment_via_rpc(
         mature: bool,
     }
     #[derive(serde::Deserialize)]
-    struct RpcUtxoResp { utxos: Vec<RpcUtxo> }
+    struct RpcUtxoResp {
+        utxos: Vec<RpcUtxo>,
+    }
 
     let body = rpc_get(rpc, &format!("/getutxos/{}", wallet.address))?;
-    let resp: RpcUtxoResp = serde_json::from_str(&body)
-        .map_err(|e| format!("UTXO parse error: {e}"))?;
+    let resp: RpcUtxoResp =
+        serde_json::from_str(&body).map_err(|e| format!("UTXO parse error: {e}"))?;
 
     let mut selected: Vec<(OutPoint, u64)> = Vec::new();
     let mut selected_atoms = 0u64;
     for u in resp.utxos {
-        if !u.mature { continue; }
+        if !u.mature {
+            continue;
+        }
         let hash = Hash256(
-            u.txid_bytes.as_slice().try_into()
-                .map_err(|_| "invalid txid length from RPC".to_owned())?
+            u.txid_bytes
+                .as_slice()
+                .try_into()
+                .map_err(|_| "invalid txid length from RPC".to_owned())?,
         );
-        let outpoint = OutPoint { txid: hash, output_index: u.output_index };
+        let outpoint = OutPoint {
+            txid: hash,
+            output_index: u.output_index,
+        };
         selected.push((outpoint, u.value_atoms));
         selected_atoms = selected_atoms.saturating_add(u.value_atoms);
-        if selected_atoms >= amount_atoms { break; }
+        if selected_atoms >= amount_atoms {
+            break;
+        }
     }
 
     if selected_atoms < amount_atoms {
@@ -695,8 +741,12 @@ fn build_signed_payment_via_rpc(
         ));
     }
 
-    let inputs: Vec<TxInput> = selected.iter()
-        .map(|(op, _)| TxInput { previous_output: *op, signature_script: Vec::new() })
+    let inputs: Vec<TxInput> = selected
+        .iter()
+        .map(|(op, _)| TxInput {
+            previous_output: *op,
+            signature_script: Vec::new(),
+        })
         .collect();
     let mut outputs = vec![TxOutput {
         value_atoms: amount_atoms,
@@ -713,7 +763,9 @@ fn build_signed_payment_via_rpc(
     }
 
     let mut tx = Transaction::payment(inputs, outputs);
-    keypair.sign_transaction(&mut tx).map_err(|e| e.to_string())?;
+    keypair
+        .sign_transaction(&mut tx)
+        .map_err(|e| e.to_string())?;
     Ok(tx)
 }
 
@@ -738,23 +790,37 @@ fn build_unsigned_multisig_tx(
         mature: bool,
     }
     #[derive(serde::Deserialize)]
-    struct RpcUtxoResp { utxos: Vec<RpcUtxo> }
+    struct RpcUtxoResp {
+        utxos: Vec<RpcUtxo>,
+    }
 
     let body = rpc_get(rpc, &format!("/getutxos/{scriptpubkey_hex}"))?;
-    let resp: RpcUtxoResp = serde_json::from_str(&body)
-        .map_err(|e| format!("UTXO parse error: {e}"))?;
+    let resp: RpcUtxoResp =
+        serde_json::from_str(&body).map_err(|e| format!("UTXO parse error: {e}"))?;
 
     let mut selected: Vec<(OutPoint, u64)> = Vec::new();
     let mut selected_atoms = 0u64;
     for u in resp.utxos {
-        if !u.mature { continue; }
+        if !u.mature {
+            continue;
+        }
         let hash = Hash256(
-            u.txid_bytes.as_slice().try_into()
-                .map_err(|_| "invalid txid from RPC".to_owned())?
+            u.txid_bytes
+                .as_slice()
+                .try_into()
+                .map_err(|_| "invalid txid from RPC".to_owned())?,
         );
-        selected.push((OutPoint { txid: hash, output_index: u.output_index }, u.value_atoms));
+        selected.push((
+            OutPoint {
+                txid: hash,
+                output_index: u.output_index,
+            },
+            u.value_atoms,
+        ));
         selected_atoms = selected_atoms.saturating_add(u.value_atoms);
-        if selected_atoms >= amount_atoms { break; }
+        if selected_atoms >= amount_atoms {
+            break;
+        }
     }
 
     if selected_atoms < amount_atoms {
@@ -763,19 +829,29 @@ fn build_unsigned_multisig_tx(
         ));
     }
 
-    let inputs: Vec<TxInput> = selected.iter()
-        .map(|(op, _)| TxInput { previous_output: *op, signature_script: Vec::new() })
+    let inputs: Vec<TxInput> = selected
+        .iter()
+        .map(|(op, _)| TxInput {
+            previous_output: *op,
+            signature_script: Vec::new(),
+        })
         .collect();
 
     let dest_script = p2pkh_from_address(dest_addr)
         .map_err(|_| format!("invalid destination address: {dest_addr}"))?;
-    let source_script = hex::decode(scriptpubkey_hex)
-        .map_err(|_| "invalid scriptpubkey hex".to_owned())?;
+    let source_script =
+        hex::decode(scriptpubkey_hex).map_err(|_| "invalid scriptpubkey hex".to_owned())?;
 
-    let mut outputs = vec![TxOutput { value_atoms: amount_atoms, script_pubkey: dest_script }];
+    let mut outputs = vec![TxOutput {
+        value_atoms: amount_atoms,
+        script_pubkey: dest_script,
+    }];
     let change = selected_atoms - amount_atoms;
     if change > 0 {
-        outputs.push(TxOutput { value_atoms: change, script_pubkey: source_script });
+        outputs.push(TxOutput {
+            value_atoms: change,
+            script_pubkey: source_script,
+        });
     }
 
     Ok(Transaction::payment(inputs, outputs))
@@ -820,12 +896,18 @@ fn build_unsigned_htlc_spend(
             .map_err(|_| "invalid txid from RPC".to_owned())?,
     );
     let input = TxInput {
-        previous_output: OutPoint { txid: hash, output_index: u.output_index },
+        previous_output: OutPoint {
+            txid: hash,
+            output_index: u.output_index,
+        },
         signature_script: Vec::new(),
     };
     let dest_script = p2pkh_from_address(dest_addr)
         .map_err(|_| format!("invalid destination address: {dest_addr}"))?;
-    let outputs = vec![TxOutput { value_atoms: u.value_atoms, script_pubkey: dest_script }];
+    let outputs = vec![TxOutput {
+        value_atoms: u.value_atoms,
+        script_pubkey: dest_script,
+    }];
     Ok(Transaction::payment(vec![input], outputs))
 }
 
@@ -911,8 +993,8 @@ impl WalletFile {
 
         let private_key_hex = String::from_utf8(plaintext)
             .map_err(|err| format!("wallet plaintext is invalid UTF-8: {err}"))?;
-        let keypair = WalletKeypair::from_private_key_hex(&private_key_hex)
-            .map_err(|err| err.to_string())?;
+        let keypair =
+            WalletKeypair::from_private_key_hex(&private_key_hex).map_err(|err| err.to_string())?;
         if keypair.address.as_str() != self.address {
             return Err("wallet address does not match decrypted key".to_owned());
         }
