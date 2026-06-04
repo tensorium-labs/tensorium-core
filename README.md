@@ -45,7 +45,7 @@ tensorium-miner \
 ```
 
 Pool stats and payout history: https://pooltxm.tensoriumlabs.com  
-Fee: **5%** of block reward. Treasury: `txm10wa2dazhn2yqwwxkm4aegvzjq55hj9m2jlznt9`
+Fee: **5%** of block reward. Treasury: `txm13vgxzj5ulrfhe7x0mlzxg0q6veq42tkku4g3jr`
 
 **Solo mining (0% fee — full block reward to your address):**
 

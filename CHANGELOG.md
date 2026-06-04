@@ -168,7 +168,7 @@ Infrastructure stable since 2026-06-01 genesis. Soak test gate removed. TXM mini
   - Endpoints: `/health`, `/getblocktemplate/<miner>`, `/submitblock`, `/pool/stats`, `/pool/accounting`, `/pool/pending/<addr>`
   - CLI: `stats`, `accounting`, `pending <addr>`, `mark-paid <addr>`
   - 9 unit tests covering fee split, ledger, stats, pending, and mark-paid
-  - Pool treasury address: `txm10wa2dazhn2yqwwxkm4aegvzjq55hj9m2jlznt9`
+  - Pool treasury address: `txm13vgxzj5ulrfhe7x0mlzxg0q6veq42tkku4g3jr`
 - **Built-in static seed list** in `tensorium-node`
   - `DEFAULT_SEEDS = ["seed.tensoriumlabs.com:33333", "seed2.tensoriumlabs.com:33333"]` — new nodes auto-connect without manual config
   - Opt-out: `TENSORIUM_NO_DEFAULT_SEEDS=1`
@@ -181,7 +181,7 @@ Infrastructure stable since 2026-06-01 genesis. Soak test gate removed. TXM mini
   - `TENSORIUM_MC_STATE` env var for custom mc state path
 - **Founder wallet and pool treasury** generated and published (Phase 7B)
   - Founder cold wallet: `txm18c3t652j0x0sanux3dhse8fqgrqpsdzx97358d` — 1,000,000 TXM genesis allocation
-  - Pool treasury: `txm10wa2dazhn2yqwwxkm4aegvzjq55hj9m2jlznt9` — receives 5% pool fee
+  - Pool treasury: `txm13vgxzj5ulrfhe7x0mlzxg0q6veq42tkku4g3jr` — receives 5% pool fee
   - Social/manual lock policy: max 10%/month for first 24 months, fully unlocked after month 24
 - **Infrastructure and monitoring** (Phase 7C)
   - `tensorium-monitor.sh`: cron every 10 min; checks RPC, P2P, explorer, disk %, SSL expiry

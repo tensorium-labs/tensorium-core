@@ -39,7 +39,7 @@ The founder commits to a **voluntary 24-month lock** starting from mainnet genes
 ## 3. Pool Fee
 
 - The **official/reference mining pool** charges a **5% fee** on block rewards.
-- The pool fee destination: `txm10wa2dazhn2yqwwxkm4aegvzjq55hj9m2jlznt9` (pool treasury wallet).
+- The pool fee destination: `txm13vgxzj5ulrfhe7x0mlzxg0q6veq42tkku4g3jr` (pool treasury wallet).
 - This fee is **pool-level only**, not a protocol-level tax.
 - **Solo mining is fee-free at the protocol level.** Miners who connect directly to a node receive 100% of the block reward.
 - Miners using the official pool must accept the 5% fee. Third-party pools may charge different fees.

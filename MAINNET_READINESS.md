@@ -63,13 +63,13 @@ Phase 10E artifact:
 | Gate | Status | Notes |
 | --- | --- | --- |
 | Consensus audit | DONE | Tokenomics, emission, difficulty, fork-choice/reorg, timestamp, coinbase, double-spend, RPC bind safety, P2P cap, ban-list fix, connection limit, TCP timeouts — 54 unit tests passing. Soak/integration test: Phase 8 item. |
-| Founder wallet | DONE | Founder address `txm18c3t652j0x0sanux3dhse8fqgrqpsdzx97358d`, pool treasury `txm10wa2dazhn2yqwwxkm4aegvzjq55hj9m2jlznt9` generated 2026-05-31. |
+| Founder wallet | DONE | Founder address `txm18c3t652j0x0sanux3dhse8fqgrqpsdzx97358d`, pool treasury `txm13vgxzj5ulrfhe7x0mlzxg0q6veq42tkku4g3jr` generated 2026-05-31. |
 | Founder lock policy | DONE | Social/manual 24-month lock documented; no L1 enforcement. Disclosure required in whitepaper before mainnet. |
 | Mainnet genesis | DONE | Nonce `1_936_263_118_035` mined RTX 5090 (4.64 GH/s, 474s, 2026-06-02). Hash: `0000000000269b71601aded6dda2991df6f88b67ac2bef13dff56f4f8a94dfae`. Genesis v3 — post-S1 script_pubkey serialisation. Hardcoded in binary. |
 | Storage migration decision | DONE | RocksDB migration shipped on 2026-06-02. Legacy `state.json` files now auto-migrate to `*.db/` on first open. |
 | Peer discovery | DONE | Mainnet DNS seed live at `seed.tensoriumlabs.com:33333`; generic runtime defaults now point to mainnet DNS seeds. |
 | Mining pool path | DONE | tensorium-pool reference pool implemented (HTTP proxy, 5% fee, payout ledger). |
-| Pool fee policy | DONE | Pool treasury address generated (`txm10wa2dazhn2yqwwxkm4aegvzjq55hj9m2jlznt9`); payout accounting implemented; `pooltxm.tensoriumlabs.com` discloses 5% fee before miners connect. |
+| Pool fee policy | DONE | Pool treasury address generated (`txm13vgxzj5ulrfhe7x0mlzxg0q6veq42tkku4g3jr`); payout accounting implemented; `pooltxm.tensoriumlabs.com` discloses 5% fee before miners connect. |
 | Node/pool role boundaries | DONE | Documented in this file; mainnet scaling plan and separation posture are documented. |
 | Monitoring | DONE | `/usr/local/bin/tensorium-monitor.sh` runs every 10 min via cron; checks RPC, P2P, explorer, disk, SSL expiry; logs to `/var/log/tensorium-monitor.log`. |
 | Release reproducibility | DONE | v0.3.0-mainnet-candidate binaries built; SHA256 checksums in CHECKSUMS-v0.3.0-mainnet-candidate.txt. |
@@ -157,7 +157,7 @@ Phase 7B completed (2026-05-31).
 
 ### Pool Treasury Wallet
 
-- Address: `txm10wa2dazhn2yqwwxkm4aegvzjq55hj9m2jlznt9`
+- Address: `txm13vgxzj5ulrfhe7x0mlzxg0q6veq42tkku4g3jr`
 - Purpose: receives 5% official/reference pool fee revenue.
 - Wallet file: stored on local machine only (`/root/cold-wallets/pool-treasury/pool-treasury.json`), encrypted with passphrase.
 - Separate from founder cold wallet — different keypair, different passphrase.
@@ -214,7 +214,7 @@ Draft decision:
 Required safety rules:
 
 - [x] Publish the pool fee before miners connect. *(live on `pooltxm.tensoriumlabs.com` before miner connect flow)*
-- [x] Pool treasury address generated: `txm10wa2dazhn2yqwwxkm4aegvzjq55hj9m2jlznt9`
+- [x] Pool treasury address generated: `txm13vgxzj5ulrfhe7x0mlzxg0q6veq42tkku4g3jr`
 - [x] Show gross reward, pool fee, and net miner payout in pool accounting.
 - [x] Pool treasury private key is separate from founder cold wallet — different keypair.
 - [x] Do not hide the fee in miner code, payout scripts, or explorer output.
@@ -359,7 +359,7 @@ TENSORIUM_POOL_BIND=0.0.0.0:23336                  # default
 TENSORIUM_POOL_LEDGER=pool-ledger.json             # default
 ```
 
-Pool treasury address: `txm10wa2dazhn2yqwwxkm4aegvzjq55hj9m2jlznt9`
+Pool treasury address: `txm13vgxzj5ulrfhe7x0mlzxg0q6veq42tkku4g3jr`
 
 Payout flow (operator responsibility):
 
