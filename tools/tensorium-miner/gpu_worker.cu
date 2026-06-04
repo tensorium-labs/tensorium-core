@@ -238,8 +238,10 @@ void *gpu_worker_thread(void *arg) {
                 sr.is_block = is_block;
                 share_push(s, &sr);
 
-                /* Reset nonce range after a find to avoid duplicate work */
-                nonce = a->nonce_start;
+                /* Advance past found nonce so we don't re-submit the same share */
+                nonce = found_nonce + nonces_per_launch;
+                if (nonce >= a->nonce_end || nonce < a->nonce_start)
+                    nonce = a->nonce_start;
                 hashes_since_reset = 0;
                 clock_gettime(CLOCK_MONOTONIC, &t0);
             }
