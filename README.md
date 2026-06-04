@@ -233,7 +233,7 @@ txmwallet getnewaddress
 # 4. Mine against your own node (0% fee)
 tensorium-miner --mode solo --rpc http://127.0.0.1:33332 --wallet YOUR_ADDRESS --gpu all
 
-# Check balance (coinbase matures after 30 confirmations)
+# Check balance (coinbase matures after 10 confirmations)
 txmwallet balance
 ```
 
@@ -400,7 +400,7 @@ Ban duration: 1 hour. Persisted to `tensorium-mainnet-banlist.json`.
 | Initial PoW difficulty | 40 leading zero bits |
 | Difficulty window | 60 blocks |
 | Max adjustment per window | ±1 bit |
-| Coinbase maturity | 30 blocks |
+| Coinbase maturity | 10 blocks |
 | Max future timestamp | 2 hours |
 | P2P port | 33333 |
 | RPC port | 33332 |

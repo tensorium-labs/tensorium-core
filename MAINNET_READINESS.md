@@ -83,7 +83,7 @@ Phase 10E artifact:
 - [x] Confirm initial reward: 11.9027 TXM per block (1,190,279,581 atoms).
 - [x] Confirm halving interval: 1,051,200 blocks.
 - [x] Confirm max halving eras: 10.
-- [x] Confirm mainnet-candidate coinbase maturity: 30 blocks.
+- [x] Confirm mainnet-candidate coinbase maturity: 10 blocks.
 - [x] Confirm mainnet candidate chain ID.
 - [x] Confirm mainnet initial difficulty.
 - [x] Confirm min/max difficulty bounds.
