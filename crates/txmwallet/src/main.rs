@@ -18,7 +18,8 @@ use tensorium_core::{
     block::{Transaction, TxInput, TxOutput},
     chain::MAINNET_CANDIDATE,
     script::standard::{multisig_script, multisig_script_sig, extract_multisig,
-                       p2pkh_from_address, p2pkh_from_pubkey, htlc_script},
+                       p2pkh_from_address, p2pkh_from_pubkey, htlc_script,
+                       htlc_claim_script_sig, htlc_refund_script_sig},
     ChainState, UtxoSet, WalletKeypair,
 };
 
@@ -327,6 +328,66 @@ fn run() -> Result<(), String> {
             println!("locktime_height: {locktime}");
             println!("size={} bytes", script.len());
             println!("fund it by sending TXM to this scriptpubkey (send-from-script or a script output)");
+        }
+        "htlc-claim" => {
+            let usage =
+                "usage: txmwallet htlc-claim <spk_hex> <dest_addr> <preimage_hex> [rpc]";
+            let spk_hex = args.get(2).ok_or(usage)?;
+            let dest_addr = args.get(3).ok_or(usage)?;
+            let preimage_hex = args.get(4).ok_or(usage)?;
+            let rpc = args.get(5).map(String::as_str).unwrap_or(DEFAULT_RPC);
+
+            let preimage = hex::decode(preimage_hex).map_err(|_| "invalid preimage hex".to_owned())?;
+            let passphrase = passphrase_from_env()?;
+            let wallet = load_wallet(&wallet_path)?;
+            let keypair = wallet.decrypt(&passphrase)?;
+
+            let mut tx = build_unsigned_htlc_spend(rpc, spk_hex, dest_addr)?;
+            let sig_hash = tx.signature_hash();
+            let der_sig = keypair.sign_hash(&sig_hash).map_err(|e| format!("sign: {e:?}"))?;
+            let pubkey = hex::decode(&wallet.public_key_hex)
+                .map_err(|_| "invalid wallet pubkey hex".to_owned())?;
+            let script_sig = htlc_claim_script_sig(&der_sig, &pubkey, &preimage);
+            for input in &mut tx.inputs {
+                input.signature_script = script_sig.clone();
+            }
+            tx.refresh_id();
+
+            let tx_path = PathBuf::from("htlc-claim-tx.json");
+            let raw = serde_json::to_string_pretty(&tx).map_err(|e| format!("serialize: {e}"))?;
+            fs::write(&tx_path, raw).map_err(|e| format!("write {}: {e}", tx_path.display()))?;
+            println!("claim_txid={}", tx.id);
+            println!("written={}", tx_path.display());
+            println!("broadcast: txmwallet broadcast {} {rpc}", tx_path.display());
+        }
+        "htlc-refund" => {
+            let usage = "usage: txmwallet htlc-refund <spk_hex> <dest_addr> [rpc]";
+            let spk_hex = args.get(2).ok_or(usage)?;
+            let dest_addr = args.get(3).ok_or(usage)?;
+            let rpc = args.get(4).map(String::as_str).unwrap_or(DEFAULT_RPC);
+
+            let passphrase = passphrase_from_env()?;
+            let wallet = load_wallet(&wallet_path)?;
+            let keypair = wallet.decrypt(&passphrase)?;
+
+            let mut tx = build_unsigned_htlc_spend(rpc, spk_hex, dest_addr)?;
+            let sig_hash = tx.signature_hash();
+            let der_sig = keypair.sign_hash(&sig_hash).map_err(|e| format!("sign: {e:?}"))?;
+            let pubkey = hex::decode(&wallet.public_key_hex)
+                .map_err(|_| "invalid wallet pubkey hex".to_owned())?;
+            let script_sig = htlc_refund_script_sig(&der_sig, &pubkey);
+            for input in &mut tx.inputs {
+                input.signature_script = script_sig.clone();
+            }
+            tx.refresh_id();
+
+            let tx_path = PathBuf::from("htlc-refund-tx.json");
+            let raw = serde_json::to_string_pretty(&tx).map_err(|e| format!("serialize: {e}"))?;
+            fs::write(&tx_path, raw).map_err(|e| format!("write {}: {e}", tx_path.display()))?;
+            println!("refund_txid={}", tx.id);
+            println!("written={}", tx_path.display());
+            println!("note: the node only accepts this once chain height >= the HTLC locktime");
+            println!("broadcast: txmwallet broadcast {} {rpc}", tx_path.display());
         }
         _ => print_help(),
     }
@@ -718,6 +779,54 @@ fn build_unsigned_multisig_tx(
     }
 
     Ok(Transaction::payment(inputs, outputs))
+}
+
+/// Build an unsigned transaction spending the first mature UTXO locked to an HTLC
+/// scriptPubKey, sending its FULL value to `dest_addr` (no change — HTLC outputs
+/// are single-value). UTXOs are discovered via the node's /getutxos/<hex> endpoint.
+fn build_unsigned_htlc_spend(
+    rpc: &str,
+    scriptpubkey_hex: &str,
+    dest_addr: &str,
+) -> Result<Transaction, String> {
+    use tensorium_core::block::OutPoint;
+    use tensorium_core::hash::Hash256;
+
+    #[derive(serde::Deserialize)]
+    struct RpcUtxo {
+        txid_bytes: Vec<u8>,
+        output_index: u32,
+        value_atoms: u64,
+        mature: bool,
+    }
+    #[derive(serde::Deserialize)]
+    struct RpcUtxoResp {
+        utxos: Vec<RpcUtxo>,
+    }
+
+    let body = rpc_get(rpc, &format!("/getutxos/{scriptpubkey_hex}"))?;
+    let resp: RpcUtxoResp =
+        serde_json::from_str(&body).map_err(|e| format!("UTXO parse error: {e}"))?;
+
+    let u = resp
+        .utxos
+        .into_iter()
+        .find(|u| u.mature)
+        .ok_or("no mature UTXO found for this HTLC script")?;
+    let hash = Hash256(
+        u.txid_bytes
+            .as_slice()
+            .try_into()
+            .map_err(|_| "invalid txid from RPC".to_owned())?,
+    );
+    let input = TxInput {
+        previous_output: OutPoint { txid: hash, output_index: u.output_index },
+        signature_script: Vec::new(),
+    };
+    let dest_script = p2pkh_from_address(dest_addr)
+        .map_err(|_| format!("invalid destination address: {dest_addr}"))?;
+    let outputs = vec![TxOutput { value_atoms: u.value_atoms, script_pubkey: dest_script }];
+    Ok(Transaction::payment(vec![input], outputs))
 }
 
 /// Decode a txm1 bech32 address to its 20-byte pubkey hash by reusing the P2PKH builder.
