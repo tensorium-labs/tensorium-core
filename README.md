@@ -45,7 +45,14 @@ tensorium-miner \
 ```
 
 Pool stats and payout history: https://pooltxm.tensoriumlabs.com  
-Fee: **5%** of block reward. Treasury: `txm13vgxzj5ulrfhe7x0mlzxg0q6veq42tkku4g3jr`
+Fee: **5%** of block reward. Treasury: `txm10wa2dazhn2yqwwxkm4aegvzjq55hj9m2jlznt9`
+
+Backup pool endpoint (Vultr):
+```bash
+tensorium-miner --mode pool \
+  --pool stratum+tcp://mc-rpc2.tensoriumlabs.com:3333 \
+  --wallet YOUR_TXM_ADDRESS --gpu all
+```
 
 **Solo mining (0% fee — full block reward to your address):**
 
@@ -59,6 +66,8 @@ tensorium-miner \
   --gpu all
 ```
 
+Backup public RPC: `http://mc-rpc2.tensoriumlabs.com` (Vultr seed node)
+
 Or point to your own local node if you run one:
 ```bash
 tensorium-miner --mode solo --rpc http://127.0.0.1:33332 --wallet YOUR_TXM_ADDRESS --gpu all
@@ -66,10 +75,7 @@ tensorium-miner --mode solo --rpc http://127.0.0.1:33332 --wallet YOUR_TXM_ADDRE
 
 ### GPU Miner — Architecture Guide
 
-> **⚠️ Pre-built binaries in v0.3.3 have a known bug with `--rpc` URL parsing.**  
-> **Recommended: build from source** (takes ~2 minutes on any machine with CUDA + gcc).
-
-**Build from source (recommended):**
+**Build from source (recommended — takes ~2 min on any machine with CUDA + gcc):**
 
 ```bash
 # Prerequisites: CUDA toolkit + gcc (standard on Vast.ai, RunPod, etc.)
@@ -86,12 +92,15 @@ make ARCH=sm_120   # RTX 5060 Ti / 5070 / 5080 / 5090 (Blackwell)
 make ARCH=sm_90    # H100 / H200
 make ARCH=sm_80    # A100
 
-# Install and run:
-chmod +x tensorium-miner && sudo mv tensorium-miner /usr/local/bin/
+# Install:
+sudo make install
+# Or manually: sudo mv tensorium-miner /usr/local/bin/
+
+# Run (pool):
 tensorium-miner --mode pool --pool stratum+tcp://pooltxm.tensoriumlabs.com:3333 --wallet YOUR_ADDRESS --gpu all
 ```
 
-**Download pre-built binary** (v0.3.4+ has the `--rpc` fix):
+**Download pre-built binary:**
 
 ```bash
 # Find your GPU architecture:
@@ -151,7 +160,7 @@ Pool operations now distinguish between:
 
 See `docs/operations/POOL_PAYOUT_RUNBOOK.md` for the refill and payout procedure.
 
-For safety, the node and pool should be separate trust boundaries. The temporary mainnet-candidate setup may colocate services on the current VPS to keep operations moving, as long as processes, folders, env files, logs, and wallet files are isolated. As the network grows, adding more nodes is good for redundancy, sync health, and decentralization; mainnet-candidate infrastructure should add backup seed nodes and split high-risk services when needed.
+For safety, the node and pool should be separate trust boundaries. The current infrastructure runs two independent nodes (DO + Vultr) with two independent pool instances, keeping processes, folders, env files, logs, and wallet files isolated.
 
 ---
 
@@ -208,12 +217,14 @@ tensorium-miner --mode pool \
   --pool stratum+tcp://pooltxm.tensoriumlabs.com:3333 \
   --wallet YOUR_TXM_ADDRESS \
   --gpu all
+# Backup pool: stratum+tcp://mc-rpc2.tensoriumlabs.com:3333
 
-# 3. Or: Solo mining — 0% fee, uses public node (no local node required)
+# Or: Solo mining — 0% fee, uses public node (no local node required)
 tensorium-miner --mode solo \
   --rpc http://mc-rpc.tensoriumlabs.com \
   --wallet YOUR_TXM_ADDRESS \
   --gpu all
+# Backup RPC: http://mc-rpc2.tensoriumlabs.com
 ```
 
 ### Option B — Run your own full node + mine
@@ -237,7 +248,8 @@ tensorium-miner --mode solo --rpc http://127.0.0.1:33332 --wallet YOUR_ADDRESS -
 txmwallet balance
 ```
 
-> **Sync from seed:** `tensorium-node mainnet-candidate sync seed.tensoriumlabs.com:33333`
+> **Sync from seed:** `tensorium-node mainnet-candidate sync seed.tensoriumlabs.com:33333`  
+> Backup seed: `tensorium-node mainnet-candidate sync mc-rpc2.tensoriumlabs.com:33333`
 
 ---
 
@@ -425,6 +437,18 @@ and a *refund* branch (after a block-height `locktime`, the sender reclaims with
 Because the hashlock is `SHA256` — also an EVM precompile — the same secret can unlock matching
 HTLCs across chains, enabling **trustless atomic swaps** (e.g. TXM ⇄ wTXM on Optimism). See
 [`docs/integrations/ATOMIC_SWAP_HTLC.md`](docs/integrations/ATOMIC_SWAP_HTLC.md) for a full walkthrough.
+
+---
+
+## Network Infrastructure
+
+| Service | Primary (DO) | Backup (Vultr) |
+|---|---|---|
+| P2P seed | `seed.tensoriumlabs.com:33333` | `mc-rpc2.tensoriumlabs.com:33333` |
+| Public RPC | `https://mc-rpc.tensoriumlabs.com` | `https://mc-rpc2.tensoriumlabs.com` |
+| Stratum pool | `pooltxm.tensoriumlabs.com:3333` | `mc-rpc2.tensoriumlabs.com:3333` |
+| Explorer | [explorer.tensoriumlabs.com](https://explorer.tensoriumlabs.com) | — |
+| Pool stats | [pooltxm.tensoriumlabs.com](https://pooltxm.tensoriumlabs.com) | — |
 
 ---
 
