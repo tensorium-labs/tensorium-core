@@ -171,7 +171,7 @@ pub fn htlc_script(
     locktime: u64,
 ) -> Vec<u8> {
     let lt = encode_locktime(locktime);
-    let mut s = Vec::with_capacity(70 + lt.len());
+    let mut s = Vec::with_capacity(90 + lt.len());
     s.push(OP_IF);
     s.push(OP_SHA256);
     s.push(0x20);
@@ -200,6 +200,11 @@ pub fn htlc_script(
 
 /// Build an HTLC claim scriptSig: [sig][pubkey][preimage] OP_1.
 pub fn htlc_claim_script_sig(der_sig: &[u8], pubkey: &[u8], preimage: &[u8]) -> Vec<u8> {
+    assert!(
+        preimage.len() <= 75,
+        "HTLC preimage must be at most 75 bytes (single data push); got {}",
+        preimage.len()
+    );
     let mut s = Vec::with_capacity(3 + der_sig.len() + pubkey.len() + preimage.len());
     s.push(der_sig.len() as u8);
     s.extend_from_slice(der_sig);
@@ -347,7 +352,6 @@ mod tests {
 
     fn htlc_test_keypair() -> (k256::ecdsa::SigningKey, Vec<u8>, [u8; 20]) {
         use k256::ecdsa::SigningKey;
-        use k256::elliptic_curve::sec1::ToEncodedPoint;
         use rand_core::OsRng;
         let sk = SigningKey::random(&mut OsRng);
         let pubkey = sk.verifying_key().to_encoded_point(true).as_bytes().to_vec();
@@ -487,5 +491,28 @@ mod tests {
 
         let ctx = ScriptContext { sig_hash: msg, block_height: 99 };
         assert_eq!(execute(&script_sig, &spk, &ctx), Err(ScriptError::LockTimeNotMet));
+    }
+
+    #[test]
+    fn htlc_refund_wrong_key_fails() {
+        use crate::hash::Hash256;
+        use crate::script::vm::{execute, ScriptContext};
+        use k256::ecdsa::{signature::Signer, Signature};
+
+        let (recipient_sk, recipient_pk, recipient_hash) = htlc_test_keypair();
+        let (_refund_sk, _refund_pk, refund_hash) = htlc_test_keypair();
+        let hash = [0x44u8; 32];
+        let spk = htlc_script(&hash, &recipient_hash, &refund_hash, 100);
+
+        // Past the locktime, but signing the refund branch with the RECIPIENT key,
+        // whose hash160 does not match refund_hash → OP_EQUALVERIFY fails.
+        let msg = Hash256([6u8; 32]);
+        let sig: Signature = recipient_sk.sign(&msg.0);
+        let der = sig.to_der().as_bytes().to_vec();
+        let script_sig = htlc_refund_script_sig(&der, &recipient_pk);
+
+        let ctx = ScriptContext { sig_hash: msg, block_height: 150 };
+        let result = execute(&script_sig, &spk, &ctx);
+        assert!(result.is_err() || !result.unwrap(), "refund with wrong key must fail");
     }
 }
