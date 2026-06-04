@@ -1,16 +1,16 @@
 use crate::{hash::Hash256, script::*};
 
 pub struct ScriptContext {
-    pub sig_hash:     Hash256,
+    pub sig_hash: Hash256,
     pub block_height: u64,
 }
 
 /// Execute scriptSig then scriptPubKey against a shared stack.
 /// Returns Ok(true) if the final stack top is truthy, Ok(false) otherwise.
 pub fn execute(
-    script_sig:    &[u8],
+    script_sig: &[u8],
     script_pubkey: &[u8],
-    ctx:           &ScriptContext,
+    ctx: &ScriptContext,
 ) -> Result<bool, ScriptError> {
     if script_sig.len() + script_pubkey.len() > MAX_SCRIPT_SIZE {
         return Err(ScriptError::ScriptTooLarge);
@@ -26,19 +26,21 @@ fn is_truthy(item: &Vec<u8>) -> bool {
 }
 
 pub(crate) fn run(
-    stack:       &mut Vec<Vec<u8>>,
-    script:      &[u8],
-    ctx:         &ScriptContext,
+    stack: &mut Vec<Vec<u8>>,
+    script: &[u8],
+    ctx: &ScriptContext,
     allow_checksig: bool,
 ) -> Result<(), ScriptError> {
-    use sha2::{Digest, Sha256};
     use k256::ecdsa::{signature::Verifier, Signature, VerifyingKey};
+    use sha2::{Digest, Sha256};
 
     let mut i = 0;
     let mut if_stack: Vec<bool> = Vec::new();
 
     macro_rules! executing {
-        () => { if_stack.is_empty() || *if_stack.last().unwrap() };
+        () => {
+            if_stack.is_empty() || *if_stack.last().unwrap()
+        };
     }
 
     while i < script.len() {
@@ -99,17 +101,23 @@ pub(crate) fn run(
 
             OP_DUP => {
                 let top = stack.last().ok_or(ScriptError::StackUnderflow)?.clone();
-                if stack.len() >= MAX_STACK_DEPTH { return Err(ScriptError::StackOverflow); }
+                if stack.len() >= MAX_STACK_DEPTH {
+                    return Err(ScriptError::StackOverflow);
+                }
                 stack.push(top);
             }
-            OP_DROP => { stack.pop().ok_or(ScriptError::StackUnderflow)?; }
+            OP_DROP => {
+                stack.pop().ok_or(ScriptError::StackUnderflow)?;
+            }
             OP_2DROP => {
                 stack.pop().ok_or(ScriptError::StackUnderflow)?;
                 stack.pop().ok_or(ScriptError::StackUnderflow)?;
             }
             OP_SWAP => {
                 let len = stack.len();
-                if len < 2 { return Err(ScriptError::StackUnderflow); }
+                if len < 2 {
+                    return Err(ScriptError::StackUnderflow);
+                }
                 stack.swap(len - 1, len - 2);
             }
 
@@ -130,11 +138,11 @@ pub(crate) fn run(
                     return Err(ScriptError::ScriptInSigContainsChecksig);
                 }
                 let pubkey_bytes = stack.pop().ok_or(ScriptError::StackUnderflow)?;
-                let sig_bytes    = stack.pop().ok_or(ScriptError::StackUnderflow)?;
-                let vk  = VerifyingKey::from_sec1_bytes(&pubkey_bytes)
+                let sig_bytes = stack.pop().ok_or(ScriptError::StackUnderflow)?;
+                let vk = VerifyingKey::from_sec1_bytes(&pubkey_bytes)
                     .map_err(|_| ScriptError::InvalidKey)?;
-                let sig = Signature::from_der(&sig_bytes)
-                    .map_err(|_| ScriptError::InvalidSignature)?;
+                let sig =
+                    Signature::from_der(&sig_bytes).map_err(|_| ScriptError::InvalidSignature)?;
                 let ok = vk.verify(&ctx.sig_hash.0, &sig).is_ok();
                 stack.push(if ok { vec![0x01] } else { vec![] });
             }
@@ -147,11 +155,15 @@ pub(crate) fn run(
             OP_EQUALVERIFY => {
                 let b = stack.pop().ok_or(ScriptError::StackUnderflow)?;
                 let a = stack.pop().ok_or(ScriptError::StackUnderflow)?;
-                if a != b { return Err(ScriptError::VerifyFailed); }
+                if a != b {
+                    return Err(ScriptError::VerifyFailed);
+                }
             }
             OP_VERIFY => {
                 let top = stack.pop().ok_or(ScriptError::StackUnderflow)?;
-                if !is_truthy(&top) { return Err(ScriptError::VerifyFailed); }
+                if !is_truthy(&top) {
+                    return Err(ScriptError::VerifyFailed);
+                }
             }
 
             // ── Small integers OP_1..OP_16 (0x51..0x60) ───────────────────────────
@@ -182,9 +194,7 @@ pub(crate) fn run(
                 if stack.len() < n {
                     return Err(ScriptError::StackUnderflow);
                 }
-                let mut pubkeys: Vec<Vec<u8>> = (0..n)
-                    .map(|_| stack.pop().unwrap())
-                    .collect();
+                let mut pubkeys: Vec<Vec<u8>> = (0..n).map(|_| stack.pop().unwrap()).collect();
                 pubkeys.reverse(); // pubkeys[0] = first pubkey in scriptPubKey
 
                 // Pop m (signature threshold)
@@ -201,9 +211,7 @@ pub(crate) fn run(
                 if stack.len() < m {
                     return Err(ScriptError::StackUnderflow);
                 }
-                let mut sigs: Vec<Vec<u8>> = (0..m)
-                    .map(|_| stack.pop().unwrap())
-                    .collect();
+                let mut sigs: Vec<Vec<u8>> = (0..m).map(|_| stack.pop().unwrap()).collect();
                 sigs.reverse(); // sigs[0] = first sig in scriptSig
 
                 // Verify: each sig must match a pubkey, advancing forward through pubkeys
@@ -212,7 +220,10 @@ pub(crate) fn run(
                 'sigs: for sig_bytes in &sigs {
                     let sig = match Signature::from_der(sig_bytes) {
                         Ok(s) => s,
-                        Err(_) => { all_matched = false; break; }
+                        Err(_) => {
+                            all_matched = false;
+                            break;
+                        }
                     };
                     let mut found = false;
                     while pub_idx < pubkeys.len() {
@@ -244,6 +255,28 @@ pub(crate) fn run(
                 }
             }
 
+            OP_0 => {
+                if stack.len() >= MAX_STACK_DEPTH {
+                    return Err(ScriptError::StackOverflow);
+                }
+                stack.push(Vec::new());
+            }
+
+            OP_CHECKLOCKTIMEVERIFY => {
+                // Peek (do NOT pop) the top item as a little-endian u64 locktime.
+                let top = stack.last().ok_or(ScriptError::StackUnderflow)?;
+                if top.len() > 8 {
+                    return Err(ScriptError::LockTimeNotMet); // malformed → fail closed
+                }
+                let mut buf = [0u8; 8];
+                buf[..top.len()].copy_from_slice(top);
+                let locktime = u64::from_le_bytes(buf);
+                if ctx.block_height < locktime {
+                    return Err(ScriptError::LockTimeNotMet);
+                }
+                // value stays on the stack; the script removes it with OP_DROP next.
+            }
+
             other => return Err(ScriptError::InvalidOpcode(other)),
         }
     }
@@ -254,17 +287,26 @@ pub(crate) fn run(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{hash::Hash256, script::{OP_DUP, OP_HASH160, OP_EQUALVERIFY, OP_CHECKSIG, OP_RETURN}};
+    use crate::{
+        hash::Hash256,
+        script::{OP_CHECKSIG, OP_DUP, OP_EQUALVERIFY, OP_HASH160, OP_RETURN},
+    };
     use k256::ecdsa::{signature::Signer, Signature, SigningKey};
     use rand_core::OsRng;
     use sha2::{Digest, Sha256};
 
     fn fake_ctx() -> ScriptContext {
-        ScriptContext { sig_hash: Hash256::ZERO, block_height: 0 }
+        ScriptContext {
+            sig_hash: Hash256::ZERO,
+            block_height: 0,
+        }
     }
 
     fn real_ctx(sig_hash: Hash256) -> ScriptContext {
-        ScriptContext { sig_hash, block_height: 0 }
+        ScriptContext {
+            sig_hash,
+            block_height: 0,
+        }
     }
 
     #[test]
@@ -350,7 +392,7 @@ mod tests {
 
     #[test]
     fn op_small_integers_push_correct_values() {
-        use crate::script::{OP_1, OP_2, OP_16};
+        use crate::script::{OP_1, OP_16, OP_2};
         let ctx = fake_ctx();
 
         // OP_1 pushes [0x01]
@@ -371,16 +413,28 @@ mod tests {
 
     #[test]
     fn op_checkmultisig_2of3_valid() {
-        use crate::script::{OP_CHECKMULTISIG, OP_2, OP_3};
+        use crate::script::{OP_2, OP_3, OP_CHECKMULTISIG};
         use k256::ecdsa::{signature::Signer, Signature, SigningKey};
         use rand_core::OsRng;
 
         let k1 = SigningKey::random(&mut OsRng);
         let k2 = SigningKey::random(&mut OsRng);
         let k3 = SigningKey::random(&mut OsRng);
-        let p1 = k1.verifying_key().to_encoded_point(true).as_bytes().to_vec();
-        let p2 = k2.verifying_key().to_encoded_point(true).as_bytes().to_vec();
-        let p3 = k3.verifying_key().to_encoded_point(true).as_bytes().to_vec();
+        let p1 = k1
+            .verifying_key()
+            .to_encoded_point(true)
+            .as_bytes()
+            .to_vec();
+        let p2 = k2
+            .verifying_key()
+            .to_encoded_point(true)
+            .as_bytes()
+            .to_vec();
+        let p3 = k3
+            .verifying_key()
+            .to_encoded_point(true)
+            .as_bytes()
+            .to_vec();
 
         let msg = Hash256([7u8; 32]);
         let sig1: Signature = k1.sign(&msg.0);
@@ -389,14 +443,19 @@ mod tests {
         let d2 = sig2.to_der().as_bytes().to_vec();
 
         let mut script_sig = Vec::new();
-        script_sig.push(d1.len() as u8); script_sig.extend_from_slice(&d1);
-        script_sig.push(d2.len() as u8); script_sig.extend_from_slice(&d2);
+        script_sig.push(d1.len() as u8);
+        script_sig.extend_from_slice(&d1);
+        script_sig.push(d2.len() as u8);
+        script_sig.extend_from_slice(&d2);
 
         let mut spk = Vec::new();
         spk.push(OP_2);
-        spk.push(p1.len() as u8); spk.extend_from_slice(&p1);
-        spk.push(p2.len() as u8); spk.extend_from_slice(&p2);
-        spk.push(p3.len() as u8); spk.extend_from_slice(&p3);
+        spk.push(p1.len() as u8);
+        spk.extend_from_slice(&p1);
+        spk.push(p2.len() as u8);
+        spk.extend_from_slice(&p2);
+        spk.push(p3.len() as u8);
+        spk.extend_from_slice(&p3);
         spk.push(OP_3);
         spk.push(OP_CHECKMULTISIG);
 
@@ -406,16 +465,28 @@ mod tests {
 
     #[test]
     fn op_checkmultisig_wrong_sig_returns_false() {
-        use crate::script::{OP_CHECKMULTISIG, OP_2, OP_3};
+        use crate::script::{OP_2, OP_3, OP_CHECKMULTISIG};
         use k256::ecdsa::{signature::Signer, Signature, SigningKey};
         use rand_core::OsRng;
 
         let k1 = SigningKey::random(&mut OsRng);
         let k2 = SigningKey::random(&mut OsRng);
         let k3 = SigningKey::random(&mut OsRng);
-        let p1 = k1.verifying_key().to_encoded_point(true).as_bytes().to_vec();
-        let p2 = k2.verifying_key().to_encoded_point(true).as_bytes().to_vec();
-        let p3 = k3.verifying_key().to_encoded_point(true).as_bytes().to_vec();
+        let p1 = k1
+            .verifying_key()
+            .to_encoded_point(true)
+            .as_bytes()
+            .to_vec();
+        let p2 = k2
+            .verifying_key()
+            .to_encoded_point(true)
+            .as_bytes()
+            .to_vec();
+        let p3 = k3
+            .verifying_key()
+            .to_encoded_point(true)
+            .as_bytes()
+            .to_vec();
 
         let msg = Hash256([7u8; 32]);
         let wrong_msg = Hash256([99u8; 32]);
@@ -425,14 +496,19 @@ mod tests {
         let d_wrong = sig_wrong.to_der().as_bytes().to_vec();
 
         let mut script_sig = Vec::new();
-        script_sig.push(d1.len() as u8); script_sig.extend_from_slice(&d1);
-        script_sig.push(d_wrong.len() as u8); script_sig.extend_from_slice(&d_wrong);
+        script_sig.push(d1.len() as u8);
+        script_sig.extend_from_slice(&d1);
+        script_sig.push(d_wrong.len() as u8);
+        script_sig.extend_from_slice(&d_wrong);
 
         let mut spk = Vec::new();
         spk.push(OP_2);
-        spk.push(p1.len() as u8); spk.extend_from_slice(&p1);
-        spk.push(p2.len() as u8); spk.extend_from_slice(&p2);
-        spk.push(p3.len() as u8); spk.extend_from_slice(&p3);
+        spk.push(p1.len() as u8);
+        spk.extend_from_slice(&p1);
+        spk.push(p2.len() as u8);
+        spk.extend_from_slice(&p2);
+        spk.push(p3.len() as u8);
+        spk.extend_from_slice(&p3);
         spk.push(OP_3);
         spk.push(OP_CHECKMULTISIG);
 
@@ -442,14 +518,22 @@ mod tests {
 
     #[test]
     fn op_checkmultisig_insufficient_sigs_errors() {
-        use crate::script::{OP_CHECKMULTISIG, OP_1, OP_2};
+        use crate::script::{OP_1, OP_2, OP_CHECKMULTISIG};
         use k256::ecdsa::{signature::Signer, Signature, SigningKey};
         use rand_core::OsRng;
 
         let k1 = SigningKey::random(&mut OsRng);
         let k2 = SigningKey::random(&mut OsRng);
-        let p1 = k1.verifying_key().to_encoded_point(true).as_bytes().to_vec();
-        let p2 = k2.verifying_key().to_encoded_point(true).as_bytes().to_vec();
+        let p1 = k1
+            .verifying_key()
+            .to_encoded_point(true)
+            .as_bytes()
+            .to_vec();
+        let p2 = k2
+            .verifying_key()
+            .to_encoded_point(true)
+            .as_bytes()
+            .to_vec();
 
         let msg = Hash256([1u8; 32]);
         let sig1: Signature = k1.sign(&msg.0);
@@ -457,12 +541,15 @@ mod tests {
 
         // Only 1 sig but m=2
         let mut script_sig = Vec::new();
-        script_sig.push(d1.len() as u8); script_sig.extend_from_slice(&d1);
+        script_sig.push(d1.len() as u8);
+        script_sig.extend_from_slice(&d1);
 
         let mut spk = Vec::new();
         spk.push(OP_2); // m=2
-        spk.push(p1.len() as u8); spk.extend_from_slice(&p1);
-        spk.push(p2.len() as u8); spk.extend_from_slice(&p2);
+        spk.push(p1.len() as u8);
+        spk.extend_from_slice(&p1);
+        spk.push(p2.len() as u8);
+        spk.extend_from_slice(&p2);
         spk.push(OP_2); // n=2
         spk.push(OP_CHECKMULTISIG);
 
@@ -472,20 +559,30 @@ mod tests {
 
     #[test]
     fn op_checkmultisig_m_greater_than_n_errors() {
-        use crate::script::{OP_CHECKMULTISIG, OP_3, OP_2};
+        use crate::script::{OP_2, OP_3, OP_CHECKMULTISIG};
         use k256::ecdsa::SigningKey;
         use rand_core::OsRng;
 
         let k1 = SigningKey::random(&mut OsRng);
         let k2 = SigningKey::random(&mut OsRng);
-        let p1 = k1.verifying_key().to_encoded_point(true).as_bytes().to_vec();
-        let p2 = k2.verifying_key().to_encoded_point(true).as_bytes().to_vec();
+        let p1 = k1
+            .verifying_key()
+            .to_encoded_point(true)
+            .as_bytes()
+            .to_vec();
+        let p2 = k2
+            .verifying_key()
+            .to_encoded_point(true)
+            .as_bytes()
+            .to_vec();
 
         // scriptPubKey: OP_m <pubkeys...> OP_n OP_CHECKMULTISIG where m=3 but n=2 → invalid
         let mut spk = Vec::new();
         spk.push(OP_3); // m=3
-        spk.push(p1.len() as u8); spk.extend_from_slice(&p1);
-        spk.push(p2.len() as u8); spk.extend_from_slice(&p2);
+        spk.push(p1.len() as u8);
+        spk.extend_from_slice(&p1);
+        spk.push(p2.len() as u8);
+        spk.extend_from_slice(&p2);
         spk.push(OP_2); // n=2
         spk.push(OP_CHECKMULTISIG);
 
@@ -494,17 +591,76 @@ mod tests {
     }
 
     #[test]
+    fn op_0_pushes_empty() {
+        use crate::script::OP_0;
+        let mut stack: Vec<Vec<u8>> = Vec::new();
+        run(&mut stack, &[OP_0], &fake_ctx(), false).unwrap();
+        assert_eq!(stack, vec![Vec::<u8>::new()]);
+    }
+
+    #[test]
+    fn cltv_passes_when_height_ge_locktime() {
+        use crate::script::{OP_1, OP_CHECKLOCKTIMEVERIFY, OP_DROP};
+        // push 100 (0x64), CLTV, DROP, OP_1(true)
+        let script = [0x01, 0x64, OP_CHECKLOCKTIMEVERIFY, OP_DROP, OP_1];
+        let ctx = ScriptContext {
+            sig_hash: Hash256::ZERO,
+            block_height: 100,
+        };
+        let ok = execute(&[], &script, &ctx).unwrap();
+        assert!(ok, "height == locktime should pass");
+    }
+
+    #[test]
+    fn cltv_fails_below_locktime() {
+        use crate::script::OP_CHECKLOCKTIMEVERIFY;
+        let script = [0x01, 0x64, OP_CHECKLOCKTIMEVERIFY]; // locktime 100
+        let ctx = ScriptContext {
+            sig_hash: Hash256::ZERO,
+            block_height: 99,
+        };
+        assert_eq!(
+            execute(&[], &script, &ctx),
+            Err(ScriptError::LockTimeNotMet)
+        );
+    }
+
+    #[test]
+    fn cltv_leaves_value_on_stack() {
+        use crate::script::OP_CHECKLOCKTIMEVERIFY;
+        let mut stack: Vec<Vec<u8>> = vec![vec![0x64u8]]; // locktime 100 already on stack
+        let ctx = ScriptContext {
+            sig_hash: Hash256::ZERO,
+            block_height: 200,
+        };
+        run(&mut stack, &[OP_CHECKLOCKTIMEVERIFY], &ctx, true).unwrap();
+        assert_eq!(stack, vec![vec![0x64u8]], "CLTV must not pop its operand");
+    }
+
+    #[test]
     fn op_checkmultisig_sigs_out_of_order_fails() {
-        use crate::script::{OP_CHECKMULTISIG, OP_2, OP_3};
+        use crate::script::{OP_2, OP_3, OP_CHECKMULTISIG};
         use k256::ecdsa::{signature::Signer, Signature, SigningKey};
         use rand_core::OsRng;
 
         let k1 = SigningKey::random(&mut OsRng);
         let k2 = SigningKey::random(&mut OsRng);
         let k3 = SigningKey::random(&mut OsRng);
-        let p1 = k1.verifying_key().to_encoded_point(true).as_bytes().to_vec();
-        let p2 = k2.verifying_key().to_encoded_point(true).as_bytes().to_vec();
-        let p3 = k3.verifying_key().to_encoded_point(true).as_bytes().to_vec();
+        let p1 = k1
+            .verifying_key()
+            .to_encoded_point(true)
+            .as_bytes()
+            .to_vec();
+        let p2 = k2
+            .verifying_key()
+            .to_encoded_point(true)
+            .as_bytes()
+            .to_vec();
+        let p3 = k3
+            .verifying_key()
+            .to_encoded_point(true)
+            .as_bytes()
+            .to_vec();
 
         let msg = Hash256([5u8; 32]);
         let sig1: Signature = k1.sign(&msg.0);
@@ -514,14 +670,19 @@ mod tests {
 
         // Deliberately swap sig order (sig2 first, sig1 second — wrong order)
         let mut script_sig = Vec::new();
-        script_sig.push(d2.len() as u8); script_sig.extend_from_slice(&d2);
-        script_sig.push(d1.len() as u8); script_sig.extend_from_slice(&d1);
+        script_sig.push(d2.len() as u8);
+        script_sig.extend_from_slice(&d2);
+        script_sig.push(d1.len() as u8);
+        script_sig.extend_from_slice(&d1);
 
         let mut spk = Vec::new();
         spk.push(OP_2);
-        spk.push(p1.len() as u8); spk.extend_from_slice(&p1);
-        spk.push(p2.len() as u8); spk.extend_from_slice(&p2);
-        spk.push(p3.len() as u8); spk.extend_from_slice(&p3);
+        spk.push(p1.len() as u8);
+        spk.extend_from_slice(&p1);
+        spk.push(p2.len() as u8);
+        spk.extend_from_slice(&p2);
+        spk.push(p3.len() as u8);
+        spk.extend_from_slice(&p3);
         spk.push(OP_3);
         spk.push(OP_CHECKMULTISIG);
 
