@@ -101,7 +101,7 @@ impl ConsensusParams {
             min_leading_zero_bits: 32,
             max_leading_zero_bits: 56,
             difficulty_adjustment_window: 120,
-            coinbase_maturity_blocks: 100,
+            coinbase_maturity_blocks: 30,
             max_future_block_time_seconds: 2 * 60 * 60,
             max_block_bytes: 1_000_000,
         }
@@ -182,6 +182,7 @@ mod tests {
         // MC has different reward (25M mining) and different genesis allocations
         assert_eq!(MAINNET_CANDIDATE.initial_reward_atoms, 1_190_279_581);
         assert_eq!(MAINNET_CANDIDATE.genesis_allocations.len(), 4);
+        assert_eq!(MAINNET_CANDIDATE.coinbase_maturity_blocks, 30);
         let genesis_total: u64 = MAINNET_CANDIDATE.genesis_allocations.iter().map(|(_, a)| a).sum();
         assert_eq!(genesis_total, 8_000_000 * COIN);
         assert_supply_split(MAINNET_CANDIDATE);

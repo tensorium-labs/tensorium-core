@@ -2,6 +2,13 @@
 
 All notable changes to Tensorium are documented in this file.
 
+## [Unreleased]
+
+### Changed
+- Mainnet-candidate coinbase maturity reduced from `100` to `30` blocks to improve miner payout UX while keeping a non-trivial confirmation buffer.
+
+---
+
 ## [v0.3.3-mainnet — Scripting S3: CLTV + HTLC] — 2026-06-04
 
 ### Added
