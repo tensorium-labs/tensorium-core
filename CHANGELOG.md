@@ -25,7 +25,7 @@ All notable changes to Tensorium are documented in this file.
   - New hash: `0000000000269b71601aded6dda2991df6f88b67ac2bef13dff56f4f8a94dfae`
   - Previous nonce `114_103_168_481` was invalid after scripting-layer S1 changed `TxOutput.address → script_pubkey`, altering block serialisation and thus the genesis merkle root
 - `MC_GENESIS_NONCE` updated in `crates/tensorium-node/src/main.rs`
-- `tools/txmminer-cuda/mine_genesis.cu` updated with new merkle root
+- `tools/tensorium-miner/mine_genesis.cu` updated with new merkle root
 - VPS chain state reset required (see deploy notes below)
 
 ---

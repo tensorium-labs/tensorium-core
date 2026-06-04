@@ -29,7 +29,7 @@ tail -20 /root/tensorium-bridge-relayer/logs/error.log # bridge errors
 **Release v0.3.2-mainnet** live di GitHub:
 - `tensorium-node-linux-x86_64` ✓
 - `txmwallet-linux-x86_64` ✓
-- `txmminer-cuda-linux-x86_64-sm86/sm89/sm120` ✓
+- `tensorium-miner-linux-x86_64-sm86/sm89/sm120` ✓
 
 **Bridge:** LIVE dan otomatis — relayer auto-mint wTXM untuk setiap deposit baru  
 - Controller: `0x4b31C557AD64609B975610812273BF82F1475384` (OP Mainnet)  
@@ -42,7 +42,7 @@ tail -20 /root/tensorium-bridge-relayer/logs/error.log # bridge errors
 - Butuh top up: 490K wTXM + ~$2500 ETH ke `0x15a8A0A259417ba0fFE92488FF09D458BE6ef9EB`
 
 **Pool mining:** LIVE dan fixed  
-- `txmminer-cuda pooltxm.tensoriumlabs.com:23336 YOUR_ADDRESS`  
+- `tensorium-miner pooltxm.tensoriumlabs.com:23336 YOUR_ADDRESS`
 - Fee 5%, treasury `txm10wa2dazhn2yqwwxkm4aegvzjq55hj9m2jlznt9`
 
 ---
@@ -50,7 +50,7 @@ tail -20 /root/tensorium-bridge-relayer/logs/error.log # bridge errors
 ## BUGFIX yang sudah selesai sesi ini
 
 - Pool `TENSORIUM_NODE_RPC` fixed dari 23332 (testnet) → 33332 (MC) ✓  
-- txmminer-cuda: constant memory optimization → 7.8 GH/s ✓  
+- tensorium-miner: constant memory optimization → 7.8 GH/s ✓
 - GitHub release dibuat dari 0 (tidak ada sebelumnya) ✓  
 - Docs bersih: no testnet/CPU miner refs ✓  
 

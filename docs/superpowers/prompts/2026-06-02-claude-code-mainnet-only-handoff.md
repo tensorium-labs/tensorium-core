@@ -22,7 +22,7 @@ Current verified state:
   - `tensorium-mc-p2p.service` active on `33333`
   - legacy `tensorium-rpc.service`, `tensorium-p2p.service`, and `tensorium-automine.service` have been disabled/stopped
 - Explorer frontend patch has already been deployed to the VPS via `pm2 restart tensorium-explorer`.
-- CUDA miner patch for 122-byte mainnet headers is already applied in `tools/txmminer-cuda`.
+- CUDA miner patch for 122-byte mainnet headers is already applied in `tools/tensorium-miner`.
 - GPU miner on the rental RTX 5090 host was started successfully and produced a visible block reward to:
   - `txm1xxjr2ca2n0zgxmw5rlwkcx7lgsrg9yy9qm0fck`
 

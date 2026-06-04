@@ -7,7 +7,7 @@ Date: 2026-06-03. Resume dari state ini di sesi berikutnya.
 ## Baca Dulu
 
 1. `/root/.claude/projects/-root/memory/project_tensorium.md` — full history
-2. `tools/txmminer-cuda/solo_client.cpp` — bug fixes terbaru
+2. `tools/tensorium-miner/solo_client.cpp` — bug fixes terbaru
 3. `git log --oneline -8` — semua commit sesi ini
 
 ---
@@ -18,7 +18,7 @@ Date: 2026-06-03. Resume dari state ini di sesi berikutnya.
 **GPU miner:** Vast.ai RTX 5090 `ssh -p 2602 root@64.31.38.214`  
 - tmux session `txmminer` — solo mining ke MC node via SSH tunnel  
 - ~8.3 GH/s real throughput (~132 detik/block expected)  
-- Binary: `~/tensorium-core/tools/txmminer-cuda/tensorium-miner` (sm_120)
+- Binary: `~/tensorium-core/tools/tensorium-miner/tensorium-miner` (sm_120)
 
 **Tunnel MC node (dari Vast.ai ke VPS):**
 ```bash
@@ -30,7 +30,7 @@ pgrep -f "ssh.*33332" > /dev/null || sshpass -p [REDACTED] ssh -fN \
 
 ## Bug Fixes yang Sudah Selesai Sesi Ini
 
-### tensorium-miner v2 (tools/txmminer-cuda/)
+### tensorium-miner v2 (tools/tensorium-miner/)
 
 **Bug 1:** Solo mode pakai `share_bits=20` (pool threshold) bukan `difficulty_bits=40`  
 → Kernel tidak pernah nemu real block (hanya 20-bit hash)  
@@ -73,7 +73,7 @@ pgrep -f "ssh.*33332" > /dev/null || sshpass -p [REDACTED] ssh -fN \
 # Restart miner
 tmux kill-session -t txmminer 2>/dev/null
 tmux new-session -d -s txmminer
-tmux send-keys -t txmminer "cd ~/tensorium-core/tools/txmminer-cuda && \
+tmux send-keys -t txmminer "cd ~/tensorium-core/tools/tensorium-miner && \
   ./tensorium-miner --mode solo --rpc http://127.0.0.1:33332 \
   --wallet txm1xxjr2ca2n0zgxmw5rlwkcx7lgsrg9yy9qm0fck \
   --gpu all --intensity auto 2>&1 | tee ~/miner.log" Enter
@@ -85,7 +85,7 @@ tmux send-keys -t txmminer "cd ~/tensorium-core/tools/txmminer-cuda && \
 ```bash
 ssh -o StrictHostKeyChecking=no -p 2602 root@64.31.38.214 '
 cd ~/tensorium-core && git pull origin main
-cd tools/txmminer-cuda && make clean && make ARCH=sm_120
+cd tools/tensorium-miner && make clean && make ARCH=sm_120
 '
 ```
 

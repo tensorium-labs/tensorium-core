@@ -9,7 +9,7 @@ body:
       label: Area
       options:
         - Consensus / Protocol
-        - GPU Mining (txmminer-cuda)
+        - GPU Mining (tensorium-miner)
         - CPU Mining dev/diagnostic (txmminer)
         - Wallet (txmwallet)
         - Node / RPC

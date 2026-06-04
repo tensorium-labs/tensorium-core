@@ -82,7 +82,7 @@ chmod +x tensorium-miner && sudo mv tensorium-miner /usr/local/bin/
 **Build from source for your GPU:**
 
 ```bash
-cd tools/txmminer-cuda
+cd tools/tensorium-miner
 make ARCH=sm_86    # RTX 3060/3070/3080/3090
 make ARCH=sm_89    # RTX 4060/4070/4080/4090
 make ARCH=sm_120   # RTX 5090 (Blackwell)
@@ -147,7 +147,7 @@ A self-custody browser wallet for TXM is available as a Chrome extension.
 | `tensorium-node` | binary | Full node: HTTP RPC + P2P server |
 | `tensorium-pool` | binary | Stratum + RPC mining pool (5% fee accounting, payout ledger) |
 | `txmwallet` | binary | CLI wallet (P2PKH, multisig, HTLC) |
-| `tensorium-miner` | tool (`tools/txmminer-cuda`) | NVIDIA CUDA GPU miner v2 — Stratum pool + solo, multi-GPU |
+| `tensorium-miner` | tool (`tools/tensorium-miner`) | NVIDIA CUDA GPU miner v2 — Stratum pool + solo, multi-GPU |
 
 ---
 

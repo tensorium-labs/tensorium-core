@@ -1,17 +1,17 @@
 # Tensorium Miner v2 — Design Spec
 
-**Date:** 2026-06-03  
-**Scope:** Full rewrite of `txmminer-cuda` into `tensorium-miner` with multi-GPU, Stratum pool server (Rust) + Stratum client (C++), NVML monitoring, clean CLI.  
+**Date:** 2026-06-03
+**Scope:** Evolution of the legacy CUDA miner into `tensorium-miner` with multi-GPU, Stratum pool server (Rust) + Stratum client (C++), NVML monitoring, clean CLI.
 **Approach:** Big Bang — all components built in one sprint.
 
 ---
 
 ## 1. Goals
 
-1. Replace single-GPU HTTP-only `txmminer-cuda` with `tensorium-miner` — a multi-GPU miner supporting both solo and pool mining modes.
+1. Replace the single-GPU legacy miner with `tensorium-miner` — a multi-GPU miner supporting both solo and pool mining modes.
 2. Add a Tensorium Stratum protocol server to `tensorium-pool` (port 3333) so miners can connect via `stratum+tcp://`.
 3. Publish the Tensorium Stratum protocol as a documented spec so the community can build compatible miners and pools.
-4. Maintain full backward compatibility — `txmminer-cuda` symlinked to `tensorium-miner`, solo HTTP mode unchanged.
+4. Maintain backward-compatible positional CLI behavior while shifting the public/default branding to `tensorium-miner`.
 
 ---
 
@@ -27,7 +27,7 @@
 
 ## 3. Architecture
 
-### 3.1 Miner (`tools/txmminer-cuda/`)
+### 3.1 Miner (`tools/tensorium-miner/`)
 
 ```
 tensorium-miner (binary)
@@ -42,7 +42,7 @@ tensorium-miner (binary)
 └── Makefile              — multi-file build, WITH_NVML=1 flag, sm_* target
 ```
 
-`txmminer-cuda` → symlink to `tensorium-miner` (backward compat, existing scripts unchanged).
+`tensorium-miner` → symlink to `tensorium-miner` (backward compat, existing scripts unchanged).
 
 ### 3.2 Pool (`crates/tensorium-pool/src/`)
 
@@ -405,7 +405,7 @@ make ARCH=sm_120  && cp tensorium-miner tensorium-miner-sm120
 
 # Install
 sudo cp tensorium-miner /usr/local/bin/
-sudo ln -sf /usr/local/bin/tensorium-miner /usr/local/bin/txmminer-cuda
+sudo ln -sf /usr/local/bin/tensorium-miner /usr/local/bin/tensorium-miner
 ```
 
 Pool (Rust):
@@ -428,4 +428,4 @@ cargo build -p tensorium-pool --release
 - [ ] Reconnect: kill pool → miner reconnects within 10s
 - [ ] NVML: stats show with `WITH_NVML=1`, graceful fallback without
 - [ ] Multi-GPU: 2 GPUs total hashrate ≈ sum of individual hashrates
-- [ ] Backward compat: `txmminer-cuda host:port address` still works via symlink
+- [ ] Backward compat: `tensorium-miner host:port address` still works via symlink

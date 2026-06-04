@@ -21,12 +21,12 @@ Current verified state:
   - `tensorium-mc-p2p.service` active on `33333`
   - legacy `tensorium-rpc.service`, `tensorium-p2p.service`, and `tensorium-automine.service` are disabled/inactive
 - Explorer frontend asset mismatch was fixed and `Cache-Control: no-store` was added for HTML/API/utils.js.
-- GPU miner (`txmminer-cuda`) on the rental RTX 5090 host is running via `tmux` and has already produced a visible block reward to:
+- GPU miner (`tensorium-miner`) on the rental RTX 5090 host is running via `tmux` and has already produced a visible block reward to:
   - `txm1xxjr2ca2n0zgxmw5rlwkcx7lgsrg9yy9qm0fck`
 
 Operational conclusion:
 
-- `txmminer-cuda` is now the real mainnet mining path.
+- `tensorium-miner` is now the real mainnet mining path.
 - `txmminer` CPU should no longer be presented as an active production mining path.
 - However, do not delete `txmminer` blindly unless you can prove it is safe to retire or clearly reduce it to dev/diagnostic scope.
 
@@ -34,7 +34,7 @@ Your task:
 
 1. Audit the repo for all places where `txmminer` CPU is still presented as an operator-facing or production mining path.
 2. Reposition `txmminer` to `dev/diagnostic/fallback` scope only.
-3. Make `txmminer-cuda` the explicit default mining path for:
+3. Make `tensorium-miner` the explicit default mining path for:
    - solo mining docs
    - pool/operator docs
    - install/runtime guidance

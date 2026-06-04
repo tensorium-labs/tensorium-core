@@ -1,5 +1,5 @@
 name: Bug Report
-description: Report a bug in tensorium-node, txmminer-cuda, txmminer, or txmwallet
+description: Report a bug in tensorium-node, tensorium-miner, txmminer, or txmwallet
 title: "[Bug] "
 labels: ["bug", "needs-triage"]
 body:
@@ -16,7 +16,7 @@ body:
       description: Which binary is affected?
       options:
         - tensorium-node
-        - txmminer-cuda (GPU miner)
+        - tensorium-miner (GPU miner)
         - txmminer (CPU dev/diagnostic)
         - txmwallet
         - install.sh
@@ -59,7 +59,7 @@ body:
       placeholder: |
         1. Run `tensorium-node mainnet-candidate init`
         2. Run `tensorium-node mainnet-candidate rpc`
-        3. Run `txmminer-cuda 127.0.0.1:33332 txm1...` (or `txmminer` for dev/diagnostic)
+        3. Run `tensorium-miner --mode solo --rpc http://127.0.0.1:33332 --wallet txm1...` (or `txmminer` for dev/diagnostic)
         4. See error: ...
     validations:
       required: true

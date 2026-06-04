@@ -316,7 +316,7 @@ Phase 7D update (2026-05-31):
 - [x] CUDA miner tested from source build. *(sm86, compiled and tested Phase 6)*
 - [x] RTX 3000/4000 benchmark published. *(RTX 3060 ~410 MH/s, avg block time ~167s at diff 36)*
 - [ ] At least one high-end GPU benchmark published. *(RTX 4090 tested via Vast AI; formal publish deferred)*
-- [x] Multi-GPU behavior tested or explicitly deferred. *(deferred: txmminer-cuda is single-GPU per process; multi-GPU via multiple processes documented)*
+- [x] Multi-GPU behavior tested or explicitly deferred. *(deferred: tensorium-miner is single-GPU per process; multi-GPU via multiple processes documented)*
 - [x] Pool mining path decided. *(reference pool: tensorium-pool crate, HTTP proxy model)*
 - [x] Pool payout accounting supports 5% official pool fee. *(split_fee() in accounting.rs, 9 unit tests)*
 - [x] Pool fee disclosure added to docs/UI. *(`pooltxm.tensoriumlabs.com` shows 5% fee, treasury address, gross/net payout)*
@@ -328,7 +328,7 @@ Pool binary: `tensorium-pool` (new crate in workspace, commit 2ed0104).
 
 Architecture:
 
-- Pool miners point `txmminer-cuda` at the pool bind address instead of the node RPC. (`txmminer` CPU cannot mine at mainnet difficulty and is dev/diagnostic only.)
+- Pool miners point `tensorium-miner` at the pool bind address instead of the node RPC. (`txmminer` CPU cannot mine at mainnet difficulty and is dev/diagnostic only.)
 - Pool proxies `GET /getblocktemplate/<miner_addr>` → node using **pool treasury address** as coinbase recipient.
 - Pool proxies `POST /submitblock` → node; on acceptance records payout accounting.
 - Payout ledger: `pool-ledger.json` (JSON, appended per accepted block).
@@ -368,7 +368,7 @@ Payout flow (operator responsibility):
 3. Operator signs and broadcasts payment transaction from treasury wallet to miner address.
 4. Operator runs `tensorium-pool mark-paid <miner_addr>`.
 
-Solo mining (fee-free): solo miners point `txmminer-cuda` directly at their own `tensorium-node` RPC endpoint — no pool fee. (`txmminer` CPU is dev/diagnostic only and cannot mine at mainnet difficulty.)
+Solo mining (fee-free): solo miners point `tensorium-miner` directly at their own `tensorium-node` RPC endpoint — no pool fee. (`txmminer` CPU is dev/diagnostic only and cannot mine at mainnet difficulty.)
 
 ## Release Checklist
 
@@ -562,7 +562,7 @@ Execution checklist: see `docs/bridge/phase9a/PHASE9A_EXECUTION_CHECKLIST.md`.
 ## Ecosystem Checklist (Full)
 
 **Protocol — DONE:**
-- [x] tensorium-node, txmwallet, txmminer, txmminer-cuda, tensorium-pool
+- [x] tensorium-node, txmwallet, txmminer, tensorium-miner, tensorium-pool
 - [x] Genesis block mined, MC params frozen, MC daemon complete
 
 **Infrastructure — historical Phase 8 / ongoing follow-through:**

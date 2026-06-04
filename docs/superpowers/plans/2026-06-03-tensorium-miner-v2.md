@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Rewrite `txmminer-cuda` into `tensorium-miner` with multi-GPU parallelism, clean CLI, NVML monitoring, and add a Tensorium Stratum server to `tensorium-pool` so miners can connect via `stratum+tcp://pool.tensoriumlabs.com:3333`.
+**Goal:** Rewrite `tensorium-miner` into `tensorium-miner` with multi-GPU parallelism, clean CLI, NVML monitoring, and add a Tensorium Stratum server to `tensorium-pool` so miners can connect via `stratum+tcp://pool.tensoriumlabs.com:3333`.
 
 **Architecture:** Multi-file C++ miner (`main.cpp`, `solo_client`, `stratum_client`, `gpu_worker.cu`, `nvml_monitor`) with per-GPU threads sharing a `SharedState` (job channel + share queue). Rust pool adds `stratum.rs` using the same `TcpListener + thread::spawn` pattern as existing HTTP pool, broadcasting new jobs via per-worker `mpsc::Sender` channels.
 
@@ -12,7 +12,7 @@
 
 ## File Map
 
-### New / Modified — Miner (`tools/txmminer-cuda/`)
+### New / Modified — Miner (`tools/tensorium-miner/`)
 
 | File | Action | Responsibility |
 |------|--------|----------------|
@@ -40,14 +40,14 @@
 ## Task 1: Scaffold files + `common.h` + Makefile
 
 **Files:**
-- Create: `tools/txmminer-cuda/common.h`
-- Modify: `tools/txmminer-cuda/Makefile`
-- Create (empty): `tools/txmminer-cuda/solo_client.h`, `solo_client.cpp`, `stratum_client.h`, `stratum_client.cpp`, `gpu_worker.h`, `gpu_worker.cu`, `nvml_monitor.h`, `nvml_monitor.cpp`, `main.cpp`
+- Create: `tools/tensorium-miner/common.h`
+- Modify: `tools/tensorium-miner/Makefile`
+- Create (empty): `tools/tensorium-miner/solo_client.h`, `solo_client.cpp`, `stratum_client.h`, `stratum_client.cpp`, `gpu_worker.h`, `gpu_worker.cu`, `nvml_monitor.h`, `nvml_monitor.cpp`, `main.cpp`
 
 - [ ] **Step 1: Create `common.h`**
 
 ```cpp
-// tools/txmminer-cuda/common.h
+// tools/tensorium-miner/common.h
 #pragma once
 #include <stdint.h>
 #include <stddef.h>
@@ -210,7 +210,7 @@ static inline uint8_t share_bits_from_diff(uint64_t diff) {
 - [ ] **Step 2: Create `Makefile`**
 
 ```makefile
-# tools/txmminer-cuda/Makefile
+# tools/tensorium-miner/Makefile
 NVCC    ?= nvcc
 CXX     ?= g++
 TARGET  ?= tensorium-miner
@@ -257,11 +257,11 @@ $(TARGET): $(OBJS_CU) $(OBJS_CPP)
 
 install: $(TARGET)
 	sudo cp $(TARGET) /usr/local/bin/tensorium-miner
-	sudo ln -sf /usr/local/bin/tensorium-miner /usr/local/bin/txmminer-cuda
-	@echo "Installed tensorium-miner, txmminer-cuda -> tensorium-miner"
+	sudo ln -sf /usr/local/bin/tensorium-miner /usr/local/bin/tensorium-miner
+	@echo "Installed tensorium-miner, tensorium-miner -> tensorium-miner"
 
 clean:
-	rm -f $(TARGET) txmminer-cuda *.o
+	rm -f $(TARGET) tensorium-miner *.o
 
 info:
 	@echo "ARCH=$(ARCH)"
@@ -273,24 +273,24 @@ info:
 
 ```bash
 # Each file needs at least a stub to link
-touch tools/txmminer-cuda/solo_client.h
-touch tools/txmminer-cuda/stratum_client.h
-touch tools/txmminer-cuda/gpu_worker.h
-touch tools/txmminer-cuda/nvml_monitor.h
+touch tools/tensorium-miner/solo_client.h
+touch tools/tensorium-miner/stratum_client.h
+touch tools/tensorium-miner/gpu_worker.h
+touch tools/tensorium-miner/nvml_monitor.h
 
-cat > tools/txmminer-cuda/solo_client.cpp   << 'EOF'
+cat > tools/tensorium-miner/solo_client.cpp   << 'EOF'
 #include "solo_client.h"
 EOF
-cat > tools/txmminer-cuda/stratum_client.cpp << 'EOF'
+cat > tools/tensorium-miner/stratum_client.cpp << 'EOF'
 #include "stratum_client.h"
 EOF
-cat > tools/txmminer-cuda/gpu_worker.cu     << 'EOF'
+cat > tools/tensorium-miner/gpu_worker.cu     << 'EOF'
 #include "gpu_worker.h"
 EOF
-cat > tools/txmminer-cuda/nvml_monitor.cpp  << 'EOF'
+cat > tools/tensorium-miner/nvml_monitor.cpp  << 'EOF'
 #include "nvml_monitor.h"
 EOF
-cat > tools/txmminer-cuda/main.cpp          << 'EOF'
+cat > tools/tensorium-miner/main.cpp          << 'EOF'
 int main() { return 0; }
 EOF
 ```
@@ -298,7 +298,7 @@ EOF
 - [ ] **Step 4: Verify scaffold compiles**
 
 ```bash
-cd tools/txmminer-cuda
+cd tools/tensorium-miner
 make clean && make ARCH=sm_86
 ```
 Expected: `Built: tensorium-miner (sm_86)` with no errors.
@@ -306,12 +306,12 @@ Expected: `Built: tensorium-miner (sm_86)` with no errors.
 - [ ] **Step 5: Commit scaffold**
 
 ```bash
-git add tools/txmminer-cuda/common.h tools/txmminer-cuda/Makefile \
-  tools/txmminer-cuda/solo_client.h tools/txmminer-cuda/solo_client.cpp \
-  tools/txmminer-cuda/stratum_client.h tools/txmminer-cuda/stratum_client.cpp \
-  tools/txmminer-cuda/gpu_worker.h tools/txmminer-cuda/gpu_worker.cu \
-  tools/txmminer-cuda/nvml_monitor.h tools/txmminer-cuda/nvml_monitor.cpp \
-  tools/txmminer-cuda/main.cpp
+git add tools/tensorium-miner/common.h tools/tensorium-miner/Makefile \
+  tools/tensorium-miner/solo_client.h tools/tensorium-miner/solo_client.cpp \
+  tools/tensorium-miner/stratum_client.h tools/tensorium-miner/stratum_client.cpp \
+  tools/tensorium-miner/gpu_worker.h tools/tensorium-miner/gpu_worker.cu \
+  tools/tensorium-miner/nvml_monitor.h tools/tensorium-miner/nvml_monitor.cpp \
+  tools/tensorium-miner/main.cpp
 git commit -m "feat(miner): scaffold tensorium-miner v2 file structure"
 ```
 
@@ -322,13 +322,13 @@ git commit -m "feat(miner): scaffold tensorium-miner v2 file structure"
 Extracts HTTP logic from `main.cu`. GPU workers get `JobDesc` via `SharedState`; solo client polls node and publishes jobs.
 
 **Files:**
-- Modify: `tools/txmminer-cuda/solo_client.h`
-- Modify: `tools/txmminer-cuda/solo_client.cpp`
+- Modify: `tools/tensorium-miner/solo_client.h`
+- Modify: `tools/tensorium-miner/solo_client.cpp`
 
 - [ ] **Step 1: Write `solo_client.h`**
 
 ```cpp
-// tools/txmminer-cuda/solo_client.h
+// tools/tensorium-miner/solo_client.h
 #pragma once
 #include "common.h"
 
@@ -353,7 +353,7 @@ int build_header(const JobDesc *job, uint64_t nonce, uint8_t out[HEADER_MAX]);
 - [ ] **Step 2: Write `solo_client.cpp`**
 
 ```cpp
-// tools/txmminer-cuda/solo_client.cpp
+// tools/tensorium-miner/solo_client.cpp
 #include "solo_client.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -491,7 +491,7 @@ static int fetch_template(const char *host, const char *port,
 static int submit_block(const char *host, const char *port,
                          uint64_t nonce) {
     /* Write nonce into the cached template JSON, then submit via curl.
-       Same approach as original txmminer-cuda: avoids CUDA socket conflict. */
+       Same approach as original tensorium-miner: avoids CUDA socket conflict. */
     char cmd[512];
     FILE *f = fopen("/tmp/txm_submit.json", "w");
     if (!f) return 0;
@@ -623,14 +623,14 @@ void solo_client_run(const MinerConfig *cfg, SharedState *state) {
 - [ ] **Step 3: Verify compiles**
 
 ```bash
-cd tools/txmminer-cuda && make clean && make ARCH=sm_86 2>&1 | grep -E "error:|Built"
+cd tools/tensorium-miner && make clean && make ARCH=sm_86 2>&1 | grep -E "error:|Built"
 ```
 Expected: `Built: tensorium-miner (sm_86)` — no errors.
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add tools/txmminer-cuda/solo_client.h tools/txmminer-cuda/solo_client.cpp
+git add tools/tensorium-miner/solo_client.h tools/tensorium-miner/solo_client.cpp
 git commit -m "feat(miner): solo_client — HTTP RPC template + submit"
 ```
 
@@ -641,13 +641,13 @@ git commit -m "feat(miner): solo_client — HTTP RPC template + submit"
 Each GPU runs in its own thread. Reads current job from `SharedState`, mines, pushes shares.
 
 **Files:**
-- Modify: `tools/txmminer-cuda/gpu_worker.h`
-- Modify: `tools/txmminer-cuda/gpu_worker.cu`
+- Modify: `tools/tensorium-miner/gpu_worker.h`
+- Modify: `tools/tensorium-miner/gpu_worker.cu`
 
 - [ ] **Step 1: Write `gpu_worker.h`**
 
 ```cpp
-// tools/txmminer-cuda/gpu_worker.h
+// tools/tensorium-miner/gpu_worker.h
 #pragma once
 #include "common.h"
 
@@ -676,7 +676,7 @@ void *gpu_worker_thread(void *arg);
 - [ ] **Step 2: Write `gpu_worker.cu`**
 
 ```cuda
-// tools/txmminer-cuda/gpu_worker.cu
+// tools/tensorium-miner/gpu_worker.cu
 #include "gpu_worker.h"
 #include "solo_client.h"
 #include "sha256d.cuh"
@@ -890,14 +890,14 @@ void *gpu_worker_thread(void *arg) {
 - [ ] **Step 3: Verify compiles**
 
 ```bash
-cd tools/txmminer-cuda && make clean && make ARCH=sm_86 2>&1 | grep -E "error:|Built"
+cd tools/tensorium-miner && make clean && make ARCH=sm_86 2>&1 | grep -E "error:|Built"
 ```
 Expected: `Built: tensorium-miner (sm_86)` — no link errors.
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add tools/txmminer-cuda/gpu_worker.h tools/txmminer-cuda/gpu_worker.cu
+git add tools/tensorium-miner/gpu_worker.h tools/tensorium-miner/gpu_worker.cu
 git commit -m "feat(miner): gpu_worker — per-GPU thread, nonce range, share push"
 ```
 
@@ -908,12 +908,12 @@ git commit -m "feat(miner): gpu_worker — per-GPU thread, nonce range, share pu
 Parses flags, spawns GPU threads + solo/pool client thread + stats printer.
 
 **Files:**
-- Modify: `tools/txmminer-cuda/main.cpp`
+- Modify: `tools/tensorium-miner/main.cpp`
 
 - [ ] **Step 1: Write `main.cpp`**
 
 ```cpp
-// tools/txmminer-cuda/main.cpp
+// tools/tensorium-miner/main.cpp
 #include "common.h"
 #include "solo_client.h"
 #include "stratum_client.h"
@@ -1034,7 +1034,7 @@ int main(int argc, char *argv[]) {
     cfg.gpu_count  = 0;  /* 0 = all */
     cfg.share_diff = DEFAULT_SHARE_DIFF;
 
-    /* --- Backward-compat mode: txmminer-cuda HOST:PORT ADDR [dev] [blks] [thr] --- */
+    /* --- Backward-compat mode: tensorium-miner HOST:PORT ADDR [dev] [blks] [thr] --- */
     if (argc >= 3 && argv[1][0] != '-') {
         const char *colon = strrchr(argv[1], ':');
         if (colon) {
@@ -1193,7 +1193,7 @@ run:;
 
 Add to `stratum_client.h`:
 ```cpp
-// tools/txmminer-cuda/stratum_client.h
+// tools/tensorium-miner/stratum_client.h
 #pragma once
 #include "common.h"
 #ifdef __cplusplus
@@ -1207,7 +1207,7 @@ void stratum_client_run(const MinerConfig *cfg, SharedState *state);
 
 Add to `stratum_client.cpp`:
 ```cpp
-// tools/txmminer-cuda/stratum_client.cpp
+// tools/tensorium-miner/stratum_client.cpp
 #include "stratum_client.h"
 #include <stdio.h>
 void stratum_client_run(const MinerConfig *cfg, SharedState *state) {
@@ -1217,7 +1217,7 @@ void stratum_client_run(const MinerConfig *cfg, SharedState *state) {
 ```
 
 ```bash
-cd tools/txmminer-cuda && make clean && make ARCH=sm_86 2>&1 | grep -E "error:|Built"
+cd tools/tensorium-miner && make clean && make ARCH=sm_86 2>&1 | grep -E "error:|Built"
 ```
 Expected: `Built: tensorium-miner (sm_86)` — no errors.
 
@@ -1228,7 +1228,7 @@ Expected: `Built: tensorium-miner (sm_86)` — no errors.
 ssh -fN -L 33332:127.0.0.1:33332 root@157.230.44.162
 
 # Run miner for 30 seconds, verify it mines
-cd tools/txmminer-cuda
+cd tools/tensorium-miner
 timeout 30 ./tensorium-miner \
   --mode solo \
   --rpc http://127.0.0.1:33332 \
@@ -1257,8 +1257,8 @@ Expected: same mining output — backward compat works.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add tools/txmminer-cuda/main.cpp tools/txmminer-cuda/stratum_client.h \
-        tools/txmminer-cuda/stratum_client.cpp
+git add tools/tensorium-miner/main.cpp tools/tensorium-miner/stratum_client.h \
+        tools/tensorium-miner/stratum_client.cpp
 git commit -m "feat(miner): main.cpp — CLI flags, multi-GPU orchestration, stats printer"
 ```
 
@@ -1299,13 +1299,13 @@ git commit -am "test(miner): verify multi-GPU nonce range separation"
 ## Task 6: `nvml_monitor.cpp/h` — Optional NVML stats
 
 **Files:**
-- Modify: `tools/txmminer-cuda/nvml_monitor.h`
-- Modify: `tools/txmminer-cuda/nvml_monitor.cpp`
+- Modify: `tools/tensorium-miner/nvml_monitor.h`
+- Modify: `tools/tensorium-miner/nvml_monitor.cpp`
 
 - [ ] **Step 1: Write `nvml_monitor.h`**
 
 ```cpp
-// tools/txmminer-cuda/nvml_monitor.h
+// tools/tensorium-miner/nvml_monitor.h
 #pragma once
 #include "common.h"
 #ifdef __cplusplus
@@ -1321,7 +1321,7 @@ void *nvml_monitor_thread(void *arg);
 - [ ] **Step 2: Write `nvml_monitor.cpp`**
 
 ```cpp
-// tools/txmminer-cuda/nvml_monitor.cpp
+// tools/tensorium-miner/nvml_monitor.cpp
 #include "nvml_monitor.h"
 #include <unistd.h>
 #include <stdio.h>
@@ -1376,7 +1376,7 @@ void *nvml_monitor_thread(void *arg) {
 - [ ] **Step 3: Build with NVML flag**
 
 ```bash
-cd tools/txmminer-cuda && make clean && make ARCH=sm_120 WITH_NVML=1 2>&1 | grep -E "error:|Built"
+cd tools/tensorium-miner && make clean && make ARCH=sm_120 WITH_NVML=1 2>&1 | grep -E "error:|Built"
 ```
 Expected: `Built: tensorium-miner (sm_120)` — links `libnvidia-ml`.
 
@@ -1390,7 +1390,7 @@ Expected: `Built: tensorium-miner (sm_120)` — no NVML dependency.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add tools/txmminer-cuda/nvml_monitor.h tools/txmminer-cuda/nvml_monitor.cpp
+git add tools/tensorium-miner/nvml_monitor.h tools/tensorium-miner/nvml_monitor.cpp
 git commit -m "feat(miner): nvml_monitor — optional GPU temp/power/fan polling"
 ```
 
@@ -2001,15 +2001,15 @@ git commit -m "feat(pool): Stratum TCP server — port 3333, job broadcast, shar
 Replaces the stub `stratum_client_run` with real protocol implementation.
 
 **Files:**
-- Modify: `tools/txmminer-cuda/stratum_client.h`
-- Modify: `tools/txmminer-cuda/stratum_client.cpp`
+- Modify: `tools/tensorium-miner/stratum_client.h`
+- Modify: `tools/tensorium-miner/stratum_client.cpp`
 
 - [ ] **Step 1: Update `stratum_client.h`** (already has declaration, no changes needed)
 
 - [ ] **Step 2: Write `stratum_client.cpp`**
 
 ```cpp
-// tools/txmminer-cuda/stratum_client.cpp
+// tools/tensorium-miner/stratum_client.cpp
 #include "stratum_client.h"
 #include "solo_client.h"   /* for build_header */
 #include <stdio.h>
@@ -2246,14 +2246,14 @@ reconnect:
 - [ ] **Step 3: Build miner**
 
 ```bash
-cd tools/txmminer-cuda && make clean && make ARCH=sm_86 2>&1 | grep -E "error:|Built"
+cd tools/tensorium-miner && make clean && make ARCH=sm_86 2>&1 | grep -E "error:|Built"
 ```
 Expected: `Built: tensorium-miner (sm_86)` — no errors.
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add tools/txmminer-cuda/stratum_client.cpp
+git add tools/tensorium-miner/stratum_client.cpp
 git commit -m "feat(miner): stratum_client — TCP pool connection, notify parsing, share submit"
 ```
 
@@ -2286,7 +2286,7 @@ TENSORIUM_POOL_SHARE_DIFF=1048576 \
 - [ ] **Step 2: Run miner in pool mode**
 
 ```bash
-cd tools/txmminer-cuda
+cd tools/tensorium-miner
 ./tensorium-miner \
   --mode pool \
   --pool stratum+tcp://127.0.0.1:3333 \
@@ -2342,7 +2342,7 @@ git commit -am "test(miner): integration test pool + solo mode verified"
 ```bash
 ssh -p 2602 root@64.31.38.214 '
 cd ~/tensorium-core && git pull origin main
-cd tools/txmminer-cuda
+cd tools/tensorium-miner
 make clean && make ARCH=sm_120 && cp tensorium-miner tensorium-miner-sm120
 make clean && make ARCH=sm_89  && cp tensorium-miner tensorium-miner-sm89
 make clean && make ARCH=sm_86  && cp tensorium-miner tensorium-miner-sm86
@@ -2354,7 +2354,7 @@ ls -lh tensorium-miner-sm*
 
 ```bash
 ssh -p 2602 root@64.31.38.214 '
-cd ~/tensorium-core/tools/txmminer-cuda
+cd ~/tensorium-core/tools/tensorium-miner
 make install ARCH=sm_120
 tensorium-miner --help
 '
@@ -2399,9 +2399,9 @@ Expected: JSON response with `session_id`.
 
 ```bash
 # Get binaries from Vast.ai
-scp -P 2602 root@64.31.38.214:~/tensorium-core/tools/txmminer-cuda/tensorium-miner-sm86  /tmp/
-scp -P 2602 root@64.31.38.214:~/tensorium-core/tools/txmminer-cuda/tensorium-miner-sm89  /tmp/
-scp -P 2602 root@64.31.38.214:~/tensorium-core/tools/txmminer-cuda/tensorium-miner-sm120 /tmp/
+scp -P 2602 root@64.31.38.214:~/tensorium-core/tools/tensorium-miner/tensorium-miner-sm86  /tmp/
+scp -P 2602 root@64.31.38.214:~/tensorium-core/tools/tensorium-miner/tensorium-miner-sm89  /tmp/
+scp -P 2602 root@64.31.38.214:~/tensorium-core/tools/tensorium-miner/tensorium-miner-sm120 /tmp/
 
 # Upload to GitHub release (replace RELEASE_ID with v0.3.2-mainnet id or create v0.3.3)
 for arch in sm86 sm89 sm120; do
@@ -2418,10 +2418,10 @@ done
 In `README.md`, update Mining Topology section to add Stratum pool command:
 ```bash
 # Pool mining via Stratum (recommended for consistent payouts)
-txmminer-cuda stratum+tcp://pooltxm.tensoriumlabs.com:3333 \
+tensorium-miner stratum+tcp://pooltxm.tensoriumlabs.com:3333 \
   txm1YOUR_ADDRESS
 ```
-Wait — `txmminer-cuda` symlink points to `tensorium-miner`. The new tool needs `--mode pool --pool ...` syntax. Update README with new commands:
+Wait — `tensorium-miner` symlink points to `tensorium-miner`. The new tool needs `--mode pool --pool ...` syntax. Update README with new commands:
 
 ```markdown
 **Pool mining (Stratum — port 3333):**
@@ -2447,7 +2447,7 @@ tensorium-miner \
 - [ ] **Step 7: Final commit and tag**
 
 ```bash
-git add README.md tools/txmminer-cuda/
+git add README.md tools/tensorium-miner/
 git commit -m "release: tensorium-miner v2 — multi-GPU, Stratum pool mode, NVML"
 git tag -a v0.3.3-mainnet -m "tensorium-miner v2: multi-GPU, Stratum, NVML"
 git push origin main --tags
@@ -2465,7 +2465,7 @@ git push origin main --tags
 | `gpu_worker` per-GPU thread | Task 3 |
 | Multi-GPU nonce split | Task 3 + Task 5 |
 | `main.cpp` CLI flags | Task 4 |
-| Backward compat `txmminer-cuda` | Task 4 (symlink in Makefile install) |
+| Backward compat `tensorium-miner` | Task 4 (symlink in Makefile install) |
 | `nvml_monitor` optional NVML | Task 6 |
 | Stratum server `stratum.rs` | Task 7 |
 | Stratum protocol (subscribe/notify/submit) | Task 7 |
