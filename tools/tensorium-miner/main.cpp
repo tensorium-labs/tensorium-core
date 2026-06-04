@@ -169,6 +169,11 @@ int main(int argc, char *argv[]) {
                     cfg.rpc_host[hl] = '\0';
                 }
                 strncpy(cfg.rpc_port, c + 1, sizeof(cfg.rpc_port) - 1);
+            } else {
+                /* No port in URL (e.g. http://mc-rpc.tensoriumlabs.com) — use port 80 */
+                strncpy(cfg.rpc_host, url, sizeof(cfg.rpc_host) - 1);
+                cfg.rpc_host[sizeof(cfg.rpc_host) - 1] = '\0';
+                strncpy(cfg.rpc_port, "80", sizeof(cfg.rpc_port) - 1);
             }
         }
         else if (strcmp(argv[i], "--pool") == 0) {
