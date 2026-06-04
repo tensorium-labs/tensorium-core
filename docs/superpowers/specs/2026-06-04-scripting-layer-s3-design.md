@@ -141,7 +141,7 @@ Builds the claim scriptSig (`sig`, `pubkey`, `preimage`, `OP_1`).
 
 Builds the refund scriptSig (`sig`, `pubkey`, `OP_0`).
 
-### `extract_htlc(spk: &[u8]) -> Option<(Vec<u8>, Vec<u8>, Vec<u8>, u64)>`
+### `extract_htlc(spk: &[u8]) -> Option<([u8; 32], [u8; 20], [u8; 20], u64)>`
 
 Parses an HTLC scriptPubKey → `Some((hash, recipient_hash, refund_hash, locktime))`
 if the pattern matches, else `None`. Used by explorer/RPC for output labelling.
