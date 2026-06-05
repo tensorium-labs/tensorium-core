@@ -3,7 +3,6 @@ use thiserror::Error;
 use crate::{
     block::{merkle_root, Block},
     chain::ConsensusParams,
-    emission::reward_at_height,
     pow::header_meets_work,
 };
 
@@ -23,8 +22,6 @@ pub enum ValidationError {
     InvalidProofOfWork,
     #[error("coinbase transaction is missing")]
     MissingCoinbase,
-    #[error("coinbase reward exceeds consensus emission schedule")]
-    CoinbaseRewardTooHigh,
     #[error("first transaction must be coinbase")]
     FirstTransactionNotCoinbase,
 }
@@ -67,7 +64,7 @@ pub fn validate_block(
     Ok(())
 }
 
-fn validate_coinbase(params: &ConsensusParams, block: &Block) -> Result<(), ValidationError> {
+fn validate_coinbase(_params: &ConsensusParams, block: &Block) -> Result<(), ValidationError> {
     let coinbase = block
         .transactions
         .first()
@@ -75,33 +72,20 @@ fn validate_coinbase(params: &ConsensusParams, block: &Block) -> Result<(), Vali
     if !coinbase.is_coinbase() {
         return Err(ValidationError::FirstTransactionNotCoinbase);
     }
-
-    // Genesis block (height 0) may carry the full pre-mint allocation on top of
-    // the normal mining reward. All other heights are bounded by reward only.
-    let has_genesis_premint = block.header.height == 0
-        && (!params.genesis_allocations.is_empty() || !params.founder_address.is_empty());
-    let premint_atoms: u64 = if !params.genesis_allocations.is_empty() {
-        params.genesis_allocations.iter().map(|(_, a)| a).sum()
-    } else {
-        params.founder_allocation_atoms
-    };
-    let reward_limit = if has_genesis_premint {
-        reward_at_height(params, 0).saturating_add(premint_atoms)
-    } else {
-        reward_at_height(params, block.header.height)
-    };
-    let reward = coinbase.total_output_atoms();
-
-    if reward > reward_limit {
-        return Err(ValidationError::CoinbaseRewardTooHigh);
-    }
-
+    // Amount validation (subsidy + fees) is done in utxo::apply_block which has
+    // access to the full UTXO set needed to compute transaction fees.
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::{block::Transaction, chain::TEST_PARAMS, pow::mine_header, state::ChainState};
+    use crate::{
+        block::Transaction,
+        chain::TEST_PARAMS,
+        emission::reward_at_height,
+        pow::mine_header,
+        state::ChainState,
+    };
 
     use super::*;
 
@@ -164,7 +148,9 @@ mod tests {
     }
 
     #[test]
-    fn rejects_coinbase_reward_above_schedule() {
+    fn accepts_coinbase_with_fees_above_base_reward() {
+        // validate_block does NOT reject a coinbase that includes tx fees on top
+        // of the base subsidy — fee accounting is enforced by utxo::apply_block.
         let mut state = ChainState::new();
         let mut block = state
             .init_genesis(&TEST_PARAMS, 1_700_000_000, 1_000_000)
@@ -172,7 +158,7 @@ mod tests {
             .clone();
         block.transactions[0] = Transaction::coinbase(
             block.header.height,
-            reward_at_height(&TEST_PARAMS, block.header.height) + 1,
+            reward_at_height(&TEST_PARAMS, block.header.height) + 1_000,
             "miner",
         );
         block.header.merkle_root = merkle_root(&block.transactions);
@@ -181,7 +167,7 @@ mod tests {
 
         assert_eq!(
             validate_block(&TEST_PARAMS, None, &block, 1_700_000_000),
-            Err(ValidationError::CoinbaseRewardTooHigh)
+            Ok(())
         );
     }
 }
