@@ -231,7 +231,7 @@ impl ChainState {
         if self.height_cache.is_some() {
             return Err(StateError::GenesisAlreadyExists);
         }
-        let mut block = candidate_block(params, None, timestamp_seconds, "genesis", vec![]);
+        let mut block = candidate_block(params, None, timestamp_seconds, "genesis", vec![], 0);
         block.header.nonce = genesis_nonce;
         if !crate::pow::header_meets_work(&block.header) {
             return Err(StateError::MiningFailed);
@@ -271,19 +271,23 @@ impl ChainState {
         miner: &str,
     ) -> Result<Block, StateError> {
         let parent = self.tip().ok_or(StateError::MissingGenesis)?;
-        Ok(candidate_block(params, Some(parent), timestamp_seconds, miner, vec![]))
+        Ok(candidate_block(params, Some(parent), timestamp_seconds, miner, vec![], 0))
     }
 
     /// Like `candidate_block` but includes `extra_txs` after the coinbase.
+    /// Like `candidate_block` but includes mempool transactions after the coinbase.
+    /// `total_fees` is the sum of all fees in `extra_txs` — callers must pre-calculate
+    /// this (e.g. from `Mempool::select_for_block()`) so the coinbase is credited correctly.
     pub fn candidate_block_with_mempool(
         &self,
         params: &ConsensusParams,
         timestamp_seconds: u64,
         miner: &str,
         extra_txs: Vec<Transaction>,
+        total_fees: u64,
     ) -> Result<Block, StateError> {
         let parent = self.tip().ok_or(StateError::MissingGenesis)?;
-        Ok(candidate_block(params, Some(parent), timestamp_seconds, miner, extra_txs))
+        Ok(candidate_block(params, Some(parent), timestamp_seconds, miner, extra_txs, total_fees))
     }
 
     /// Accept a block from a miner or a peer, applying the fork-choice rule.
@@ -387,7 +391,7 @@ fn mine_candidate_block(
     miner: &str,
     max_nonce: u64,
 ) -> Result<Block, StateError> {
-    let block = candidate_block(params, parent, timestamp_seconds, miner, vec![]);
+    let block = candidate_block(params, parent, timestamp_seconds, miner, vec![], 0);
     let header = block.header;
     let mined_header = mine_header(header, max_nonce).ok_or(StateError::MiningFailed)?;
     Ok(Block::new(mined_header, block.transactions))
@@ -399,10 +403,12 @@ fn candidate_block(
     timestamp_seconds: u64,
     miner: &str,
     extra_txs: Vec<Transaction>,
+    total_fees: u64,
 ) -> Block {
     let height = parent.map_or(0, |block| block.header.height + 1);
     let previous_hash = parent.map_or(Hash256::ZERO, Block::hash);
-    let reward = reward_at_height(params, height);
+    // Miner earns block reward + all transaction fees included in this block.
+    let reward = reward_at_height(params, height).saturating_add(total_fees);
     let coinbase_tx = if height == 0 && (!params.genesis_allocations.is_empty() || !params.founder_address.is_empty()) {
         Transaction::genesis_coinbase(
             reward, miner,
@@ -507,7 +513,7 @@ mod tests {
             .unwrap();
 
         // Build a block whose previous_hash points to an unknown block.
-        let mut orphan = candidate_block(&TEST_PARAMS, None, 1_700_000_060, "miner", vec![]);
+        let mut orphan = candidate_block(&TEST_PARAMS, None, 1_700_000_060, "miner", vec![], 0);
         orphan.header.previous_hash = Hash256([0xff; 32]); // unknown parent
         orphan.header.height = 1;
 
@@ -582,6 +588,7 @@ mod tests {
             1_700_000_060,
             "miner-a",
             vec![],
+            0,
         );
         let h1 = mine_header(c1.header.clone(), 10_000_000).unwrap();
         let canonical_block = Block::new(h1, c1.transactions);
@@ -596,6 +603,7 @@ mod tests {
             1_700_000_061,
             "miner-b",
             vec![],
+            0,
         );
         let h2 = mine_header(s1.header.clone(), 10_000_000).unwrap();
         let side_block = Block::new(h2, s1.transactions);
@@ -614,6 +622,7 @@ mod tests {
             1_700_000_120,
             "miner-b",
             vec![],
+            0,
         );
         let h3 = mine_header(s2.header.clone(), 10_000_000).unwrap();
         let side_extension = Block::new(h3, s2.transactions);

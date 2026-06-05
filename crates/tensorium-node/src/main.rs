@@ -1534,9 +1534,9 @@ fn handle_rpc_stream(
             }
             let state = rpc_state(stream, state_path)?;
             let mempool = load_mempool(&mempool_path);
-            let extra_txs = mempool.select_for_block();
+            let (extra_txs, total_fees) = mempool.select_for_block();
             let block = state
-                .candidate_block_with_mempool(params, now_seconds(), miner, extra_txs)
+                .candidate_block_with_mempool(params, now_seconds(), miner, extra_txs, total_fees)
                 .map_err(|err| err.to_string())?;
             write_json_response(
                 stream,
@@ -1637,12 +1637,42 @@ fn handle_rpc_stream(
         ("GET", "/getmempoolinfo") => {
             let mempool = load_mempool(&mempool_path);
             let txids: Vec<String> = mempool.pending.keys().cloned().collect();
+            let fee_stats = mempool.fee_stats();
             write_json_response(
                 stream,
                 200,
                 &json!({
                     "count": mempool.len(),
                     "txids": txids,
+                    "fees": {
+                        "total_fee_atoms":      fee_stats.total_fee_atoms,
+                        "min_fee_atoms":        fee_stats.min_fee_atoms,
+                        "max_fee_atoms":        fee_stats.max_fee_atoms,
+                        "median_fee_atoms":     fee_stats.median_fee_atoms,
+                        "min_relay_fee_atoms":  fee_stats.min_relay_fee_atoms,
+                        "priority_fee_atoms":   fee_stats.priority_fee_atoms,
+                    },
+                }),
+            )
+        }
+
+        ("GET", "/estimatefee") => {
+            let mempool = load_mempool(&mempool_path);
+            let fee_stats = mempool.fee_stats();
+            // Recommend max(min_relay, median) so users beat the current queue.
+            let recommended = fee_stats.median_fee_atoms
+                .max(fee_stats.min_relay_fee_atoms);
+            write_json_response(
+                stream,
+                200,
+                &json!({
+                    "min_relay_fee_atoms":  fee_stats.min_relay_fee_atoms,
+                    "priority_fee_atoms":   fee_stats.priority_fee_atoms,
+                    "median_fee_atoms":     fee_stats.median_fee_atoms,
+                    "recommended_fee_atoms": recommended,
+                    "min_relay_fee_txm":    fee_stats.min_relay_fee_atoms as f64 / 1e8,
+                    "priority_fee_txm":     fee_stats.priority_fee_atoms  as f64 / 1e8,
+                    "recommended_fee_txm":  recommended as f64 / 1e8,
                 }),
             )
         }

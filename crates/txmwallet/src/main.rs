@@ -101,31 +101,39 @@ fn run() -> Result<(), String> {
         }
         "send" => {
             let to_address = args.get(2).ok_or_else(|| {
-                "usage: txmwallet send <to_address> <amount_atoms> [tx_file]".to_owned()
+                "usage: txmwallet send <to_address> <amount_atoms> [--fee <atoms>|--priority]".to_owned()
             })?;
             let amount_atoms = args
                 .get(3)
                 .ok_or_else(|| {
-                    "usage: txmwallet send <to_address> <amount_atoms> [tx_file]".to_owned()
+                    "usage: txmwallet send <to_address> <amount_atoms> [--fee <atoms>|--priority]".to_owned()
                 })?
                 .parse::<u64>()
                 .map_err(|err| format!("invalid amount_atoms: {err}"))?;
-            let tx_path = args
-                .get(4)
-                .map(PathBuf::from)
-                .unwrap_or_else(|| PathBuf::from(DEFAULT_SIGNED_TX_PATH));
+
+            // Fee flags: --priority (100_000 atoms) or --fee <atoms> (custom).
+            // Default: MIN_RELAY_FEE_ATOMS (10_000 atoms = 0.0001 TXM).
+            let fee_atoms: u64 = if args.iter().any(|a| a == "--priority") {
+                tensorium_core::mempool::PRIORITY_FEE_ATOMS
+            } else if let Some(pos) = args.iter().position(|a| a == "--fee") {
+                args.get(pos + 1)
+                    .ok_or("--fee requires a value in atoms")?
+                    .parse::<u64>()
+                    .map_err(|_| "--fee value must be a positive integer (atoms)")?
+            } else {
+                tensorium_core::mempool::MIN_RELAY_FEE_ATOMS
+            };
+
+            let tx_path = PathBuf::from(DEFAULT_SIGNED_TX_PATH);
             let passphrase = passphrase_from_env()?;
             let wallet = load_wallet(&wallet_path)?;
             let keypair = wallet.decrypt(&passphrase)?;
-            // Prefer RPC-based UTXO lookup (avoids RocksDB LOCK conflict when
-            // the node is running alongside txmwallet).
             let rpc = env::var("TENSORIUM_RPC").unwrap_or_else(|_| DEFAULT_RPC.to_owned());
             let tx =
-                build_signed_payment_via_rpc(&wallet, &keypair, &rpc, to_address, amount_atoms)
+                build_signed_payment_via_rpc(&wallet, &keypair, &rpc, to_address, amount_atoms, fee_atoms)
                     .or_else(|_rpc_err| {
-                        // Fall back to state.db if RPC is not available.
                         let state = load_state(&state_path_from_env())?;
-                        build_signed_payment(&wallet, &keypair, &state, to_address, amount_atoms)
+                        build_signed_payment(&wallet, &keypair, &state, to_address, amount_atoms, fee_atoms)
                     })?;
             let raw = serde_json::to_string_pretty(&tx)
                 .map_err(|err| format!("failed to serialize signed tx: {err}"))?;
@@ -134,6 +142,7 @@ fn run() -> Result<(), String> {
             println!("txid={}", tx.id);
             println!("inputs={}", tx.inputs.len());
             println!("outputs={}", tx.outputs.len());
+            println!("fee_atoms={fee_atoms}");
             println!("written={}", tx_path.display());
         }
         "unlock-check" => {
@@ -521,10 +530,12 @@ fn build_signed_payment(
     state: &ChainState,
     to_address: &str,
     amount_atoms: u64,
+    fee_atoms: u64,
 ) -> Result<Transaction, String> {
     if amount_atoms == 0 {
         return Err("amount_atoms must be greater than zero".to_owned());
     }
+    let needed = amount_atoms.saturating_add(fee_atoms);
 
     let mut utxos = UtxoSet::new();
     for block in state.canonical_blocks_iter() {
@@ -553,14 +564,14 @@ fn build_signed_payment(
 
         selected.push((*outpoint, entry.output.clone()));
         selected_atoms = selected_atoms.saturating_add(entry.output.value_atoms);
-        if selected_atoms >= amount_atoms {
+        if selected_atoms >= needed {
             break;
         }
     }
 
-    if selected_atoms < amount_atoms {
+    if selected_atoms < needed {
         return Err(format!(
-            "insufficient mature balance: have {selected_atoms}, need {amount_atoms}"
+            "insufficient mature balance: have {selected_atoms}, need {needed} (amount {amount_atoms} + fee {fee_atoms})"
         ));
     }
 
@@ -576,7 +587,7 @@ fn build_signed_payment(
         script_pubkey: p2pkh_from_address(to_address)
             .map_err(|_| format!("invalid recipient address: {to_address}"))?,
     }];
-    let change = selected_atoms - amount_atoms;
+    let change = selected_atoms - amount_atoms - fee_atoms;
     if change > 0 {
         outputs.push(TxOutput {
             value_atoms: change,
@@ -607,7 +618,7 @@ fn print_help() {
     println!(
         "  balance                                       scan local chain state for wallet balance"
     );
-    println!("  send <to> <atoms> [tx_file]                   build and sign a transaction file");
+    println!("  send <to> <atoms> [--fee <atoms>|--priority]  build and sign a transaction file");
     println!("  broadcast [tx_file] [rpc]                     submit signed tx file to node RPC");
     println!("  show                                          print wallet public summary");
     println!(
@@ -691,9 +702,12 @@ fn build_signed_payment_via_rpc(
     rpc: &str,
     to_address: &str,
     amount_atoms: u64,
+    fee_atoms: u64,
 ) -> Result<Transaction, String> {
     use tensorium_core::block::OutPoint;
     use tensorium_core::hash::Hash256;
+
+    let needed = amount_atoms.saturating_add(fee_atoms);
 
     #[derive(serde::Deserialize)]
     struct RpcUtxo {
@@ -730,14 +744,14 @@ fn build_signed_payment_via_rpc(
         };
         selected.push((outpoint, u.value_atoms));
         selected_atoms = selected_atoms.saturating_add(u.value_atoms);
-        if selected_atoms >= amount_atoms {
+        if selected_atoms >= needed {
             break;
         }
     }
 
-    if selected_atoms < amount_atoms {
+    if selected_atoms < needed {
         return Err(format!(
-            "insufficient mature balance via RPC: have {selected_atoms}, need {amount_atoms}"
+            "insufficient mature balance via RPC: have {selected_atoms}, need {needed} (amount {amount_atoms} + fee {fee_atoms})"
         ));
     }
 
@@ -753,7 +767,7 @@ fn build_signed_payment_via_rpc(
         script_pubkey: p2pkh_from_address(to_address)
             .map_err(|_| format!("invalid recipient address: {to_address}"))?,
     }];
-    let change = selected_atoms - amount_atoms;
+    let change = selected_atoms - amount_atoms - fee_atoms;
     if change > 0 {
         outputs.push(TxOutput {
             value_atoms: change,
