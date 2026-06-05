@@ -5,6 +5,10 @@ pub struct ScriptContext {
     pub block_height: u64,
 }
 
+fn is_p2sh(spk: &[u8]) -> bool {
+    spk.len() == 23 && spk[0] == OP_HASH160 && spk[1] == 0x14 && spk[22] == OP_EQUAL
+}
+
 /// Execute scriptSig then scriptPubKey against a shared stack.
 /// Returns Ok(true) if the final stack top is truthy, Ok(false) otherwise.
 pub fn execute(
@@ -690,5 +694,29 @@ mod tests {
         // Then sig1 (for k1) comes next but pub_idx is at p3, p1 already consumed → no match → false.
         let result = execute(&script_sig, &spk, &real_ctx(msg)).unwrap();
         assert!(!result, "sigs in wrong order should fail");
+    }
+
+    #[test]
+    fn is_p2sh_recognizes_pattern() {
+        let mut spk = vec![OP_HASH160, 0x14];
+        spk.extend_from_slice(&[0xab_u8; 20]);
+        spk.push(OP_EQUAL);
+        assert!(is_p2sh(&spk));
+    }
+
+    #[test]
+    fn is_p2sh_rejects_non_p2sh() {
+        // too short
+        assert!(!is_p2sh(&[OP_HASH160, 0x14]));
+        // wrong first byte (P2PKH starts with OP_DUP)
+        let mut p2pkh = vec![OP_DUP, 0x14];
+        p2pkh.extend_from_slice(&[0xab_u8; 20]);
+        p2pkh.push(OP_EQUAL);
+        assert!(!is_p2sh(&p2pkh));
+        // wrong last byte
+        let mut spk = vec![OP_HASH160, 0x14];
+        spk.extend_from_slice(&[0xab_u8; 20]);
+        spk.push(OP_EQUALVERIFY); // not OP_EQUAL
+        assert!(!is_p2sh(&spk));
     }
 }

@@ -77,6 +77,7 @@ pub enum ScriptError {
     UnexpectedEndOfScript,
     ScriptInSigContainsChecksig,
     LockTimeNotMet,
+    P2shHashMismatch,
 }
 
 impl std::fmt::Display for ScriptError {
