@@ -33,7 +33,7 @@ Or download directly from [Releases](https://github.com/tensorium-labs/tensorium
 
 `tensorium-miner` (v2) is the recommended production miner for mainnet. Mainnet initial difficulty (40 leading zero bits) requires a GPU; CPU cannot mine at this difficulty.
 
-**Pool mining (Stratum — recommended, 5% fee, no node needed):**
+**Pool mining (Stratum — recommended, 5% fee, PPLNS, no node needed):**
 
 ```bash
 tensorium-miner \
@@ -45,7 +45,8 @@ tensorium-miner \
 ```
 
 Pool stats and payout history: https://pooltxm.tensoriumlabs.com  
-Fee: **5%** of block reward. Treasury: `txm13vgxzj5ulrfhe7x0mlzxg0q6veq42tkku4g3jr`
+Fee: **5%** of block reward. Reward method: **PPLNS** (last 4096 shares, difficulty-weighted).  
+Treasury: `txm13vgxzj5ulrfhe7x0mlzxg0q6veq42tkku4g3jr`
 
 Backup pool: `stratum+tcp://pool-alt.tensoriumlabs.com:3333`
 
@@ -127,7 +128,7 @@ chmod +x tensorium-miner && sudo mv tensorium-miner /usr/local/bin/
 | RTX 5090 | sm_120 | ~8 GH/s | ~2.3 min |
 | H100 SXM | sm_90 | ~2 GH/s | ~9 min |
 
-Pool mining smooths payouts across participants — recommended for GPUs with longer solo block times.
+Pool mining (PPLNS) smooths payouts across participants — rewards are split proportionally by share contribution in the last 4096 shares. Recommended for GPUs with longer solo block times.
 
 ---
 

@@ -9,6 +9,27 @@ All notable changes to Tensorium are documented in this file.
 
 ---
 
+## [Pool PPLNS — Stratum reward distribution] — 2026-06-05
+
+### Added
+- **PPLNS (Pay Per Last N Shares)** reward distribution in `tensorium-pool`.
+  - `ShareRecord` — tracks wallet address, worker name, share difficulty bits, and submission time.
+  - `ShareWindow` — sliding window of last N shares (default N=4096), difficulty-weighted (`2^bits`). Persisted in `pool-ledger.json` across pool restarts.
+  - `PayoutLedger::push_share()` — records accepted Stratum shares into the window.
+  - `PayoutLedger::pplns_split()` — distributes gross reward proportionally by miner weight. Falls back to 100% for the block finder when the window is empty.
+  - Each found block now produces one `PayoutEntry` per participating miner (instead of one entry for the block finder only).
+- **`GET /pool/miners`** — new HTTP endpoint returning current PPLNS window stats: window size, total shares, total weight, and per-miner share/weight/percentage breakdown.
+- **Stratum integration** — accepted shares pushed to window on every submission; block-finding share included before the PPLNS split so the finder is credited proportionally.
+
+### Fixed
+- `LedgerStats::blocks_found` now counts distinct block hashes instead of total entry count (one block with 3 miners was previously counted as 3 blocks).
+
+### Verified
+- `cargo test --workspace` — 102 tests pass, 0 failures (7 new PPLNS tests).
+- Deployed to DO (157.230.44.162) and Vultr (139.180.137.144) seed nodes.
+
+---
+
 ## [v0.3.3-mainnet — Scripting S3: CLTV + HTLC] — 2026-06-04
 
 ### Added
