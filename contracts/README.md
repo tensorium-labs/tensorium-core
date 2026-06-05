@@ -9,7 +9,6 @@ Current scope:
 - Solidity interface skeletons for the Tensorium bridge controller
 - initial Hardhat workspace for local compile/test
 - initial contract implementations and tests
-- implementation planning notes
 
 Current status:
 

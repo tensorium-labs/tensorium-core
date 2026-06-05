@@ -6,9 +6,8 @@ The repository keeps top-level project entrypoints lean and stores supporting do
 
 - `docs/operations/` — operator runbooks, recovery procedures, payout flows, and public RPC posture
 - `docs/integrations/` — canonical metadata packets and exchange/listing handoff material
-- `docs/bridge/phase9a/` — bridge architecture, custody, policy, and execution artifacts from Phase 9A
-- `docs/project/` — project-wide references such as risk disclosure, migration notes, and known issues
-- `docs/superpowers/` — internal execution plans, prompts, and worker-oriented artifacts
+- `docs/bridge/phase9a/` — bridge architecture, public policy, and integration-facing specifications from Phase 9A
+- `docs/project/` — project-wide public references such as risk disclosure and known issues
 
 ## Root Kept Intentionally Small
 

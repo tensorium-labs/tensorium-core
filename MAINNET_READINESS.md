@@ -30,10 +30,7 @@ Use this section first. The rest of the document preserves launch auditability a
 
 ## Post-Launch Execution Order
 
-Immediate next phases are tracked in:
-
-- `docs/superpowers/plans/2026-06-02-post-launch-mainnet-phases.md`
-- `docs/operations/RESTORE_RUNBOOK.md` (Phase 10A artifact)
+Immediate next phases are tracked in the operational runbooks under `docs/operations/`.
 
 Recommended order:
 
@@ -46,7 +43,6 @@ Recommended order:
 Phase 10 status:
 
 - **COMPLETE** on 2026-06-02
-- Handoff prompt for next implementation pass: `docs/superpowers/prompts/2026-06-02-claude-code-phase11-handoff.md`
 
 Phase 10D artifacts now live in:
 
@@ -505,12 +501,8 @@ Bridge trust model decision: see `docs/bridge/phase9a/PHASE9A_BRIDGE_MODEL_DECIS
 Bridge policy: see `docs/bridge/phase9a/PHASE9A_BRIDGE_POLICY.md`.
 `wTXM` contract spec: see `docs/bridge/phase9a/PHASE9A_WTXM_CONTRACT_SPEC.md`.
 Bridge controller spec: see `docs/bridge/phase9a/PHASE9A_BRIDGE_CONTROLLER_SPEC.md`.
-Contracts implementation plan: see `contracts/PHASE9A_CONTRACTS_IMPLEMENTATION_PLAN.md`.
 Initial Hardhat workspace and local tests live under `contracts/`.
-Signer/custody layout: see `docs/bridge/phase9a/PHASE9A_SIGNER_CUSTODY_LAYOUT.md`.
 Bridge ledger format: see `docs/bridge/phase9a/PHASE9A_BRIDGE_LEDGER_FORMAT.md`.
-Bridge operator runbook: see `docs/bridge/phase9a/PHASE9A_OPERATOR_RUNBOOK.md`.
-Execution checklist: see `docs/bridge/phase9a/PHASE9A_EXECUTION_CHECKLIST.md`.
 
 ### 9B — Explorer Improvements
 

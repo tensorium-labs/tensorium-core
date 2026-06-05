@@ -46,9 +46,7 @@ All notable changes to Tensorium are documented in this file.
 - `docs/operations/PUBLIC_RPC_HARDENING_RUNBOOK.md` with alert thresholds and incident response for chain stall, peer isolation, explorer divergence, RPC abuse, backup failure, and disk pressure
 - `templates/nginx-public-rpc.conf` so public RPC reverse-proxy policy lives in repo instead of tribal knowledge
 - `docs/integrations/CANONICAL_ASSET_METADATA.md` as the concise single-source packet for wallets, listing forms, and data providers
-- `docs/superpowers/prompts/2026-06-02-claude-code-phase11-handoff.md` as the next-worker handoff prompt after Phase 10 closure
-- `docs/superpowers/prompts/2026-06-02-claude-code-mainnet-only-handoff.md` as the follow-up handoff prompt for the mainnet-only cleanup pass
-- `docs/superpowers/prompts/2026-06-02-claude-code-gpu-only-mining-handoff.md` as the follow-up handoff prompt for GPU-only mining positioning and CPU-miner retirement review
+- internal implementation handoff artifacts were produced during the Phase 10 rollout and are no longer kept in the public repo
 
 ### Changed
 - `tensorium-node init` now creates persistent RocksDB-backed mainnet state instead of building genesis in a tempdir

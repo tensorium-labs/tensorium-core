@@ -195,7 +195,5 @@ If the team wants the safest realistic launch posture:
 
 Supporting docs:
 
-- `PHASE9A_SIGNER_CUSTODY_LAYOUT.md`
-- `PHASE9A_EXECUTION_CHECKLIST.md`
 - `PHASE9A_WTXM_CONTRACT_SPEC.md`
 - `PHASE9A_BRIDGE_CONTROLLER_SPEC.md`
