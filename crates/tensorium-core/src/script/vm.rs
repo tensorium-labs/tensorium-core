@@ -71,6 +71,30 @@ pub(crate) fn run(
             continue;
         }
 
+        // ── OP_PUSHDATA1 (0x4c): next byte is data length ─────────────────
+        if op == 0x4c {
+            if i >= script.len() {
+                return Err(ScriptError::UnexpectedEndOfScript);
+            }
+            let n = script[i] as usize;
+            i += 1;
+            if i + n > script.len() {
+                return Err(ScriptError::UnexpectedEndOfScript);
+            }
+            if executing!() {
+                let data = script[i..i + n].to_vec();
+                if data.len() > MAX_ELEMENT_SIZE {
+                    return Err(ScriptError::ElementTooLarge);
+                }
+                if stack.len() >= MAX_STACK_DEPTH {
+                    return Err(ScriptError::StackOverflow);
+                }
+                stack.push(data);
+            }
+            i += n;
+            continue;
+        }
+
         // ── Control ops handled regardless of executing state ─────────────
         match op {
             OP_IF => {
@@ -694,6 +718,16 @@ mod tests {
         // Then sig1 (for k1) comes next but pub_idx is at p3, p1 already consumed → no match → false.
         let result = execute(&script_sig, &spk, &real_ctx(msg)).unwrap();
         assert!(!result, "sigs in wrong order should fail");
+    }
+
+    #[test]
+    fn pushdata1_pushes_100_byte_item() {
+        let mut script = vec![0x4c, 100u8]; // OP_PUSHDATA1, length = 100
+        script.extend_from_slice(&[0xab_u8; 100]);
+        let mut stack: Vec<Vec<u8>> = Vec::new();
+        super::run(&mut stack, &script, &fake_ctx(), false).unwrap();
+        assert_eq!(stack.len(), 1);
+        assert_eq!(stack[0], vec![0xab_u8; 100]);
     }
 
     #[test]
