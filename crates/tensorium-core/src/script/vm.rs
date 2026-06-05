@@ -21,7 +21,20 @@ pub fn execute(
     }
     let mut stack: Vec<Vec<u8>> = Vec::new();
     run(&mut stack, script_sig, ctx, false)?;
-    run(&mut stack, script_pubkey, ctx, true)?;
+
+    if is_p2sh(script_pubkey) {
+        use sha2::{Digest, Sha256};
+        let redeem_script = stack.pop().ok_or(ScriptError::StackUnderflow)?;
+        let computed = &Sha256::digest(&redeem_script)[..20];
+        let expected = &script_pubkey[2..22];
+        if computed != expected {
+            return Err(ScriptError::P2shHashMismatch);
+        }
+        run(&mut stack, &redeem_script, ctx, true)?;
+    } else {
+        run(&mut stack, script_pubkey, ctx, true)?;
+    }
+
     Ok(stack.last().map(is_truthy).unwrap_or(false))
 }
 
@@ -752,5 +765,27 @@ mod tests {
         spk.extend_from_slice(&[0xab_u8; 20]);
         spk.push(OP_EQUALVERIFY); // not OP_EQUAL
         assert!(!is_p2sh(&spk));
+    }
+
+    #[test]
+    fn p2sh_hash_mismatch_fails() {
+        // Manually build P2SH script: OP_HASH160 0x14 [0xaa×20] OP_EQUAL
+        let mut p2sh_spk = vec![0xa9u8, 0x14]; // OP_HASH160, push-20
+        p2sh_spk.extend_from_slice(&[0xaa_u8; 20]);
+        p2sh_spk.push(0x87); // OP_EQUAL
+        // Push a 3-byte redeem script whose sha256[0..20] != [0xaa×20]
+        let script_sig = vec![0x03u8, 0x01, 0x02, 0x03];
+        let result = execute(&script_sig, &p2sh_spk, &fake_ctx());
+        assert_eq!(result, Err(ScriptError::P2shHashMismatch));
+    }
+
+    #[test]
+    fn p2sh_empty_stack_fails() {
+        let mut p2sh_spk = vec![0xa9u8, 0x14];
+        p2sh_spk.extend_from_slice(&[0xab_u8; 20]);
+        p2sh_spk.push(0x87); // OP_EQUAL
+        // Empty scriptSig → nothing on stack → can't pop redeem script
+        let result = execute(&[], &p2sh_spk, &fake_ctx());
+        assert_eq!(result, Err(ScriptError::StackUnderflow));
     }
 }
