@@ -9,6 +9,21 @@ All notable changes to Tensorium are documented in this file.
 
 ---
 
+## [Bug Fixes] — 2026-06-05
+
+### Fixed
+- **Coinbase fee validation** (`validation.rs`): `validate_block` was rejecting blocks whose coinbase included transaction fees, because it compared coinbase output against base subsidy only. The correct check (subsidy + fees) was already in `utxo::apply_block`. Removed the incomplete check from `validate_block`; `apply_block` is now the sole enforcer of coinbase reward limits. Fixes solo and pool block submission failing with *"coinbase reward exceeds consensus emission schedule"* whenever the mempool contained fee-bearing transactions.
+- **HTTP request reader** (`tensorium-node`, `tensorium-pool`): replaced fixed-size 65 536-byte buffer read with a proper chunked reader that parses `Content-Length` and accumulates the full body before processing (max 8 MiB). Fixes truncated RPC payloads for large `submitblock` requests containing many transactions.
+
+### Improved
+- **PPLNS accounting**: added `PayoutLedger::payable_atoms_up_to()` and `mark_paid_up_to()` for more accurate partial-payout handling without over-paying miners.
+
+### Verified
+- `cargo test --workspace` — 110 tests pass, 0 failures.
+- Deployed to DO (157.230.44.162) and Vultr (139.180.137.144) — commit `003d794`.
+
+---
+
 ## [Transaction Fee System] — 2026-06-05
 
 ### Added
