@@ -226,6 +226,27 @@ fn pay_miner(
                     } else {
                         stdout.trim()
                     };
+                    // "already in the mempool" → our tx is queued; mark paid so we
+                    // don't build a conflicting tx on the next cycle.
+                    if msg.contains("already in the mempool") {
+                        eprintln!(
+                            "[payout] ✓ {} tx already in mempool (pending confirmation) — marking paid",
+                            miner_addr
+                        );
+                        let mut lk = ledger.lock().unwrap();
+                        lk.mark_paid_up_to(miner_addr, payable_atoms);
+                        let _ = lk.save(&cfg.ledger_path);
+                        return Some(payable_atoms.saturating_add(MIN_RELAY_FEE_ATOMS));
+                    }
+                    // "conflicts" → a different tx using the same UTXO is in mempool;
+                    // skip this cycle and wait for that tx to be mined.
+                    if msg.contains("conflicts") || msg.contains("conflict") {
+                        eprintln!(
+                            "[payout] ⏳ {} UTXO in-flight (pending tx in mempool) — skipping cycle",
+                            miner_addr
+                        );
+                        return None;
+                    }
                     eprintln!(
                         "[payout] ✗ {} broadcast failed (exit {:?}): {}",
                         miner_addr,
