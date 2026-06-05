@@ -788,4 +788,59 @@ mod tests {
         let result = execute(&[], &p2sh_spk, &fake_ctx());
         assert_eq!(result, Err(ScriptError::StackUnderflow));
     }
+
+    #[test]
+    fn p2sh_multisig_2of3_valid() {
+        use crate::script::standard::{multisig_script, p2sh_multisig_script_sig, p2sh_script_from_redeem};
+        use k256::ecdsa::{signature::Signer, Signature, SigningKey};
+        use rand_core::OsRng;
+
+        let k1 = SigningKey::random(&mut OsRng);
+        let k2 = SigningKey::random(&mut OsRng);
+        let k3 = SigningKey::random(&mut OsRng);
+        let p1 = k1.verifying_key().to_encoded_point(true).as_bytes().to_vec();
+        let p2 = k2.verifying_key().to_encoded_point(true).as_bytes().to_vec();
+        let p3 = k3.verifying_key().to_encoded_point(true).as_bytes().to_vec();
+
+        let redeem = multisig_script(2, &[p1.as_slice(), p2.as_slice(), p3.as_slice()]).unwrap();
+        let p2sh_spk = p2sh_script_from_redeem(&redeem);
+
+        let msg = Hash256([3u8; 32]);
+        let sig1: Signature = k1.sign(&msg.0);
+        let sig2: Signature = k2.sign(&msg.0);
+        let d1 = sig1.to_der().as_bytes().to_vec();
+        let d2 = sig2.to_der().as_bytes().to_vec();
+        let script_sig = p2sh_multisig_script_sig(&[d1.as_slice(), d2.as_slice()], &redeem);
+
+        let result = execute(&script_sig, &p2sh_spk, &real_ctx(msg)).unwrap();
+        assert!(result, "valid P2SH 2-of-3 must succeed");
+    }
+
+    #[test]
+    fn p2sh_wrong_sig_fails() {
+        use crate::script::standard::{multisig_script, p2sh_multisig_script_sig, p2sh_script_from_redeem};
+        use k256::ecdsa::{signature::Signer, Signature, SigningKey};
+        use rand_core::OsRng;
+
+        let k1 = SigningKey::random(&mut OsRng);
+        let k2 = SigningKey::random(&mut OsRng);
+        let k3 = SigningKey::random(&mut OsRng);
+        let p1 = k1.verifying_key().to_encoded_point(true).as_bytes().to_vec();
+        let p2 = k2.verifying_key().to_encoded_point(true).as_bytes().to_vec();
+        let p3 = k3.verifying_key().to_encoded_point(true).as_bytes().to_vec();
+
+        let redeem = multisig_script(2, &[p1.as_slice(), p2.as_slice(), p3.as_slice()]).unwrap();
+        let p2sh_spk = p2sh_script_from_redeem(&redeem);
+
+        let msg = Hash256([3u8; 32]);
+        let wrong_msg = Hash256([99u8; 32]);
+        let sig1: Signature = k1.sign(&wrong_msg.0);
+        let sig2: Signature = k2.sign(&wrong_msg.0);
+        let d1 = sig1.to_der().as_bytes().to_vec();
+        let d2 = sig2.to_der().as_bytes().to_vec();
+        let script_sig = p2sh_multisig_script_sig(&[d1.as_slice(), d2.as_slice()], &redeem);
+
+        let result = execute(&script_sig, &p2sh_spk, &real_ctx(msg));
+        assert!(result.is_err() || !result.unwrap(), "wrong sigs must fail");
+    }
 }

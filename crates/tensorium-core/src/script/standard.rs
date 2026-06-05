@@ -3,10 +3,11 @@ use sha2::{Digest, Sha256};
 
 use crate::script::{
     ScriptError, OP_0, OP_1, OP_CHECKLOCKTIMEVERIFY, OP_CHECKMULTISIG, OP_CHECKSIG, OP_DROP,
-    OP_DUP, OP_ELSE, OP_ENDIF, OP_EQUALVERIFY, OP_HASH160, OP_IF, OP_SHA256,
+    OP_DUP, OP_ELSE, OP_ENDIF, OP_EQUAL, OP_EQUALVERIFY, OP_HASH160, OP_IF, OP_SHA256,
 };
 
 const ADDRESS_HRP: &str = "txm";
+const P2SH_HRP: &str = "txms";
 
 /// Build a P2PKH locking script from a 20-byte address hash.
 /// Script: OP_DUP OP_HASH160 0x14 <hash20> OP_EQUALVERIFY OP_CHECKSIG
@@ -54,9 +55,13 @@ pub fn p2pkh_script_sig(der_sig: &[u8], pubkey: &[u8]) -> Vec<u8> {
     s
 }
 
-/// Try to extract a bech32 address from a P2PKH scriptPubKey.
-/// Returns None if the script does not match the P2PKH pattern.
+/// Try to extract a bech32 address from a P2PKH or P2SH scriptPubKey.
+/// Returns None if the script does not match either pattern.
 pub fn extract_address(script_pubkey: &[u8]) -> Option<String> {
+    // P2SH: OP_HASH160 0x14 [20 bytes] OP_EQUAL
+    if let Some(hash20) = extract_p2sh_hash(script_pubkey) {
+        return Some(p2sh_address_from_hash(&hash20));
+    }
     // P2PKH: OP_DUP OP_HASH160 0x14 [20 bytes] OP_EQUALVERIFY OP_CHECKSIG
     if script_pubkey.len() == 25
         && script_pubkey[0] == OP_DUP
@@ -70,6 +75,85 @@ pub fn extract_address(script_pubkey: &[u8]) -> Option<String> {
     } else {
         None
     }
+}
+
+/// Build a P2SH locking script from a 20-byte script hash.
+/// Script: OP_HASH160 0x14 <hash20> OP_EQUAL  (always 23 bytes)
+pub fn p2sh_script(hash20: &[u8]) -> Vec<u8> {
+    assert_eq!(hash20.len(), 20, "P2SH hash must be 20 bytes");
+    let mut s = Vec::with_capacity(23);
+    s.push(OP_HASH160);
+    s.push(0x14);
+    s.extend_from_slice(hash20);
+    s.push(OP_EQUAL);
+    s
+}
+
+/// Build a P2SH locking script by hashing the serialized redeem script.
+pub fn p2sh_script_from_redeem(redeem_script: &[u8]) -> Vec<u8> {
+    let hash = Sha256::digest(redeem_script);
+    p2sh_script(&hash[..20])
+}
+
+/// Encode a 20-byte P2SH hash as a bech32 "txms1..." address.
+pub fn p2sh_address_from_hash(hash20: &[u8]) -> String {
+    bech32::encode(P2SH_HRP, hash20.to_base32(), Variant::Bech32)
+        .expect("bech32 encoding should never fail for 20-byte input")
+}
+
+/// Derive the P2SH address directly from the redeem script.
+pub fn p2sh_address_from_redeem(redeem_script: &[u8]) -> String {
+    let hash = Sha256::digest(redeem_script);
+    p2sh_address_from_hash(&hash[..20])
+}
+
+/// Decode a "txms1..." P2SH address into its 20-byte hash.
+/// Returns Err(InvalidAddress) if the HRP is not "txms" or the payload is not 20 bytes.
+pub fn p2sh_hash_from_address(addr: &str) -> Result<[u8; 20], ScriptError> {
+    let (hrp, data, _) = bech32::decode(addr).map_err(|_| ScriptError::InvalidAddress)?;
+    if hrp != P2SH_HRP {
+        return Err(ScriptError::InvalidAddress);
+    }
+    let bytes = Vec::<u8>::from_base32(&data).map_err(|_| ScriptError::InvalidAddress)?;
+    if bytes.len() != 20 {
+        return Err(ScriptError::InvalidAddress);
+    }
+    let mut out = [0u8; 20];
+    out.copy_from_slice(&bytes);
+    Ok(out)
+}
+
+/// Extract the 20-byte hash from a P2SH scriptPubKey.
+/// Returns None if the script does not match the P2SH pattern.
+pub fn extract_p2sh_hash(spk: &[u8]) -> Option<[u8; 20]> {
+    if spk.len() != 23 || spk[0] != OP_HASH160 || spk[1] != 0x14 || spk[22] != OP_EQUAL {
+        return None;
+    }
+    let mut out = [0u8; 20];
+    out.copy_from_slice(&spk[2..22]);
+    Some(out)
+}
+
+/// Build a P2SH-multisig scriptSig: [sig_len][sig]... then [redeem_push][redeem_script].
+/// Sigs use single-byte length prefix (DER sigs ≤ 72 bytes).
+/// Redeem script uses OP_PUSHDATA1 (0x4c) if it exceeds 75 bytes.
+pub fn p2sh_multisig_script_sig(sigs: &[&[u8]], redeem_script: &[u8]) -> Vec<u8> {
+    let mut s = Vec::new();
+    for sig in sigs {
+        debug_assert!(sig.len() <= 0x4b, "DER sig unexpectedly large");
+        s.push(sig.len() as u8);
+        s.extend_from_slice(sig);
+    }
+    let rlen = redeem_script.len();
+    if rlen <= 0x4b {
+        s.push(rlen as u8);
+    } else {
+        assert!(rlen <= 0xff, "redeem script > 255 bytes is not supported");
+        s.push(0x4c); // OP_PUSHDATA1
+        s.push(rlen as u8);
+    }
+    s.extend_from_slice(redeem_script);
+    s
 }
 
 /// Build a bare m-of-n multisig scriptPubKey.
@@ -525,6 +609,52 @@ mod tests {
             execute(&script_sig, &spk, &ctx),
             Err(ScriptError::LockTimeNotMet)
         );
+    }
+
+    #[test]
+    fn p2sh_script_roundtrip() {
+        let redeem = vec![0x52u8, 0x21, 0xab, 0x21, 0xcd, 0x52, 0xae];
+        let spk = p2sh_script_from_redeem(&redeem);
+        let hash = extract_p2sh_hash(&spk).unwrap();
+        let expected = &Sha256::digest(&redeem)[..20];
+        assert_eq!(&hash, expected);
+    }
+
+    #[test]
+    fn p2sh_address_roundtrip() {
+        let hash20 = [0x42_u8; 20];
+        let addr = p2sh_address_from_hash(&hash20);
+        assert!(addr.starts_with("txms"), "P2SH address must have txms prefix");
+        let recovered = p2sh_hash_from_address(&addr).unwrap();
+        assert_eq!(recovered, hash20);
+    }
+
+    #[test]
+    fn p2sh_address_rejects_txm_prefix() {
+        let hash20 = [0x11_u8; 20];
+        let p2pkh_addr = bech32::encode("txm", hash20.to_base32(), Variant::Bech32).unwrap();
+        assert_eq!(
+            p2sh_hash_from_address(&p2pkh_addr),
+            Err(ScriptError::InvalidAddress)
+        );
+    }
+
+    #[test]
+    fn p2sh_multisig_script_sig_layout_with_pushdata1() {
+        // 2 sigs (71 + 70 bytes) + redeem script 100 bytes (> 0x4b, needs PUSHDATA1)
+        let sig1 = vec![0xaa_u8; 71];
+        let sig2 = vec![0xbb_u8; 70];
+        let redeem = vec![0xcc_u8; 100];
+        let script_sig = p2sh_multisig_script_sig(&[sig1.as_slice(), sig2.as_slice()], &redeem);
+        // [71][aa×71][70][bb×70][0x4c][100][cc×100]
+        assert_eq!(script_sig[0], 71);
+        assert_eq!(&script_sig[1..72], &[0xaa_u8; 71]);
+        assert_eq!(script_sig[72], 70);
+        assert_eq!(&script_sig[73..143], &[0xbb_u8; 70]);
+        assert_eq!(script_sig[143], 0x4c); // OP_PUSHDATA1
+        assert_eq!(script_sig[144], 100);
+        assert_eq!(&script_sig[145..245], &[0xcc_u8; 100]);
+        assert_eq!(script_sig.len(), 245);
     }
 
     #[test]
