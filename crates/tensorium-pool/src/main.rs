@@ -1,4 +1,5 @@
 mod accounting;
+mod payout;
 mod stratum;
 
 use accounting::{PayoutEntry, PayoutLedger};
@@ -197,8 +198,8 @@ fn serve() -> Result<(), String> {
             node_rpc.clone(),
             treasury.clone(),
             share_diff,
-            shared_ledger,
-            ledger_path,
+            shared_ledger.clone(),
+            ledger_path.clone(),
         ),
     ));
 
@@ -206,6 +207,45 @@ fn serve() -> Result<(), String> {
         let ss   = stratum_state.clone();
         let bind_str = stratum_bind.clone();
         std::thread::spawn(move || stratum::run_stratum_server(ss, &bind_str));
+    }
+
+    // ── Auto-payout scheduler ─────────────────────────────────────────────────
+    // Activated when TENSORIUM_POOL_TREASURY_WALLET + _PASSPHRASE are both set.
+    {
+        let wallet_path  = env::var("TENSORIUM_POOL_TREASURY_WALLET").ok();
+        let passphrase   = env::var("TENSORIUM_POOL_TREASURY_PASSPHRASE").ok();
+
+        match (wallet_path, passphrase) {
+            (Some(wp), Some(pp)) if !pp.is_empty() => {
+                let threshold_atoms = env::var("TENSORIUM_POOL_PAYOUT_THRESHOLD_ATOMS")
+                    .ok().and_then(|s| s.parse::<u64>().ok())
+                    .unwrap_or(500_000_000); // 5 TXM
+                let interval_secs = env::var("TENSORIUM_POOL_PAYOUT_INTERVAL_SECS")
+                    .ok().and_then(|s| s.parse::<u64>().ok())
+                    .unwrap_or(300); // 5 minutes
+
+                println!(
+                    "  auto_payout  = enabled  threshold={:.2} TXM  interval={}s",
+                    threshold_atoms as f64 / 1e8, interval_secs
+                );
+
+                let cfg = payout::PayoutConfig {
+                    wallet_path:       PathBuf::from(wp),
+                    wallet_passphrase: pp,
+                    node_rpc:          node_rpc.clone(),
+                    threshold_atoms,
+                    interval_secs,
+                    ledger_path:       ledger_path.clone(),
+                };
+                let payout_ledger = shared_ledger.clone();
+                std::thread::spawn(move || payout::run_payout_scheduler(payout_ledger, cfg));
+            }
+            _ => {
+                println!(
+                    "  auto_payout  = disabled  (set TENSORIUM_POOL_TREASURY_WALLET + TENSORIUM_POOL_TREASURY_PASSPHRASE)"
+                );
+            }
+        }
     }
 
     let listener =
