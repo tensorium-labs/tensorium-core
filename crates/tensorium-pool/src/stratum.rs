@@ -1,5 +1,10 @@
 //! Tensorium Stratum Protocol v1 — TCP mining pool server.
 //! Port 3333 (alongside existing HTTP pool on port 23336).
+//!
+//! Vardiff: per-worker share difficulty auto-adjusts every 60 s to keep each
+//! miner in the 15–60 shares/minute target band.  Adjustment step is ±1 bit
+//! (×2 or ÷2 difficulty).  Bounds: 16 bit (min) … 38 bit (max, 2 below
+//! network diff so a valid block always beats a share).
 
 use crate::accounting::{PayoutEntry, PayoutLedger};
 use serde_json::{json, Value};
@@ -13,6 +18,20 @@ use std::{
     thread,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
+
+// ── Vardiff constants ─────────────────────────────────────────────────────────
+
+/// Check / possibly adjust share difficulty every N seconds.
+pub const VARDIFF_WINDOW_SECS: u64 = 60;
+/// Minimum accepted shares per minute — below this, difficulty drops.
+pub const VARDIFF_TARGET_MIN: u64 = 15;
+/// Maximum accepted shares per minute — above this, difficulty rises.
+pub const VARDIFF_TARGET_MAX: u64 = 60;
+/// Minimum per-worker share difficulty (bits of leading zeros required).
+pub const VARDIFF_MIN_BITS: u8 = 16;
+/// Maximum per-worker share difficulty.  2 bits below mainnet network diff (40)
+/// so there is always a gap between "valid share" and "valid block".
+pub const VARDIFF_MAX_BITS: u8 = 38;
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -30,47 +49,54 @@ pub struct StratumJob {
 
 #[derive(Clone, Debug)]
 pub struct WorkerSession {
-    pub connection_id: String,
-    pub worker_name: String,
-    pub wallet_address: String,
-    pub peer_addr: String,
-    pub authorized_at_unix: u64,
-    pub last_seen_at_unix: u64,
-    pub accepted_shares: u64,
-    pub rejected_shares: u64,
-    pub last_submit_result: String,
+    pub connection_id:            String,
+    pub worker_name:              String,
+    pub wallet_address:           String,
+    pub peer_addr:                String,
+    pub authorized_at_unix:       u64,
+    pub last_seen_at_unix:        u64,
+    pub accepted_shares:          u64,
+    pub rejected_shares:          u64,
+    pub last_submit_result:       String,
+    /// Current per-worker share difficulty (leading-zero bits).
+    pub share_diff_bits:          u8,
+    /// Shares accepted in the current vardiff window.
+    pub vardiff_window_shares:    u64,
+    /// Unix timestamp when the current vardiff window started.
+    pub vardiff_window_start:     u64,
 }
 
 pub struct StratumState {
-    pub current_job:      Option<StratumJob>,
-    pub share_diff:       u64,
-    pub node_rpc:         String,
-    pub treasury:         String,
+    pub current_job:        Option<StratumJob>,
+    /// Global initial share difficulty (bits).  New workers start here.
+    pub share_diff_bits:    u8,
+    pub node_rpc:           String,
+    pub treasury:           String,
     /// connection_id → worker session
-    pub workers:          HashMap<String, WorkerSession>,
-    pub shares_accepted:  u64,
-    pub shares_rejected:  u64,
-    pub blocks_found:     u64,
+    pub workers:            HashMap<String, WorkerSession>,
+    pub shares_accepted:    u64,
+    pub shares_rejected:    u64,
+    pub blocks_found:       u64,
     /// connection_id → job sender (cleaned up on disconnect)
-    pub job_senders:      HashMap<String, std::sync::mpsc::Sender<StratumJob>>,
-    /// job_id → raw template JSON (last 2 jobs, for stale share lookup)
+    pub job_senders:        HashMap<String, std::sync::mpsc::Sender<StratumJob>>,
+    /// job_id → raw template JSON (last 2 jobs, for stale-share lookup)
     pub job_template_cache: HashMap<String, String>,
     /// Shared payout ledger — same instance as the HTTP pool
-    pub ledger:           Arc<Mutex<PayoutLedger>>,
-    pub ledger_path:      PathBuf,
+    pub ledger:             Arc<Mutex<PayoutLedger>>,
+    pub ledger_path:        PathBuf,
 }
 
 impl StratumState {
     pub fn new(
-        node_rpc: String,
-        treasury: String,
-        share_diff: u64,
-        ledger: Arc<Mutex<PayoutLedger>>,
-        ledger_path: PathBuf,
+        node_rpc:     String,
+        treasury:     String,
+        share_diff:   u64,
+        ledger:       Arc<Mutex<PayoutLedger>>,
+        ledger_path:  PathBuf,
     ) -> Self {
         Self {
             current_job: None,
-            share_diff,
+            share_diff_bits: diff_to_bits(share_diff),
             node_rpc,
             treasury,
             workers: HashMap::new(),
@@ -84,37 +110,63 @@ impl StratumState {
         }
     }
 
-    /// Stats for HTTP /pool/stratum endpoint
-    pub fn stats_json(&self) -> serde_json::Value {
+    /// Stats for HTTP /pool/stratum endpoint.
+    pub fn stats_json(&self) -> Value {
         let active_workers: Vec<Value> = self
             .workers
             .values()
-            .map(|worker| {
+            .map(|w| {
                 json!({
-                    "connection_id": worker.connection_id,
-                    "worker_name": worker.worker_name,
-                    "wallet_address": worker.wallet_address,
-                    "peer_addr": worker.peer_addr,
-                    "authorized_at_unix": worker.authorized_at_unix,
-                    "last_seen_at_unix": worker.last_seen_at_unix,
-                    "accepted_shares": worker.accepted_shares,
-                    "rejected_shares": worker.rejected_shares,
-                    "last_submit_result": worker.last_submit_result,
+                    "connection_id":      w.connection_id,
+                    "worker_name":        w.worker_name,
+                    "wallet_address":     w.wallet_address,
+                    "peer_addr":          w.peer_addr,
+                    "authorized_at_unix": w.authorized_at_unix,
+                    "last_seen_at_unix":  w.last_seen_at_unix,
+                    "accepted_shares":    w.accepted_shares,
+                    "rejected_shares":    w.rejected_shares,
+                    "last_submit_result": w.last_submit_result,
+                    "share_diff_bits":    w.share_diff_bits,
+                    "share_diff":         bits_to_diff(w.share_diff_bits),
                 })
             })
             .collect();
 
         json!({
-            "stratum_workers": self.job_senders.len(),
-            "authorized_workers": self.workers.len(),
-            "stratum_port": 3333,
-            "share_difficulty": self.share_diff,
-            "shares_accepted": self.shares_accepted,
-            "shares_rejected": self.shares_rejected,
-            "blocks_found": self.blocks_found,
-            "active_workers": active_workers,
+            "stratum_workers":      self.job_senders.len(),
+            "authorized_workers":   self.workers.len(),
+            "stratum_port":         3333,
+            "initial_share_diff_bits": self.share_diff_bits,
+            "shares_accepted":      self.shares_accepted,
+            "shares_rejected":      self.shares_rejected,
+            "blocks_found":         self.blocks_found,
+            "active_workers":       active_workers,
+            "vardiff": {
+                "window_secs":  VARDIFF_WINDOW_SECS,
+                "target_min":   VARDIFF_TARGET_MIN,
+                "target_max":   VARDIFF_TARGET_MAX,
+                "min_bits":     VARDIFF_MIN_BITS,
+                "max_bits":     VARDIFF_MAX_BITS,
+            },
         })
     }
+}
+
+// ── Diff ↔ bits helpers ───────────────────────────────────────────────────────
+
+/// Convert a raw diff value (e.g. 1_048_576) to the number of leading-zero
+/// bits it represents (e.g. 20).  Uses floor(log2).
+pub fn diff_to_bits(diff: u64) -> u8 {
+    if diff <= 1 { return 0; }
+    let mut d = diff;
+    let mut b = 0u8;
+    while d > 1 { d >>= 1; b += 1; }
+    b
+}
+
+/// Convert bits back to the raw diff threshold (2^bits).
+pub fn bits_to_diff(bits: u8) -> u64 {
+    1u64 << bits
 }
 
 fn unix_now() -> u64 {
@@ -137,12 +189,7 @@ fn sha256d(data: &[u8]) -> [u8; 32] {
 fn leading_zero_bits(hash: &[u8; 32]) -> u8 {
     let mut bits = 0u8;
     for &byte in hash.iter() {
-        if byte == 0 {
-            bits += 8;
-        } else {
-            bits += byte.leading_zeros() as u8;
-            break;
-        }
+        if byte == 0 { bits += 8; } else { bits += byte.leading_zeros() as u8; break; }
     }
     bits
 }
@@ -163,11 +210,10 @@ fn build_header(job: &StratumJob, nonce: u64) -> Vec<u8> {
     h
 }
 
-// ── Nonce encoding helpers ─────────────────────────────────────────────────────
+// ── Nonce helpers ─────────────────────────────────────────────────────────────
 
-/// Parse a nonce from the little-endian hex string sent by the miner.
-/// The miner encodes the nonce as 8 LE bytes formatted as hex (LSB first),
-/// e.g. nonce=1000 (0x3E8) → "e803000000000000".
+/// Parse a little-endian hex nonce sent by the miner (LSB first).
+/// e.g. nonce=1000 (0x3E8) → "e803000000000000"
 fn le_hex_to_u64(s: &str) -> Option<u64> {
     let s = s.trim_start_matches("0x");
     let mut bytes = [0u8; 8];
@@ -180,20 +226,18 @@ fn le_hex_to_u64(s: &str) -> Option<u64> {
 
 // ── Share validation ───────────────────────────────────────────────────────────
 
-fn validate_share(job: &StratumJob, nonce_hex: &str, share_diff: u64) -> Option<(u8, bool, bool)> {
-    let nonce = le_hex_to_u64(nonce_hex)?;
+/// Returns `Some((leading_zeros, is_share, is_block))` or `None` if the nonce
+/// cannot be parsed.  Uses the per-worker share diff (in bits).
+fn validate_share(
+    job:              &StratumJob,
+    nonce_hex:        &str,
+    worker_diff_bits: u8,
+) -> Option<(u8, bool, bool)> {
+    let nonce  = le_hex_to_u64(nonce_hex)?;
     let header = build_header(job, nonce);
     let hash   = sha256d(&header);
     let zeros  = leading_zero_bits(&hash);
-
-    let share_bits = {
-        let mut d = share_diff;
-        let mut b = 0u8;
-        while d > 1 { d >>= 1; b += 1; }
-        b
-    };
-
-    let is_share = zeros >= share_bits;
+    let is_share = zeros >= worker_diff_bits;
     let is_block = zeros >= job.difficulty_bits;
     Some((zeros, is_share, is_block))
 }
@@ -214,7 +258,7 @@ fn hex_to_bytes32(s: &str) -> Option<[u8; 32]> {
     Some(out)
 }
 
-// ── Gross reward extraction from cached template ───────────────────────────────
+// ── Gross reward from cached template ─────────────────────────────────────────
 
 fn gross_from_template(raw: &str) -> u64 {
     serde_json::from_str::<Value>(raw)
@@ -227,36 +271,26 @@ fn gross_from_template(raw: &str) -> u64 {
 
 // ── Job fetch from node ────────────────────────────────────────────────────────
 
-/// Fetch a job from the node. Returns (job, raw_template_json) on success.
+/// Fetch a job from the node.  Returns `(job, raw_template_json)` on success.
 pub fn fetch_job(node_rpc: &str, treasury: &str) -> Option<(StratumJob, String)> {
-    let url = format!("http://{}/getblocktemplate/{}", node_rpc, treasury);
+    let url  = format!("http://{}/getblocktemplate/{}", node_rpc, treasury);
     let resp = http_get_body(&url)?;
     let v: Value = serde_json::from_str(&resp).ok()?;
 
-    let hdr = v["template"]["header"].as_object()?;
+    let hdr       = v["template"]["header"].as_object()?;
+    let chain_id  = hdr["chain_id"].as_str()?.to_string();
+    let height    = hdr["height"].as_u64()?;
+    let diff_bits = hdr["leading_zero_bits"].as_u64()? as u8;
+    let timestamp = hdr["timestamp_seconds"].as_u64()?;
+    let version   = hdr["version"].as_u64().unwrap_or(1) as u32;
+    let prev      = parse_byte_array(hdr.get("previous_hash")?)?;
+    let mroot     = parse_byte_array(hdr.get("merkle_root")?)?;
 
-    let chain_id    = hdr["chain_id"].as_str()?.to_string();
-    let height      = hdr["height"].as_u64()?;
-    let diff_bits   = hdr["leading_zero_bits"].as_u64()? as u8;
-    let timestamp   = hdr["timestamp_seconds"].as_u64()?;
-    let version     = hdr["version"].as_u64().unwrap_or(1) as u32;
-
-    let prev = parse_byte_array(hdr.get("previous_hash")?)?;
-    let mroot= parse_byte_array(hdr.get("merkle_root")?)?;
-
-    let ms = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().subsec_millis();
+    let ms     = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().subsec_millis();
     let job_id = format!("h{}-{}", height, ms);
 
-    let job = StratumJob {
-        job_id,
-        chain_id,
-        height,
-        previous_hash: prev,
-        merkle_root: mroot,
-        timestamp,
-        difficulty_bits: diff_bits,
-        version,
-    };
+    let job = StratumJob { job_id, chain_id, height, previous_hash: prev,
+                           merkle_root: mroot, timestamp, difficulty_bits: diff_bits, version };
     Some((job, resp))
 }
 
@@ -279,10 +313,10 @@ fn http_get_body(url: &str) -> Option<String> {
     let colon  = hp.rfind(':')?;
     let host   = &hp[..colon];
     let port   = &hp[colon + 1..];
-
     let mut conn = TcpStream::connect(format!("{}:{}", host, port)).ok()?;
     conn.set_read_timeout(Some(Duration::from_secs(10))).ok()?;
-    write!(conn, "GET {} HTTP/1.1\r\nHost: {}:{}\r\nConnection: close\r\n\r\n", path, host, port).ok()?;
+    write!(conn, "GET {} HTTP/1.1\r\nHost: {}:{}\r\nConnection: close\r\n\r\n",
+           path, host, port).ok()?;
     let mut resp = String::new();
     conn.read_to_string(&mut resp).ok()?;
     Some(resp.split("\r\n\r\n").nth(1)?.to_string())
@@ -290,37 +324,25 @@ fn http_get_body(url: &str) -> Option<String> {
 
 // ── Submit block to node ────────────────────────────────────────────────────────
 
-/// Submit a found block to the node. Uses the cached raw template JSON so the
-/// full coinbase transaction is preserved (only the nonce is updated).
-/// Returns true if the node accepted the block.
+/// Submit a found block to the node.  Uses the cached raw template JSON so the
+/// full coinbase transaction is preserved — only the nonce field is updated.
+/// Returns `true` if the node accepted the block.
 fn submit_block(node_rpc: &str, job: &StratumJob, nonce: u64, raw_template: Option<&str>) -> bool {
     use std::io::Read;
-
-    let colon = match node_rpc.rfind(':') {
-        Some(c) => c,
-        None    => return false,
-    };
+    let colon = match node_rpc.rfind(':') { Some(c) => c, None => return false };
     let host = &node_rpc[..colon];
     let port = &node_rpc[colon + 1..];
+    eprintln!("[stratum] BLOCK! height={} nonce={} job={}", job.height, nonce, job.job_id);
 
-    eprintln!("[stratum] BLOCK! height={} nonce={} job={}",
-              job.height, nonce, job.job_id);
-
-    // Use cached template with correct coinbase; fall back to reconstructed header if unavailable.
     let body = if let Some(raw) = raw_template {
         if let Ok(mut v) = serde_json::from_str::<Value>(raw) {
             v["template"]["header"]["nonce"] = json!(nonce);
             v.to_string()
-        } else {
-            build_fallback_body(job, nonce)
-        }
-    } else {
-        build_fallback_body(job, nonce)
-    };
+        } else { build_fallback_body(job, nonce) }
+    } else { build_fallback_body(job, nonce) };
 
     let mut conn = match TcpStream::connect(format!("{}:{}", host, port)) {
-        Ok(c) => c,
-        Err(_)=> return false,
+        Ok(c) => c, Err(_) => return false,
     };
     conn.set_read_timeout(Some(Duration::from_secs(10))).ok();
     let req = format!(
@@ -334,29 +356,21 @@ fn submit_block(node_rpc: &str, job: &StratumJob, nonce: u64, raw_template: Opti
 }
 
 fn build_fallback_body(job: &StratumJob, nonce: u64) -> String {
-    json!({
-        "template": {
-            "header": {
-                "chain_id":          job.chain_id,
-                "height":            job.height,
-                "previous_hash":     job.previous_hash.to_vec(),
-                "merkle_root":       job.merkle_root.to_vec(),
-                "timestamp_seconds": job.timestamp,
-                "leading_zero_bits": job.difficulty_bits,
-                "version":           job.version,
-                "nonce":             nonce
-            },
-            "transactions": []
-        }
-    }).to_string()
+    json!({ "template": { "header": {
+        "chain_id": job.chain_id, "height": job.height,
+        "previous_hash": job.previous_hash.to_vec(), "merkle_root": job.merkle_root.to_vec(),
+        "timestamp_seconds": job.timestamp, "leading_zero_bits": job.difficulty_bits,
+        "version": job.version, "nonce": nonce
+    }, "transactions": [] }}).to_string()
 }
 
-// ── Mining.notify message builder ─────────────────────────────────────────────
+// ── Mining.notify builder ─────────────────────────────────────────────────────
 
-fn notify_msg(job: &StratumJob, share_diff: u64) -> Value {
+/// Build a `mining.notify` message.  `worker_diff` is the per-worker share
+/// difficulty (used by the miner to know what hash target to aim for).
+fn notify_msg(job: &StratumJob, worker_diff: u64) -> Value {
     json!({
-        "id": null,
-        "method": "mining.notify",
+        "id": null, "method": "mining.notify",
         "params": {
             "job_id":           job.job_id,
             "chain_id":         job.chain_id,
@@ -365,8 +379,8 @@ fn notify_msg(job: &StratumJob, share_diff: u64) -> Value {
             "merkle_root":      bytes_to_hex(&job.merkle_root),
             "timestamp":        job.timestamp,
             "difficulty_bits":  job.difficulty_bits,
-            "share_difficulty": share_diff,
-            "clean_jobs":       true
+            "share_difficulty": worker_diff,
+            "clean_jobs":       true,
         }
     })
 }
@@ -380,40 +394,39 @@ fn send_line(w: &mut TcpStream, msg: &Value) -> bool {
 }
 
 fn handle_stratum_conn(
-    stream: TcpStream,
-    state:  Arc<Mutex<StratumState>>,
-    job_rx: std::sync::mpsc::Receiver<StratumJob>,
+    stream:        TcpStream,
+    state:         Arc<Mutex<StratumState>>,
+    job_rx:        std::sync::mpsc::Receiver<StratumJob>,
     connection_id: String,
 ) {
-    let peer_addr = stream
-        .peer_addr()
-        .map(|addr| addr.to_string())
-        .unwrap_or_else(|_| "unknown".to_string());
+    let peer_addr = stream.peer_addr()
+        .map(|a| a.to_string()).unwrap_or_else(|_| "unknown".to_string());
 
-    // Short read timeout so the pool can proactively send pings even when the
-    // miner is silent (e.g. immediately after a new job before the first share).
+    // Short read timeout so we can send proactive pings between shares.
     stream.set_read_timeout(Some(Duration::from_secs(5))).ok();
     stream.set_write_timeout(Some(Duration::from_secs(10))).ok();
 
     let mut writer = match stream.try_clone() {
-        Ok(w)  => w,
-        Err(_) => {
-            state.lock().unwrap().job_senders.remove(&connection_id);
-            return;
-        }
+        Ok(w) => w,
+        Err(_) => { state.lock().unwrap().job_senders.remove(&connection_id); return; }
     };
     let reader = BufReader::new(stream);
 
-    let mut authorized   = false;
-    let mut wallet_addr  = String::new();
-    let mut last_job_id  = String::new();
-    let mut last_ping    = Instant::now();
+    let mut authorized  = false;
+    let mut wallet_addr = String::new();
+    let mut last_job_id = String::new();
+    let mut last_ping   = Instant::now();
 
     for line_res in reader.lines() {
-        /* Drain pending new jobs */
+        // ── Drain any pending new-job notifications ────────────────────────
         while let Ok(job) = job_rx.try_recv() {
             if authorized {
-                let diff = state.lock().unwrap().share_diff;
+                let diff = {
+                    let s = state.lock().unwrap();
+                    s.workers.get(&connection_id)
+                        .map(|w| bits_to_diff(w.share_diff_bits))
+                        .unwrap_or(bits_to_diff(s.share_diff_bits))
+                };
                 if !send_line(&mut writer, &notify_msg(&job, diff)) {
                     state.lock().unwrap().job_senders.remove(&connection_id);
                     return;
@@ -426,11 +439,8 @@ fn handle_stratum_conn(
             Ok(l) => l,
             Err(e) if e.kind() == std::io::ErrorKind::WouldBlock
                    || e.kind() == std::io::ErrorKind::TimedOut => {
-                // Read timeout — send ping every 5s to break the miner's recv
-                // block so it can submit any GPU shares it has queued up.
                 if authorized && last_ping.elapsed().as_secs() >= 5 {
-                    let ping = json!({"id":null,"method":"mining.ping","params":[]});
-                    if !send_line(&mut writer, &ping) {
+                    if !send_line(&mut writer, &json!({"id":null,"method":"mining.ping","params":[]})) {
                         state.lock().unwrap().job_senders.remove(&connection_id);
                         return;
                     }
@@ -442,97 +452,101 @@ fn handle_stratum_conn(
         };
         if line.is_empty() { continue; }
 
-        let msg: Value = match serde_json::from_str(&line) {
-            Ok(v)  => v,
-            Err(_) => continue,
-        };
-
+        let msg: Value = match serde_json::from_str(&line) { Ok(v) => v, Err(_) => continue };
         let method = msg["method"].as_str().unwrap_or("").to_string();
         let id     = msg["id"].clone();
 
         match method.as_str() {
+            // ── mining.subscribe ──────────────────────────────────────────
             "mining.subscribe" => {
-                let resp = json!({
-                    "id": id,
-                    "result": {
-                        "session_id": format!("s{}", SystemTime::now()
-                            .duration_since(UNIX_EPOCH).unwrap_or_default().as_millis()),
-                        "protocol":   "tensorium-stratum/1",
-                        "nonce_bits": 64
-                    },
-                    "error": null
-                });
+                let resp = json!({ "id": id, "result": {
+                    "session_id": format!("s{}", SystemTime::now()
+                        .duration_since(UNIX_EPOCH).unwrap_or_default().as_millis()),
+                    "protocol":   "tensorium-stratum/1",
+                    "nonce_bits": 64,
+                }, "error": null });
                 if !send_line(&mut writer, &resp) { break; }
             }
 
+            // ── mining.authorize ──────────────────────────────────────────
             "mining.authorize" => {
-                let auth = msg["params"][0].as_str().unwrap_or("").to_string();
+                let auth   = msg["params"][0].as_str().unwrap_or("").to_string();
                 let parts: Vec<&str> = auth.splitn(2, '.').collect();
                 wallet_addr = parts[0].to_string();
-                let wname   = parts.get(1).copied().unwrap_or("default").to_string();
+                let wname  = parts.get(1).copied().unwrap_or("default").to_string();
 
-                {
+                let (init_bits, maybe_job, init_diff) = {
                     let mut s = state.lock().unwrap();
+                    let bits = s.share_diff_bits;
                     s.workers.insert(connection_id.clone(), WorkerSession {
-                        connection_id: connection_id.clone(),
-                        worker_name: wname,
-                        wallet_address: wallet_addr.clone(),
-                        peer_addr: peer_addr.clone(),
-                        authorized_at_unix: unix_now(),
-                        last_seen_at_unix: unix_now(),
-                        accepted_shares: 0,
-                        rejected_shares: 0,
-                        last_submit_result: "authorized".to_string(),
+                        connection_id:         connection_id.clone(),
+                        worker_name:           wname,
+                        wallet_address:        wallet_addr.clone(),
+                        peer_addr:             peer_addr.clone(),
+                        authorized_at_unix:    unix_now(),
+                        last_seen_at_unix:     unix_now(),
+                        accepted_shares:       0,
+                        rejected_shares:       0,
+                        last_submit_result:    "authorized".to_string(),
+                        share_diff_bits:       bits,
+                        vardiff_window_shares: 0,
+                        vardiff_window_start:  unix_now(),
                     });
-                }
-
+                    (bits, s.current_job.clone(), bits_to_diff(bits))
+                };
                 authorized = true;
 
-                /* 1. auth response */
+                // 1. auth OK
                 if !send_line(&mut writer, &json!({"id":id,"result":true,"error":null})) { break; }
-
-                /* 2. set_difficulty */
-                let diff = state.lock().unwrap().share_diff;
+                // 2. set_difficulty (initial)
                 if !send_line(&mut writer,
-                    &json!({"id":null,"method":"mining.set_difficulty","params":[diff]})) { break; }
-
-                /* 3. current job (if any) */
-                let maybe_job = state.lock().unwrap().current_job.clone();
+                    &json!({"id":null,"method":"mining.set_difficulty","params":[init_diff]})) { break; }
+                // 3. current job
                 if let Some(job) = maybe_job {
-                    let diff2 = state.lock().unwrap().share_diff;
-                    if !send_line(&mut writer, &notify_msg(&job, diff2)) { break; }
+                    if !send_line(&mut writer, &notify_msg(&job, init_diff)) { break; }
                     last_job_id = job.job_id.clone();
                 }
+                eprintln!("[stratum] authorized {} @ {}  initial_diff={}bits",
+                          auth, peer_addr, init_bits);
             }
 
+            // ── mining.submit ─────────────────────────────────────────────
             "mining.submit" => {
                 if !authorized { continue; }
                 let params    = &msg["params"];
                 let job_id    = params["job_id"].as_str().unwrap_or("").to_string();
                 let nonce_hex = params["nonce"].as_str().unwrap_or("0").to_string();
 
-                let (job_opt, share_diff) = {
+                // Fetch current job + per-worker diff in one lock.
+                let (job_opt, worker_diff_bits) = {
                     let s = state.lock().unwrap();
-                    (s.current_job.clone(), s.share_diff)
+                    let bits = s.workers.get(&connection_id)
+                        .map(|w| w.share_diff_bits)
+                        .unwrap_or(s.share_diff_bits);
+                    (s.current_job.clone(), bits)
                 };
 
                 let result = if let Some(ref job) = job_opt {
-                    /* Allow current job and the previous job_id (1 stale allowed) */
+                    // Allow current job_id or previous (1 stale tolerated).
                     let stale = job.job_id != job_id && job_id != last_job_id;
                     if stale {
                         let mut s = state.lock().unwrap();
                         s.shares_rejected += 1;
-                        send_line(&mut writer, &json!({"id":id,"result":"rejected","error":"stale"}));
+                        if let Some(w) = s.workers.get_mut(&connection_id) {
+                            w.rejected_shares += 1;
+                            w.last_submit_result = "rejected-stale".to_string();
+                        }
+                        send_line(&mut writer,
+                            &json!({"id":id,"result":"rejected","error":"stale"}));
                         continue;
                     }
 
-                    match validate_share(job, &nonce_hex, share_diff) {
+                    match validate_share(job, &nonce_hex, worker_diff_bits) {
                         Some((_, true, is_block)) => {
+                            // ── Block found ──────────────────────────────
                             if is_block {
                                 let nonce = le_hex_to_u64(&nonce_hex).unwrap_or(0);
-
-                                // Look up cached template for full coinbase submission.
-                                let (node_rpc, raw_template, ledger_arc, ledger_path) = {
+                                let (node_rpc, raw_tpl, ledger_arc, ledger_path) = {
                                     let s = state.lock().unwrap();
                                     let raw = s.job_template_cache.get(&job.job_id)
                                         .or_else(|| s.job_template_cache.get(&job_id))
@@ -540,67 +554,97 @@ fn handle_stratum_conn(
                                     (s.node_rpc.clone(), raw, s.ledger.clone(), s.ledger_path.clone())
                                 };
 
-                                let accepted = submit_block(&node_rpc, job, nonce, raw_template.as_deref());
-
+                                let accepted = submit_block(&node_rpc, job, nonce, raw_tpl.as_deref());
                                 if accepted {
-                                    // Compute block hash from header bytes for ledger entry.
-                                    let header_bytes = build_header(job, nonce);
-                                    let hash_bytes   = sha256d(&header_bytes);
-                                    let block_hash   = bytes_to_hex(&hash_bytes);
-
-                                    // Gross reward from cached template coinbase.
-                                    let gross = raw_template.as_deref()
-                                        .map(gross_from_template)
-                                        .unwrap_or(0);
+                                    let hash_bytes = sha256d(&build_header(job, nonce));
+                                    let block_hash = bytes_to_hex(&hash_bytes);
+                                    let gross = raw_tpl.as_deref()
+                                        .map(gross_from_template).unwrap_or(0);
                                     if gross == 0 {
-                                        eprintln!("[stratum] WARNING: could not extract gross reward from template for height={}", job.height);
+                                        eprintln!("[stratum] WARNING: could not read gross reward for height={}", job.height);
                                     }
-
                                     let entry = PayoutEntry::new(
-                                        job.height,
-                                        block_hash,
-                                        wallet_addr.clone(),
-                                        gross,
-                                    );
-
-                                    // state mutex is NOT held here — safe to lock ledger
+                                        job.height, block_hash, wallet_addr.clone(), gross);
+                                    // state NOT held here — safe to lock ledger
                                     let mut ledger = ledger_arc.lock().unwrap();
                                     ledger.push(entry);
                                     if let Err(e) = ledger.save(&ledger_path) {
                                         eprintln!("[stratum] ledger save error: {e}");
                                     } else {
                                         let fee = gross * crate::accounting::POOL_FEE_BPS / 10_000;
-                                        let net = gross.saturating_sub(fee);
                                         eprintln!("[stratum] BLOCK ACCEPTED height={} miner={} gross={} fee={} net={}",
-                                            job.height, wallet_addr, gross, fee, net);
+                                            job.height, wallet_addr, gross, fee, gross.saturating_sub(fee));
                                     }
                                 }
-
-                                let mut s = state.lock().unwrap();
-                                s.blocks_found += 1;
+                                state.lock().unwrap().blocks_found += 1;
                                 eprintln!("[stratum] BLOCK by {} nonce={}", wallet_addr, nonce_hex);
                             }
 
-                            let mut s = state.lock().unwrap();
-                            s.shares_accepted += 1;
-                            if let Some(worker) = s.workers.get_mut(&connection_id) {
-                                worker.last_seen_at_unix = unix_now();
-                                worker.accepted_shares += 1;
-                                worker.last_submit_result = if is_block {
-                                    "block".to_string()
+                            // ── Update worker stats + vardiff ─────────────
+                            let vardiff_update = {
+                                let mut s = state.lock().unwrap();
+                                s.shares_accepted += 1;
+                                if let Some(w) = s.workers.get_mut(&connection_id) {
+                                    w.last_seen_at_unix    = unix_now();
+                                    w.accepted_shares     += 1;
+                                    w.last_submit_result  = if is_block { "block" } else { "accepted" }.to_string();
+                                    w.vardiff_window_shares += 1;
+
+                                    let now     = unix_now();
+                                    let elapsed = now.saturating_sub(w.vardiff_window_start).max(1);
+
+                                    if elapsed >= VARDIFF_WINDOW_SECS {
+                                        // shares/min over the window
+                                        let spm = w.vardiff_window_shares
+                                            .saturating_mul(60) / elapsed;
+                                        let old = w.share_diff_bits;
+                                        let new_bits = if spm > VARDIFF_TARGET_MAX {
+                                            (old + 1).min(VARDIFF_MAX_BITS)
+                                        } else if spm < VARDIFF_TARGET_MIN {
+                                            old.saturating_sub(1).max(VARDIFF_MIN_BITS)
+                                        } else {
+                                            old
+                                        };
+                                        // Reset window regardless of whether diff changed.
+                                        w.vardiff_window_shares = 0;
+                                        w.vardiff_window_start  = now;
+                                        w.share_diff_bits       = new_bits;
+
+                                        if new_bits != old {
+                                            Some((new_bits, old, spm))
+                                        } else {
+                                            None
+                                        }
+                                    } else {
+                                        None
+                                    }
                                 } else {
-                                    "accepted".to_string()
-                                };
+                                    None
+                                }
+                            };
+
+                            // Send new difficulty outside the state lock.
+                            if let Some((new_bits, old_bits, spm)) = vardiff_update {
+                                let new_diff = bits_to_diff(new_bits);
+                                let dir = if new_bits > old_bits { "↑" } else { "↓" };
+                                eprintln!("[vardiff] {} {}{}->{} bits  ({}/min)  diff={}",
+                                          wallet_addr, dir, old_bits, new_bits, spm, new_diff);
+                                send_line(&mut writer, &json!({
+                                    "id": null,
+                                    "method": "mining.set_difficulty",
+                                    "params": [new_diff],
+                                }));
                             }
+
                             "accepted"
                         }
                         Some((_, false, _)) | None => {
                             let mut s = state.lock().unwrap();
                             s.shares_rejected += 1;
-                            if let Some(worker) = s.workers.get_mut(&connection_id) {
-                                worker.last_seen_at_unix = unix_now();
-                                worker.rejected_shares += 1;
-                                worker.last_submit_result = "rejected".to_string();
+                            if let Some(w) = s.workers.get_mut(&connection_id) {
+                                w.last_seen_at_unix   = unix_now();
+                                w.rejected_shares    += 1;
+                                w.last_submit_result  = "rejected".to_string();
                             }
                             "rejected"
                         }
@@ -612,8 +656,8 @@ fn handle_stratum_conn(
                 if !send_line(&mut writer, &json!({"id":id,"result":result,"error":null})) { break; }
             }
 
-            "mining.pong" => { /* client responded to our ping — reset timer */ }
-            _ => { /* ignore unknown methods */ }
+            "mining.pong" => { /* keep-alive response — no action needed */ }
+            _ => {}
         }
     }
 
@@ -621,37 +665,32 @@ fn handle_stratum_conn(
     let mut s = state.lock().unwrap();
     s.workers.remove(&connection_id);
     s.job_senders.remove(&connection_id);
+    eprintln!("[stratum] disconnected {}", peer_addr);
 }
 
 // ── Job poller + broadcaster ───────────────────────────────────────────────────
 
 fn run_job_poller(state: Arc<Mutex<StratumState>>) {
     let mut last_height = 0u64;
-
     loop {
         thread::sleep(Duration::from_secs(2));
-
         let (node_rpc, treasury) = {
             let s = state.lock().unwrap();
             (s.node_rpc.clone(), s.treasury.clone())
         };
-
         if let Some((job, raw)) = fetch_job(&node_rpc, &treasury) {
             if job.height != last_height {
                 last_height = job.height;
                 eprintln!("[stratum] new job height={} bits={}", job.height, job.difficulty_bits);
-
                 let mut s = state.lock().unwrap();
-                // Prune template cache: keep previous job + new job (≤2 entries).
+                // Keep at most 2 templates: current + incoming.
                 if s.job_template_cache.len() >= 2 {
-                    // Remove entries that are neither the current nor the incoming job.
-                    let keep_id = s.current_job.as_ref().map(|j| j.job_id.clone());
-                    s.job_template_cache.retain(|k, _| Some(k) == keep_id.as_ref());
+                    let keep = s.current_job.as_ref().map(|j| j.job_id.clone());
+                    s.job_template_cache.retain(|k, _| Some(k) == keep.as_ref());
                 }
                 s.job_template_cache.insert(job.job_id.clone(), raw);
                 s.current_job = Some(job.clone());
-
-                // Broadcast to all connected workers; remove dead senders.
+                // Broadcast; prune dead senders in one pass.
                 s.job_senders.retain(|_id, tx| tx.send(job.clone()).is_ok());
             }
         }
@@ -667,13 +706,9 @@ pub fn run_stratum_server(state: Arc<Mutex<StratumState>>, bind: &str) {
     };
     eprintln!("[stratum] listening on {}", bind);
 
-    /* Spawn job poller */
-    {
-        let s = state.clone();
-        thread::spawn(move || run_job_poller(s));
-    }
+    // Spawn job poller thread.
+    { let s = state.clone(); thread::spawn(move || run_job_poller(s)); }
 
-    /* Accept loop */
     for stream in listener.incoming() {
         let stream = match stream {
             Ok(s)  => s,
@@ -681,11 +716,10 @@ pub fn run_stratum_server(state: Arc<Mutex<StratumState>>, bind: &str) {
         };
 
         let peer_addr = stream.peer_addr()
-            .map(|a| a.to_string())
-            .unwrap_or_else(|_| "unknown".to_string());
+            .map(|a| a.to_string()).unwrap_or_else(|_| "unknown".to_string());
         let connection_id = format!("{}-{}", unix_now(), peer_addr);
 
-        let state2 = state.clone();
+        let state2   = state.clone();
         let conn_id2 = connection_id.clone();
         let (tx, rx) = std::sync::mpsc::channel::<StratumJob>();
         state.lock().unwrap().job_senders.insert(connection_id, tx);

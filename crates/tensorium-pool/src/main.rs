@@ -169,7 +169,9 @@ fn serve() -> Result<(), String> {
     println!("  ledger       = {}", ledger_path.display());
     println!("  pool_fee     = {}%", accounting::POOL_FEE_BPS / 100);
     println!("  stratum      = {stratum_bind}");
-    println!("  share_diff   = {share_diff}");
+    println!("  share_diff   = {} ({}bits, vardiff 16–38bits target {}-{}/min)",
+             share_diff, stratum::diff_to_bits(share_diff),
+             stratum::VARDIFF_TARGET_MIN, stratum::VARDIFF_TARGET_MAX);
     println!();
     println!("Miners connect to {bind} using the same RPC interface as the node.");
     println!("Stratum miners connect to {stratum_bind}.");
