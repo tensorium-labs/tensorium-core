@@ -6,7 +6,7 @@
 //! (×2 or ÷2 difficulty).  Bounds: 16 bit (min) … 38 bit (max, 2 below
 //! network diff so a valid block always beats a share).
 
-use crate::accounting::{PayoutEntry, PayoutLedger};
+use crate::accounting::{PayoutEntry, PayoutLedger, ShareRecord};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::{
@@ -566,12 +566,15 @@ fn handle_stratum_conn(
                             // ── Block found ──────────────────────────────
                             if is_block {
                                 let nonce = le_hex_to_u64(&nonce_hex).unwrap_or(0);
-                                let (node_rpc, raw_tpl, ledger_arc, ledger_path) = {
+                                let (node_rpc, raw_tpl, ledger_arc, ledger_path, wname) = {
                                     let s = state.lock().unwrap();
                                     let raw = s.job_template_cache.get(&job.job_id)
                                         .or_else(|| s.job_template_cache.get(&job_id))
                                         .cloned();
-                                    (s.node_rpc.clone(), raw, s.ledger.clone(), s.ledger_path.clone())
+                                    let wname = s.workers.get(&connection_id)
+                                        .map(|w| w.worker_name.clone())
+                                        .unwrap_or_else(|| "unknown".to_string());
+                                    (s.node_rpc.clone(), raw, s.ledger.clone(), s.ledger_path.clone(), wname)
                                 };
 
                                 let accepted = submit_block(&node_rpc, job, nonce, raw_tpl.as_deref());
@@ -583,17 +586,32 @@ fn handle_stratum_conn(
                                     if gross == 0 {
                                         eprintln!("[stratum] WARNING: could not read gross reward for height={}", job.height);
                                     }
-                                    let entry = PayoutEntry::new(
-                                        job.height, block_hash, wallet_addr.clone(), gross);
-                                    // state NOT held here — safe to lock ledger
+
+                                    // ── PPLNS reward split ────────────────────────────
+                                    // Include the winning share in the window first so
+                                    // the block finder is also credited proportionally.
+                                    let winning_share = ShareRecord {
+                                        wallet_address:  wallet_addr.clone(),
+                                        worker_name:     wname,
+                                        share_diff_bits: worker_diff_bits,
+                                        submitted_at_unix: unix_now(),
+                                    };
                                     let mut ledger = ledger_arc.lock().unwrap();
-                                    ledger.push(entry);
+                                    ledger.push_share(winning_share);
+
+                                    let splits = ledger.pplns_split(gross, &wallet_addr);
+                                    let n_miners = splits.len();
+                                    for (addr, miner_gross) in splits {
+                                        let entry = PayoutEntry::new(
+                                            job.height, block_hash.clone(), addr, miner_gross);
+                                        ledger.push(entry);
+                                    }
                                     if let Err(e) = ledger.save(&ledger_path) {
                                         eprintln!("[stratum] ledger save error: {e}");
                                     } else {
                                         let fee = gross * crate::accounting::POOL_FEE_BPS / 10_000;
-                                        eprintln!("[stratum] BLOCK ACCEPTED height={} miner={} gross={} fee={} net={}",
-                                            job.height, wallet_addr, gross, fee, gross.saturating_sub(fee));
+                                        eprintln!("[stratum] BLOCK ACCEPTED height={} gross={} fee={} net={} split_to={}",
+                                            job.height, gross, fee, gross.saturating_sub(fee), n_miners);
                                     }
                                 }
                                 state.lock().unwrap().blocks_found += 1;
@@ -642,6 +660,27 @@ fn handle_stratum_conn(
                                     None
                                 }
                             };
+
+                            // ── Push share to PPLNS window (non-block shares) ─────
+                            // Block-finding shares are pushed inside the `if is_block`
+                            // branch above to avoid double-counting.
+                            if !is_block {
+                                let (ledger_arc2, wname) = {
+                                    let s = state.lock().unwrap();
+                                    let wn = s.workers.get(&connection_id)
+                                        .map(|w| w.worker_name.clone())
+                                        .unwrap_or_else(|| "unknown".to_string());
+                                    (s.ledger.clone(), wn)
+                                };
+                                let share = ShareRecord {
+                                    wallet_address:  wallet_addr.clone(),
+                                    worker_name:     wname,
+                                    share_diff_bits: worker_diff_bits,
+                                    submitted_at_unix: unix_now(),
+                                };
+                                ledger_arc2.lock().unwrap().push_share(share);
+                                // Window persisted on next block found; no per-share save needed.
+                            }
 
                             // Send new difficulty + re-notify outside the state lock.
                             if let Some((new_bits, old_bits, spm)) = vardiff_update {

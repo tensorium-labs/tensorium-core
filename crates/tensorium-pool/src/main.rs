@@ -300,6 +300,7 @@ fn handle_connection(
         ("GET", "/pool/stratum") => handle_pool_stratum(&mut stream, &stratum_state),
         ("GET", "/pool/accounting") => handle_pool_accounting(&mut stream, &state),
         ("GET", "/pool/custody") => handle_pool_custody(&mut stream, &state),
+        ("GET", "/pool/miners") => handle_pool_miners(&mut stream, &state),
         ("GET", path) if path.starts_with("/pool/pending/") => {
             let addr = path.trim_start_matches("/pool/pending/");
             handle_pool_pending(&mut stream, addr, &state)
@@ -484,6 +485,12 @@ fn handle_pool_custody(stream: &mut TcpStream, state: &Arc<Mutex<PoolState>>) ->
         "ledger_path": s.ledger_path,
     });
     write_response(stream, 200, &body.to_string())
+}
+
+fn handle_pool_miners(stream: &mut TcpStream, state: &Arc<Mutex<PoolState>>) -> Result<(), String> {
+    let ledger_arc = state.lock().unwrap().ledger.clone();
+    let stats = ledger_arc.lock().unwrap().window_stats();
+    write_response(stream, 200, &serde_json::to_string(&stats).unwrap())
 }
 
 fn handle_pool_pending(

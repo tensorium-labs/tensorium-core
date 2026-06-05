@@ -1,10 +1,106 @@
 use serde::{Deserialize, Serialize};
-use std::{fs, path::Path};
+use std::{
+    collections::{HashMap, HashSet, VecDeque},
+    fs,
+    path::Path,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 /// Pool fee in basis points (500 = 5.00 %).
 pub const POOL_FEE_BPS: u64 = 500;
 
-/// One entry in the pool payout ledger — one per accepted block.
+/// Default PPLNS window size (number of shares to retain).
+pub const PPLNS_DEFAULT_N: usize = 4096;
+
+// ---------------------------------------------------------------------------
+// Share tracking
+// ---------------------------------------------------------------------------
+
+/// One accepted share from a Stratum miner.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ShareRecord {
+    pub wallet_address:  String,
+    pub worker_name:     String,
+    /// Per-worker share difficulty at the time of submission (bits).
+    pub share_diff_bits: u8,
+    pub submitted_at_unix: u64,
+}
+
+impl ShareRecord {
+    /// Difficulty weight = 2^share_diff_bits.
+    pub fn weight(&self) -> u64 {
+        1u64 << self.share_diff_bits
+    }
+}
+
+/// Sliding window of the last N accepted shares, used for PPLNS reward splits.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ShareWindow {
+    pub n:      usize,
+    pub shares: VecDeque<ShareRecord>,
+}
+
+impl Default for ShareWindow {
+    fn default() -> Self { Self::new(PPLNS_DEFAULT_N) }
+}
+
+impl ShareWindow {
+    pub fn new(n: usize) -> Self {
+        Self { n, shares: VecDeque::with_capacity(n.min(16_384)) }
+    }
+
+    pub fn push(&mut self, share: ShareRecord) {
+        if self.shares.len() >= self.n {
+            self.shares.pop_front();
+        }
+        self.shares.push_back(share);
+    }
+
+    /// Sum of all share weights in the window.
+    pub fn total_weight(&self) -> u64 {
+        self.shares.iter().fold(0u64, |s, r| s.saturating_add(r.weight()))
+    }
+
+    /// Per-miner difficulty-weighted totals.
+    pub fn miner_weights(&self) -> HashMap<String, u64> {
+        let mut m: HashMap<String, u64> = HashMap::new();
+        for s in &self.shares {
+            *m.entry(s.wallet_address.clone()).or_default() += s.weight();
+        }
+        m
+    }
+
+    pub fn len(&self) -> usize { self.shares.len() }
+    pub fn is_empty(&self) -> bool { self.shares.is_empty() }
+}
+
+// ---------------------------------------------------------------------------
+// Window stats (for the /pool/miners API endpoint)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Serialize)]
+pub struct WindowStats {
+    pub window_n:        usize,
+    pub shares_in_window: usize,
+    pub total_weight:    u64,
+    pub miners:          Vec<MinerWindowEntry>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct MinerWindowEntry {
+    pub wallet_address: String,
+    pub shares:         usize,
+    pub weight:         u64,
+    /// Percentage of total window weight (0–100).
+    pub pct:            f64,
+}
+
+// ---------------------------------------------------------------------------
+// Payout entry
+// ---------------------------------------------------------------------------
+
+/// One entry in the pool payout ledger.
+/// With PPLNS one block may produce multiple entries — one per participating miner.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PayoutEntry {
     pub block_height: u64,
@@ -48,9 +144,18 @@ pub fn split_fee(gross: u64, fee_bps: u64) -> (u64, u64) {
 }
 
 /// Persistent payout ledger, stored as JSON.
-#[derive(Debug, Default, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct PayoutLedger {
     pub entries: Vec<PayoutEntry>,
+    /// PPLNS share window — persisted so restarts preserve accumulated shares.
+    #[serde(default)]
+    pub share_window: ShareWindow,
+}
+
+impl Default for PayoutLedger {
+    fn default() -> Self {
+        Self { entries: vec![], share_window: ShareWindow::default() }
+    }
 }
 
 impl PayoutLedger {
@@ -95,9 +200,13 @@ impl PayoutLedger {
         }
     }
 
-    /// Aggregate stats: blocks found, total gross, total fee, total pending net.
+    /// Aggregate stats: blocks found (distinct hashes), total gross, fee, pending.
     pub fn stats(&self) -> LedgerStats {
-        let blocks_found = self.entries.len() as u64;
+        let blocks_found = {
+            let mut seen: HashSet<&str> = HashSet::new();
+            for e in &self.entries { seen.insert(e.block_hash.as_str()); }
+            seen.len() as u64
+        };
         let total_gross = self
             .entries
             .iter()
@@ -115,6 +224,65 @@ impl PayoutLedger {
             total_pending_net_atoms: total_pending_net,
         }
     }
+
+    // ── PPLNS ────────────────────────────────────────────────────────────────
+
+    /// Record an accepted share into the PPLNS window.
+    pub fn push_share(&mut self, share: ShareRecord) {
+        self.share_window.push(share);
+    }
+
+    /// Distribute `gross` reward using PPLNS based on the current window.
+    /// Returns `(wallet_address, miner_gross_atoms)` pairs sorted by amount desc.
+    /// Rounding dust (a few atoms) stays in the pool treasury.
+    /// Falls back to 100% for `fallback_addr` when the window is empty.
+    pub fn pplns_split(&self, gross: u64, fallback_addr: &str) -> Vec<(String, u64)> {
+        let weights = self.share_window.miner_weights();
+        let total   = self.share_window.total_weight();
+        if total == 0 || weights.is_empty() {
+            return vec![(fallback_addr.to_string(), gross)];
+        }
+        let mut splits: Vec<(String, u64)> = weights
+            .into_iter()
+            .map(|(addr, w)| {
+                let miner_gross = (gross as u128 * w as u128 / total as u128) as u64;
+                (addr, miner_gross)
+            })
+            .filter(|(_, g)| *g > 0)
+            .collect();
+        splits.sort_by(|a, b| b.1.cmp(&a.1));
+        splits
+    }
+
+    /// Window stats for the `/pool/miners` API endpoint.
+    pub fn window_stats(&self) -> WindowStats {
+        let weights = self.share_window.miner_weights();
+        let total_w = self.share_window.total_weight() as f64;
+        let mut share_counts: HashMap<&str, usize> = HashMap::new();
+        for s in &self.share_window.shares {
+            *share_counts.entry(s.wallet_address.as_str()).or_default() += 1;
+        }
+        let mut miners: Vec<MinerWindowEntry> = weights
+            .iter()
+            .map(|(addr, &w)| MinerWindowEntry {
+                wallet_address: addr.clone(),
+                shares: *share_counts.get(addr.as_str()).unwrap_or(&0),
+                weight: w,
+                pct:    if total_w > 0.0 { w as f64 / total_w * 100.0 } else { 0.0 },
+            })
+            .collect();
+        miners.sort_by(|a, b| b.weight.cmp(&a.weight));
+        WindowStats {
+            window_n:         self.share_window.n,
+            shares_in_window: self.share_window.len(),
+            total_weight:     self.share_window.total_weight(),
+            miners,
+        }
+    }
+}
+
+fn _unix_now() -> u64 {
+    SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs()
 }
 
 #[derive(Debug, Serialize)]
@@ -132,6 +300,106 @@ pub struct LedgerStats {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn make_share(addr: &str, bits: u8) -> ShareRecord {
+        ShareRecord {
+            wallet_address:    addr.to_string(),
+            worker_name:       "w".to_string(),
+            share_diff_bits:   bits,
+            submitted_at_unix: 0,
+        }
+    }
+
+    // ── PPLNS window tests ────────────────────────────────────────────────
+
+    #[test]
+    fn window_evicts_oldest_when_full() {
+        let mut w = ShareWindow::new(3);
+        w.push(make_share("alice", 20));
+        w.push(make_share("alice", 20));
+        w.push(make_share("alice", 20));
+        w.push(make_share("bob", 20)); // alice's first share evicted
+        assert_eq!(w.len(), 3);
+        let wts = w.miner_weights();
+        assert_eq!(*wts.get("alice").unwrap_or(&0), (1u64 << 20) * 2);
+        assert_eq!(*wts.get("bob").unwrap_or(&0), 1u64 << 20);
+    }
+
+    #[test]
+    fn pplns_split_equal_hashrate() {
+        let mut ledger = PayoutLedger::default();
+        for _ in 0..10 {
+            ledger.push_share(make_share("alice", 20));
+            ledger.push_share(make_share("bob",   20));
+        }
+        let gross = 1_000_000u64;
+        let splits = ledger.pplns_split(gross, "alice");
+        let alice = splits.iter().find(|(a, _)| a == "alice").map(|(_, g)| *g).unwrap_or(0);
+        let bob   = splits.iter().find(|(a, _)| a == "bob").map(|(_, g)| *g).unwrap_or(0);
+        assert_eq!(alice, 500_000);
+        assert_eq!(bob,   500_000);
+        assert!(alice + bob <= gross);
+    }
+
+    #[test]
+    fn pplns_split_weighted_by_diff() {
+        let mut ledger = PayoutLedger::default();
+        // alice has 2x higher diff → 2x weight
+        ledger.push_share(make_share("alice", 21)); // weight 2M
+        ledger.push_share(make_share("bob",   20)); // weight 1M
+        let gross = 3_000_000u64;
+        let splits = ledger.pplns_split(gross, "alice");
+        let alice = splits.iter().find(|(a, _)| a == "alice").map(|(_, g)| *g).unwrap_or(0);
+        let bob   = splits.iter().find(|(a, _)| a == "bob").map(|(_, g)| *g).unwrap_or(0);
+        assert_eq!(alice, 2_000_000);
+        assert_eq!(bob,   1_000_000);
+    }
+
+    #[test]
+    fn pplns_split_single_miner_gets_all() {
+        let mut ledger = PayoutLedger::default();
+        for _ in 0..5 { ledger.push_share(make_share("solo", 20)); }
+        let gross = 1_190_279_581u64;
+        let splits = ledger.pplns_split(gross, "solo");
+        assert_eq!(splits.len(), 1);
+        assert_eq!(splits[0].0, "solo");
+        assert_eq!(splits[0].1, gross);
+    }
+
+    #[test]
+    fn pplns_split_empty_window_fallback() {
+        let ledger = PayoutLedger::default();
+        let splits = ledger.pplns_split(1_000_000, "finder");
+        assert_eq!(splits.len(), 1);
+        assert_eq!(splits[0].0, "finder");
+        assert_eq!(splits[0].1, 1_000_000);
+    }
+
+    #[test]
+    fn pplns_split_sum_never_exceeds_gross() {
+        let mut ledger = PayoutLedger::default();
+        for i in 0..100u8 {
+            ledger.push_share(make_share(if i % 3 == 0 { "alice" } else if i % 3 == 1 { "bob" } else { "carol" }, 16 + (i % 8)));
+        }
+        let gross = 1_190_279_581u64;
+        let splits = ledger.pplns_split(gross, "alice");
+        let sum: u64 = splits.iter().map(|(_, g)| g).sum();
+        assert!(sum <= gross, "sum {sum} > gross {gross}");
+    }
+
+    #[test]
+    fn blocks_found_counts_distinct_hashes() {
+        let mut ledger = PayoutLedger::default();
+        // One block → two PPLNS entries (two miners)
+        ledger.push(PayoutEntry::new(100, "hash_a".into(), "txm1alice".into(), 600_000));
+        ledger.push(PayoutEntry::new(100, "hash_a".into(), "txm1bob".into(),   400_000));
+        // Second block
+        ledger.push(PayoutEntry::new(101, "hash_b".into(), "txm1alice".into(), 1_000_000));
+        let stats = ledger.stats();
+        assert_eq!(stats.blocks_found, 2); // distinct hashes, not entry count
+    }
+
+    // ── Existing fee/ledger tests ─────────────────────────────────────────
 
     #[test]
     fn fee_split_5_percent() {
