@@ -2,10 +2,25 @@
 
 All notable changes to Tensorium are documented in this file.
 
-## [Unreleased]
+## [v0.3.4-mainnet — Scripting S4: P2SH-Multisig] — 2026-06-05
 
-### Changed
-- Mainnet-candidate coinbase maturity reduced from `100` to `10` blocks for fastest miner payout UX during current rollout.
+### Added
+- **P2SH-Multisig (Pay-to-Script-Hash)** — wraps bare multisig scripts behind a 20-byte hash for compact on-chain footprint.
+  - `p2sh_script`, `p2sh_script_from_redeem` — build 23-byte P2SH scriptPubKey (`OP_HASH160 0x14 <hash20> OP_EQUAL`).
+  - `p2sh_address_from_hash`, `p2sh_address_from_redeem` — bech32 addresses with `txms` HRP (`txms1...`).
+  - `p2sh_hash_from_address`, `extract_p2sh_hash` — address decoding and scriptPubKey parsing.
+  - `p2sh_multisig_script_sig` — scriptSig builder for P2SH-multisig spends; uses `OP_PUSHDATA1` for redeem scripts >75 bytes.
+  - `extract_address()` extended to detect P2SH first, returning `txms1...` addresses automatically.
+- **P2SH VM execution** (`vm.rs`): `execute()` detects P2SH scriptPubKey via `is_p2sh()`, pops the redeem script, verifies SHA-256[0..20] matches the embedded hash, then runs the redeem script against the remaining stack.
+- **`OP_PUSHDATA1` support** in the script VM — handles data pushes of 76–255 bytes.
+- **`txmwallet p2sh-multisig-script`** — generates a P2SH address for a 2-of-3 (or m-of-n) multisig; prints redeem script hex, P2SH scriptPubKey hex, and `txms1...` address.
+- **`txmwallet p2sh-multisig-spend`** — builds an unsigned spend transaction from a P2SH UTXO; saves to `p2sh-multisig-spend-tx.json`.
+- **`txmwallet multisig-combine --redeem <hex>`** — new flag to combine sigs and redeem script for P2SH-multisig broadcast (backward compatible: without flag, bare-multisig path unchanged).
+- **`ScriptError::P2shHashMismatch`** — returned when the pushed redeem script's hash does not match the P2SH scriptPubKey.
+
+### Verified
+- `cargo test --workspace` — 113 tests pass, 0 failures (8 new P2SH tests across `vm.rs` and `standard.rs`).
+- Deployed to DO (157.230.44.162) and Vultr (139.180.137.144) — commit `6174b76`.
 
 ---
 

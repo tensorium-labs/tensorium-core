@@ -7,7 +7,7 @@ set -euo pipefail
 # ---------------------------------------------------------------------------
 
 REPO="tensorium-labs/tensorium-core"
-VERSION="v0.3.3-mainnet"
+VERSION="v0.3.4-mainnet"
 SEED_NODE="seed.tensoriumlabs.com"
 RPC_PORT="33332"
 P2P_PORT="33333"
