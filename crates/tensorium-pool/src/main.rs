@@ -14,6 +14,8 @@ use std::{
 };
 use tensorium_core::Block;
 
+type SharedLedger = Arc<Mutex<PayoutLedger>>;
+
 // ---------------------------------------------------------------------------
 // Configuration defaults
 // ---------------------------------------------------------------------------
@@ -73,8 +75,8 @@ struct PoolState {
     payout_hot_wallet_max_atoms: Option<u64>,
     /// Path to the persistent payout ledger JSON.
     ledger_path: PathBuf,
-    /// Payout ledger (loaded from disk, persisted on each accepted block).
-    ledger: PayoutLedger,
+    /// Shared payout ledger — also used by the Stratum server.
+    ledger: SharedLedger,
     /// Maps block height → miner_address of the last miner to request a template
     /// at that height. Used to attribute an accepted block to the right miner.
     last_miner_for_height: HashMap<u64, String>,
@@ -87,8 +89,8 @@ impl PoolState {
         payout_hot_wallet: Option<String>,
         payout_hot_wallet_max_atoms: Option<u64>,
         ledger_path: PathBuf,
+        ledger: SharedLedger,
     ) -> Self {
-        let ledger = PayoutLedger::load(&ledger_path);
         Self {
             node_rpc,
             treasury_address,
@@ -117,8 +119,11 @@ impl PoolState {
     ) -> Result<(), String> {
         let entry =
             PayoutEntry::new(block_height, block_hash, miner_address, gross_reward_atoms);
-        self.ledger.push(entry);
-        self.ledger.save(&self.ledger_path)
+        // Lock order: PoolState (held by caller) → ledger. Stratum always releases
+        // PoolState before locking ledger, so there is no deadlock risk.
+        let mut ledger = self.ledger.lock().map_err(|e| format!("ledger lock: {e}"))?;
+        ledger.push(entry);
+        ledger.save(&self.ledger_path)
     }
 }
 
@@ -170,17 +175,29 @@ fn serve() -> Result<(), String> {
     println!("Stratum miners connect to {stratum_bind}.");
     println!("Press Ctrl+C to stop.\n");
 
+    // Shared ledger — same instance for HTTP pool and Stratum so all found blocks
+    // (regardless of path) land in the same payout ledger.
+    let shared_ledger: SharedLedger =
+        Arc::new(Mutex::new(PayoutLedger::load(&ledger_path)));
+
     let state = Arc::new(Mutex::new(PoolState::new(
         node_rpc.clone(),
         treasury.clone(),
         payout_hot_wallet,
         payout_hot_wallet_max_atoms,
-        ledger_path,
+        ledger_path.clone(),
+        shared_ledger.clone(),
     )));
 
     // ── Stratum server (TCP port 3333) ──────────────────────────────────────
     let stratum_state = std::sync::Arc::new(std::sync::Mutex::new(
-        stratum::StratumState::new(node_rpc.clone(), treasury.clone(), share_diff),
+        stratum::StratumState::new(
+            node_rpc.clone(),
+            treasury.clone(),
+            share_diff,
+            shared_ledger,
+            ledger_path,
+        ),
     ));
 
     {
@@ -393,7 +410,8 @@ fn handle_submit_block(
 // ---------------------------------------------------------------------------
 
 fn handle_pool_stats(stream: &mut TcpStream, state: &Arc<Mutex<PoolState>>) -> Result<(), String> {
-    let stats = state.lock().unwrap().ledger.stats();
+    let ledger_arc = state.lock().unwrap().ledger.clone();
+    let stats = ledger_arc.lock().unwrap().stats();
     write_response(stream, 200, &serde_json::to_string(&stats).unwrap())
 }
 
@@ -409,7 +427,8 @@ fn handle_pool_accounting(
     stream: &mut TcpStream,
     state: &Arc<Mutex<PoolState>>,
 ) -> Result<(), String> {
-    let entries = state.lock().unwrap().ledger.entries.clone();
+    let ledger_arc = state.lock().unwrap().ledger.clone();
+    let entries = ledger_arc.lock().unwrap().entries.clone();
     let body = serde_json::to_string_pretty(&entries).unwrap_or_default();
     write_response(stream, 200, &body)
 }
@@ -430,7 +449,8 @@ fn handle_pool_pending(
     miner_address: &str,
     state: &Arc<Mutex<PoolState>>,
 ) -> Result<(), String> {
-    let pending = state.lock().unwrap().ledger.pending_atoms(miner_address);
+    let ledger_arc = state.lock().unwrap().ledger.clone();
+    let pending = ledger_arc.lock().unwrap().pending_atoms(miner_address);
     let body = json!({
         "miner_address": miner_address,
         "pending_net_atoms": pending,
