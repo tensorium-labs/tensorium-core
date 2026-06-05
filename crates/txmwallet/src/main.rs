@@ -791,10 +791,12 @@ fn build_unsigned_multisig_tx(
 ) -> Result<Transaction, String> {
     use tensorium_core::block::OutPoint;
     use tensorium_core::hash::Hash256;
+    use tensorium_core::mempool::MIN_RELAY_FEE_ATOMS;
 
     if amount_atoms == 0 {
         return Err("amount_atoms must be greater than zero".to_owned());
     }
+    let needed = amount_atoms.saturating_add(MIN_RELAY_FEE_ATOMS);
 
     #[derive(serde::Deserialize)]
     struct RpcUtxo {
@@ -832,14 +834,14 @@ fn build_unsigned_multisig_tx(
             u.value_atoms,
         ));
         selected_atoms = selected_atoms.saturating_add(u.value_atoms);
-        if selected_atoms >= amount_atoms {
+        if selected_atoms >= needed {
             break;
         }
     }
 
-    if selected_atoms < amount_atoms {
+    if selected_atoms < needed {
         return Err(format!(
-            "insufficient balance: have {selected_atoms}, need {amount_atoms}"
+            "insufficient balance: have {selected_atoms}, need {needed} (amount {amount_atoms} + fee {MIN_RELAY_FEE_ATOMS})"
         ));
     }
 
@@ -860,7 +862,7 @@ fn build_unsigned_multisig_tx(
         value_atoms: amount_atoms,
         script_pubkey: dest_script,
     }];
-    let change = selected_atoms - amount_atoms;
+    let change = selected_atoms - amount_atoms - MIN_RELAY_FEE_ATOMS;
     if change > 0 {
         outputs.push(TxOutput {
             value_atoms: change,
@@ -881,6 +883,7 @@ fn build_unsigned_htlc_spend(
 ) -> Result<Transaction, String> {
     use tensorium_core::block::OutPoint;
     use tensorium_core::hash::Hash256;
+    use tensorium_core::mempool::MIN_RELAY_FEE_ATOMS;
 
     #[derive(serde::Deserialize)]
     struct RpcUtxo {
@@ -903,6 +906,14 @@ fn build_unsigned_htlc_spend(
         .into_iter()
         .find(|u| u.mature)
         .ok_or("no mature UTXO found for this HTLC script")?;
+
+    if u.value_atoms <= MIN_RELAY_FEE_ATOMS {
+        return Err(format!(
+            "HTLC value {0} atoms is too small to cover minimum relay fee ({MIN_RELAY_FEE_ATOMS} atoms)",
+            u.value_atoms
+        ));
+    }
+
     let hash = Hash256(
         u.txid_bytes
             .as_slice()
@@ -918,8 +929,9 @@ fn build_unsigned_htlc_spend(
     };
     let dest_script = p2pkh_from_address(dest_addr)
         .map_err(|_| format!("invalid destination address: {dest_addr}"))?;
+    // HTLC has a single UTXO — fee comes out of the output value (no change output).
     let outputs = vec![TxOutput {
-        value_atoms: u.value_atoms,
+        value_atoms: u.value_atoms - MIN_RELAY_FEE_ATOMS,
         script_pubkey: dest_script,
     }];
     Ok(Transaction::payment(vec![input], outputs))

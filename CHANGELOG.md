@@ -9,6 +9,37 @@ All notable changes to Tensorium are documented in this file.
 
 ---
 
+## [Transaction Fee System] — 2026-06-05
+
+### Added
+- **Implicit transaction fees** (Bitcoin-style: `fee = sum(inputs) − sum(outputs)`).
+  - `MIN_RELAY_FEE_ATOMS = 10,000` (0.0001 TXM) — minimum fee to enter the mempool.
+  - `PRIORITY_FEE_ATOMS = 100,000` (0.001 TXM) — suggested fee for faster inclusion.
+  - `MempoolEntry { tx, fee_atoms }` — fee calculated once at insertion; stored alongside the tx.
+  - `Mempool::select_for_block()` — returns transactions sorted by fee descending; returns total fees so the coinbase reward can include them without re-scanning.
+  - `Mempool::fee_stats()` — returns count, total, min, max, median, min-relay, priority fee stats.
+- **Miner collects tx fees**: `apply_block` uses a 3-phase approach (read-only validation → coinbase limit check with fees → UTXO mutation) so miners can claim `block_reward + total_fees` in their coinbase.
+- **`GET /estimatefee`** — returns `min_relay_fee_atoms`, `priority_fee_atoms`, `median_fee_atoms`, and `recommended_fee_atoms` in both atoms and TXM.
+- **`/getmempoolinfo`** — now includes full fee stats object.
+- **`txmwallet send` fee flags**:
+  - `--priority` — use `PRIORITY_FEE_ATOMS` (10× faster inclusion when mempool is congested)
+  - `--fee <atoms>` — custom fee in atoms
+  - Default (no flag): `MIN_RELAY_FEE_ATOMS`
+  - Fee is deducted from the change output; enough UTXOs are automatically selected to cover `amount + fee`.
+- **HTLC / multisig fee support**: `htlc-claim`, `htlc-refund`, and `send-from-script` now automatically deduct `MIN_RELAY_FEE_ATOMS` so those transactions are accepted by the mempool.
+
+### Changed
+- `validate_transaction()` returns `u64` (fee atoms) instead of `()` — callers that previously discarded the result now receive the fee for accounting.
+- The mempool **rejects transactions below `MIN_RELAY_FEE_ATOMS`** with `MempoolError::FeeTooLow`.
+- Insufficient-balance errors now show `need = amount + fee` for transparency.
+
+### Verified
+- `cargo test --workspace` — 108 tests pass, 0 failures.
+- Deployed to DO (157.230.44.162) and Vultr (139.180.137.144).
+- `/estimatefee` endpoint live at `https://mc-rpc.tensoriumlabs.com/estimatefee`.
+
+---
+
 ## [Pool PPLNS — Stratum reward distribution] — 2026-06-05
 
 ### Added

@@ -272,10 +272,12 @@ GET  /health
 GET  /getblockcount
 GET  /getdifficulty
 GET  /getblock/<height>
-GET  /getblocktemplate/<miner_address>    includes pending mempool transactions
+GET  /getblocktemplate/<miner_address>    includes pending mempool transactions (sorted by fee)
 POST /submitblock                         accepts mined block; broadcasts to peers; cleans mempool
 POST /sendrawtransaction                  validates signed tx; adds to mempool; broadcasts to peers
-GET  /getmempoolinfo
+GET  /getmempoolinfo                      pending tx count + fee stats (min/max/median)
+GET  /estimatefee                         recommended fee in atoms and TXM
+GET  /getutxos/<address_or_spk_hex>       list unspent outputs for address/scriptPubKey
 GET  /getbanlist
 GET  /unban/<ip>
 ```
@@ -287,9 +289,28 @@ txmwallet create                                 generate keypair and save encry
 txmwallet getnewaddress                          print wallet address (txm1...)
 txmwallet show                                   print public wallet info
 txmwallet balance                                scan chain state for wallet UTXOs
-txmwallet send <to_addr> <atoms> [file]          build and sign a transaction file
+txmwallet send <to_addr> <atoms>                 build and sign a transaction (default fee)
+txmwallet send <to_addr> <atoms> --priority      use priority fee (10× faster inclusion)
+txmwallet send <to_addr> <atoms> --fee <atoms>   custom fee in atoms
 txmwallet broadcast [tx_file] [rpc_addr]         submit signed tx to a node
 txmwallet unlock-check                           verify passphrase can decrypt wallet
+```
+
+### Transaction Fees
+
+Tensorium uses **implicit fees** (Bitcoin-style): `fee = sum(inputs) − sum(outputs)`.
+
+| Fee tier | Atoms | TXM |
+| --- | --- | --- |
+| Minimum relay fee | 10,000 | 0.0001 TXM |
+| Priority fee (`--priority`) | 100,000 | 0.001 TXM |
+| Custom (`--fee <n>`) | user-defined | — |
+
+The node **rejects transactions below the minimum relay fee**. The fee is automatically deducted from the change output; you only need to ensure your balance covers `amount + fee`.
+
+Check current fee recommendations:
+```bash
+curl https://mc-rpc.tensoriumlabs.com/estimatefee
 ```
 
 **Multisig (m-of-n) — see Scripting below:**
@@ -309,8 +330,8 @@ txmwallet htlc-secret                            generate a 32-byte preimage + i
 txmwallet htlc-script <hash_hex> <recipient_addr> <refund_addr> <locktime_height>
                                                  print an HTLC scriptPubKey hex
 txmwallet htlc-claim <spk_hex> <dest> <preimage_hex> [rpc]
-                                                 spend an HTLC by revealing the preimage
-txmwallet htlc-refund <spk_hex> <dest> [rpc]     reclaim an HTLC after its locktime height
+                                                 spend an HTLC by revealing the preimage (fee deducted from HTLC value)
+txmwallet htlc-refund <spk_hex> <dest> [rpc]     reclaim an HTLC after its locktime height (fee deducted from HTLC value)
 ```
 
 ## Environment Variables
