@@ -78,6 +78,7 @@ If another document disagrees with this file, update the other document.
 | Public RPC | https://mc-rpc.tensoriumlabs.com | Mainnet public RPC via nginx reverse proxy |
 | Bridge | https://bridge.tensoriumlabs.com | TXM ↔ wTXM bridge |
 | Pool | https://pooltxm.tensoriumlabs.com | Official/reference mining pool |
+| Backup pool | pool-alt.tensoriumlabs.com:3333 | Alternate Stratum endpoint |
 
 ## Integration Assumptions
 

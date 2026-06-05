@@ -17,6 +17,5 @@ These stay in the repository root because they are standard entrypoints for GitH
 - `README.md`
 - `MAINNET_READINESS.md`
 - `CHANGELOG.md`
-- `CONTRIBUTING.md`
 - `Cargo.toml`
 - `install.sh`

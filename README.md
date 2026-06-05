@@ -47,7 +47,7 @@ tensorium-miner \
 Pool stats and payout history: https://pooltxm.tensoriumlabs.com  
 Fee: **5%** of block reward. Treasury: `txm13vgxzj5ulrfhe7x0mlzxg0q6veq42tkku4g3jr`
 
-Backup pool: `stratum+tcp://mc-rpc2.tensoriumlabs.com:3333`
+Backup pool: `stratum+tcp://pool-alt.tensoriumlabs.com:3333`
 
 **Solo mining (0% fee — full block reward to your address):**
 
@@ -326,10 +326,10 @@ txmwallet htlc-refund <spk_hex> <dest> [rpc]     reclaim an HTLC after its lockt
 
 ---
 
-## Ops Scripts
+## Ops References
 
-- `tensorium-backup.sh` — creates rolling tarball backups of RocksDB state directories, mempool/banlist JSON files, and any `*.json.migrated` rollback backups. Deploy to `/usr/local/bin/tensorium-backup.sh` on operators' hosts if you use the runbook defaults.
 - `docs/operations/PUBLIC_RPC_HARDENING_RUNBOOK.md` — public RPC thresholds, incident checklists, and service ownership rules for mainnet operations.
+- `docs/operations/BACKUP_SEED_NODE_RUNBOOK.md` — backup seed / backup pool operational procedure for private operator environments.
 - `templates/nginx-public-rpc.conf` — nginx reverse-proxy template that keeps node RPC on localhost and applies request/concurrency limits before public exposure.
 
 ## Canonical Metadata
@@ -439,7 +439,7 @@ HTLCs across chains, enabling **trustless atomic swaps** (e.g. TXM ⇄ wTXM on O
 |---|---|---|
 | P2P seed | `seed.tensoriumlabs.com:33333` | `mc-rpc2.tensoriumlabs.com:33333` |
 | Public RPC | `https://mc-rpc.tensoriumlabs.com` | `https://mc-rpc2.tensoriumlabs.com` |
-| Stratum pool | `pooltxm.tensoriumlabs.com:3333` | `mc-rpc2.tensoriumlabs.com:3333` |
+| Stratum pool | `pooltxm.tensoriumlabs.com:3333` | `pool-alt.tensoriumlabs.com:3333` |
 | Explorer | [explorer.tensoriumlabs.com](https://explorer.tensoriumlabs.com) | — |
 | Pool stats | [pooltxm.tensoriumlabs.com](https://pooltxm.tensoriumlabs.com) | — |
 

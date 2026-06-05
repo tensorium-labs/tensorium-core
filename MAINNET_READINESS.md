@@ -71,8 +71,8 @@ Phase 10E artifact:
 | Mining pool path | DONE | tensorium-pool reference pool implemented (HTTP proxy, 5% fee, payout ledger). |
 | Pool fee policy | DONE | Pool treasury address generated (`txm13vgxzj5ulrfhe7x0mlzxg0q6veq42tkku4g3jr`); payout accounting implemented; `pooltxm.tensoriumlabs.com` discloses 5% fee before miners connect. |
 | Node/pool role boundaries | DONE | Documented in this file; mainnet scaling plan and separation posture are documented. |
-| Monitoring | DONE | `/usr/local/bin/tensorium-monitor.sh` runs every 10 min via cron; checks RPC, P2P, explorer, disk, SSL expiry; logs to `/var/log/tensorium-monitor.log`. |
-| Release reproducibility | DONE | v0.3.0-mainnet-candidate binaries built; SHA256 checksums in CHECKSUMS-v0.3.0-mainnet-candidate.txt. |
+| Monitoring | DONE | Operator monitoring is deployed on production hosts with cron/logging outside the public repo. |
+| Release reproducibility | DONE | Release artifacts were built and verified during mainnet rollout; public repo no longer ships checksum text files in root. |
 | Risk disclosure | DONE | `docs/project/RISK_DISCLOSURE.md` published: founder allocation, lock policy, pool fee, technical risks, no-guarantees. |
 
 ## Consensus Checklist
@@ -293,7 +293,7 @@ Phase 7C update (2026-05-31):
 - [x] Explorer deployed for mainnet candidate. *(explorer.tensoriumlabs.com, pm2, nginx, SSL)*
 - [x] Docs and whitepaper updated for mainnet candidate. *(docs.tensoriumlabs.com, whitepaper.tensoriumlabs.com)*
 - [x] SSL renewal verified. *(certbot auto-renew active; monitor shows 89 days remaining)*
-- [x] External monitoring configured. *(tensorium-monitor.sh every 10 min; logs /var/log/tensorium-monitor.log)*
+- [x] External monitoring configured. *(production hosts run equivalent cron-based monitoring and logging outside this public repo)*
 - [x] Public RPC fronting policy documented. *(localhost-only node RPC + nginx template + incident runbook committed in Phase 10D)*
 
 ### Peer Discovery
@@ -305,8 +305,8 @@ Phase 7C update (2026-05-31):
 
 ### Backup and Monitoring
 
-- Backup: `/usr/local/bin/tensorium-backup.sh` — tarballs the chain state directory (`*.db/`) plus `mempool.json`, `banlist.json`, and any `*.json.migrated` rollback backup; cron `0 3 * * *`; keeps 14 rolling backups under `/root/backups/`.
-- Monitor: `/usr/local/bin/tensorium-monitor.sh` — checks RPC health, P2P port, explorer, disk %, SSL expiry; cron `*/10 * * * *`; logs to `/var/log/tensorium-monitor.log`.
+- Backup automation: production hosts keep daily rolling backups of chain state, mempool, banlist, and migration rollback artifacts under operator-controlled paths.
+- Monitoring automation: production hosts run recurring health checks for RPC, P2P, explorer/public surfaces, disk usage, and certificate expiry outside this public repo.
 
 ## Mining Checklist
 
@@ -410,7 +410,7 @@ Historical section preserved for launch auditability. Phase 8 is complete and th
 | MC P2P sync test | DONE | 2026-06-01: second MC node initialized with isolated state file, synced from `seed.tensoriumlabs.com:33333`, matched genesis tip/height (`0`), and served P2P on `:33334` for verification. Repeat after non-genesis MC activity during soak if chain height increases. |
 | Backup seed node | DONE | Vultr `txm-mc-seed-1` (`139.180.137.144`) deployed 2026-06-01 as a second-provider MC seed node. `tensorium-mc-rpc` + `tensorium-mc-p2p` active, sync matches primary seed at height `0`, firewall open for `33333/tcp`, monitoring + soak cron installed. Runbook: `docs/operations/BACKUP_SEED_NODE_RUNBOOK.md`. |
 | Firewall + SSL on MC VPS | DONE | UFW 33333/tcp open; `rpc.tensoriumlabs.com` + `mc-rpc.tensoriumlabs.com` nginx HTTPS proxies live with Let's Encrypt certs (2026-06-01). |
-| Monitor for MC node | DONE | `tensorium-monitor.sh` checks mc_rpc (height), mc_p2p, pub_rpc (https), mc_pub_rpc (https), faucet; all green 2026-06-01. Hourly soak log `/var/log/tensorium-soak.log`. |
+| Monitor for MC node | DONE | Equivalent production monitoring checks mc_rpc height, mc_p2p, public RPC HTTPS, and faucet/public surfaces; all green during 2026-06-01 soak. |
 
 ### 8B — Wallet & UX
 

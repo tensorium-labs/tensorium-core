@@ -95,10 +95,10 @@ Prepare runtime folders:
 mkdir -p /root/mc
 ```
 
-Install the backup helper from this repo:
+Install or provide an equivalent local backup helper on the host:
 
 ```bash
-install -m 0755 /path/to/tensorium-core/tensorium-backup.sh /usr/local/bin/tensorium-backup.sh
+install -m 0755 /path/to/your/local/tensorium-backup.sh /usr/local/bin/tensorium-backup.sh
 ```
 
 Initialize MC genesis state:
@@ -205,7 +205,7 @@ Minimum nginx behavior:
 
 ## Monitoring
 
-Copy or recreate equivalent scripts:
+Provide equivalent local monitoring helpers:
 
 - `/usr/local/bin/tensorium-monitor.sh`
 - `/usr/local/bin/tensorium-soak.sh`
