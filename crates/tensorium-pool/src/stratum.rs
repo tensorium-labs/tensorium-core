@@ -623,17 +623,35 @@ fn handle_stratum_conn(
                                 }
                             };
 
-                            // Send new difficulty outside the state lock.
+                            // Send new difficulty + re-notify outside the state lock.
                             if let Some((new_bits, old_bits, spm)) = vardiff_update {
                                 let new_diff = bits_to_diff(new_bits);
                                 let dir = if new_bits > old_bits { "↑" } else { "↓" };
                                 eprintln!("[vardiff] {} {}{}->{} bits  ({}/min)  diff={}",
                                           wallet_addr, dir, old_bits, new_bits, spm, new_diff);
-                                send_line(&mut writer, &json!({
+
+                                // 1. New difficulty
+                                if !send_line(&mut writer, &json!({
                                     "id": null,
                                     "method": "mining.set_difficulty",
                                     "params": [new_diff],
-                                }));
+                                })) {
+                                    state.lock().unwrap().job_senders.remove(&connection_id);
+                                    return;
+                                }
+
+                                // 2. Re-send current job immediately so the GPU kernel
+                                //    picks up the new share_bits right away.  Without
+                                //    this the miner keeps submitting at the old threshold
+                                //    until the next block, causing a burst of rejections.
+                                let maybe_job = state.lock().unwrap().current_job.clone();
+                                if let Some(ref job) = maybe_job {
+                                    if !send_line(&mut writer, &notify_msg(job, new_diff)) {
+                                        state.lock().unwrap().job_senders.remove(&connection_id);
+                                        return;
+                                    }
+                                    // Don't update last_job_id — same job_id, only diff changed.
+                                }
                             }
 
                             "accepted"
