@@ -101,12 +101,14 @@ fn run() -> Result<(), String> {
         }
         "send" => {
             let to_address = args.get(2).ok_or_else(|| {
-                "usage: txmwallet send <to_address> <amount_atoms> [--fee <atoms>|--priority]".to_owned()
+                "usage: txmwallet send <to_address> <amount_atoms> [--fee <atoms>|--priority]"
+                    .to_owned()
             })?;
             let amount_atoms = args
                 .get(3)
                 .ok_or_else(|| {
-                    "usage: txmwallet send <to_address> <amount_atoms> [--fee <atoms>|--priority]".to_owned()
+                    "usage: txmwallet send <to_address> <amount_atoms> [--fee <atoms>|--priority]"
+                        .to_owned()
                 })?
                 .parse::<u64>()
                 .map_err(|err| format!("invalid amount_atoms: {err}"))?;
@@ -129,12 +131,30 @@ fn run() -> Result<(), String> {
             let wallet = load_wallet(&wallet_path)?;
             let keypair = wallet.decrypt(&passphrase)?;
             let rpc = env::var("TENSORIUM_RPC").unwrap_or_else(|_| DEFAULT_RPC.to_owned());
-            let tx =
-                build_signed_payment_via_rpc(&wallet, &keypair, &rpc, to_address, amount_atoms, fee_atoms)
-                    .or_else(|_rpc_err| {
-                        let state = load_state(&state_path_from_env())?;
-                        build_signed_payment(&wallet, &keypair, &state, to_address, amount_atoms, fee_atoms)
-                    })?;
+            let tx = build_signed_payment_via_rpc(
+                &wallet,
+                &keypair,
+                &rpc,
+                to_address,
+                amount_atoms,
+                fee_atoms,
+            )
+            .or_else(|rpc_err| {
+                let state = load_state(&state_path_from_env()).map_err(|state_err| {
+                    format!("RPC path failed: {rpc_err}; state load failed: {state_err}")
+                })?;
+                build_signed_payment(
+                    &wallet,
+                    &keypair,
+                    &state,
+                    to_address,
+                    amount_atoms,
+                    fee_atoms,
+                )
+                .map_err(|state_err| {
+                    format!("RPC path failed: {rpc_err}; local-state fallback failed: {state_err}")
+                })
+            })?;
             let raw = serde_json::to_string_pretty(&tx)
                 .map_err(|err| format!("failed to serialize signed tx: {err}"))?;
             fs::write(&tx_path, raw)

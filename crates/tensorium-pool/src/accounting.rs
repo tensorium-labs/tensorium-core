@@ -19,8 +19,8 @@ pub const PPLNS_DEFAULT_N: usize = 4096;
 /// One accepted share from a Stratum miner.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ShareRecord {
-    pub wallet_address:  String,
-    pub worker_name:     String,
+    pub wallet_address: String,
+    pub worker_name: String,
     /// Per-worker share difficulty at the time of submission (bits).
     pub share_diff_bits: u8,
     pub submitted_at_unix: u64,
@@ -36,17 +36,22 @@ impl ShareRecord {
 /// Sliding window of the last N accepted shares, used for PPLNS reward splits.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ShareWindow {
-    pub n:      usize,
+    pub n: usize,
     pub shares: VecDeque<ShareRecord>,
 }
 
 impl Default for ShareWindow {
-    fn default() -> Self { Self::new(PPLNS_DEFAULT_N) }
+    fn default() -> Self {
+        Self::new(PPLNS_DEFAULT_N)
+    }
 }
 
 impl ShareWindow {
     pub fn new(n: usize) -> Self {
-        Self { n, shares: VecDeque::with_capacity(n.min(16_384)) }
+        Self {
+            n,
+            shares: VecDeque::with_capacity(n.min(16_384)),
+        }
     }
 
     pub fn push(&mut self, share: ShareRecord) {
@@ -58,7 +63,9 @@ impl ShareWindow {
 
     /// Sum of all share weights in the window.
     pub fn total_weight(&self) -> u64 {
-        self.shares.iter().fold(0u64, |s, r| s.saturating_add(r.weight()))
+        self.shares
+            .iter()
+            .fold(0u64, |s, r| s.saturating_add(r.weight()))
     }
 
     /// Per-miner difficulty-weighted totals.
@@ -70,8 +77,12 @@ impl ShareWindow {
         m
     }
 
-    pub fn len(&self) -> usize { self.shares.len() }
-    pub fn is_empty(&self) -> bool { self.shares.is_empty() }
+    pub fn len(&self) -> usize {
+        self.shares.len()
+    }
+    pub fn is_empty(&self) -> bool {
+        self.shares.is_empty()
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -80,19 +91,19 @@ impl ShareWindow {
 
 #[derive(Debug, Serialize)]
 pub struct WindowStats {
-    pub window_n:        usize,
+    pub window_n: usize,
     pub shares_in_window: usize,
-    pub total_weight:    u64,
-    pub miners:          Vec<MinerWindowEntry>,
+    pub total_weight: u64,
+    pub miners: Vec<MinerWindowEntry>,
 }
 
 #[derive(Debug, Serialize)]
 pub struct MinerWindowEntry {
     pub wallet_address: String,
-    pub shares:         usize,
-    pub weight:         u64,
+    pub shares: usize,
+    pub weight: u64,
     /// Percentage of total window weight (0–100).
-    pub pct:            f64,
+    pub pct: f64,
 }
 
 // ---------------------------------------------------------------------------
@@ -154,7 +165,10 @@ pub struct PayoutLedger {
 
 impl Default for PayoutLedger {
     fn default() -> Self {
-        Self { entries: vec![], share_window: ShareWindow::default() }
+        Self {
+            entries: vec![],
+            share_window: ShareWindow::default(),
+        }
     }
 }
 
@@ -167,8 +181,8 @@ impl PayoutLedger {
     }
 
     pub fn save(&self, path: &Path) -> Result<(), String> {
-        let json = serde_json::to_string_pretty(self)
-            .map_err(|e| format!("serialize ledger: {e}"))?;
+        let json =
+            serde_json::to_string_pretty(self).map_err(|e| format!("serialize ledger: {e}"))?;
         fs::write(path, json).map_err(|e| format!("write ledger: {e}"))
     }
 
@@ -191,6 +205,23 @@ impl PayoutLedger {
             .fold(0u64, |sum, e| sum.saturating_add(e.net_payout_atoms))
     }
 
+    /// Total net pending for a miner, limited to whole unpaid entries whose sum
+    /// does not exceed `max_atoms`.
+    pub fn payable_atoms_up_to(&self, miner_address: &str, max_atoms: u64) -> u64 {
+        let mut payable = 0u64;
+        for entry in &self.entries {
+            if entry.paid_out || entry.miner_address != miner_address {
+                continue;
+            }
+            let next = payable.saturating_add(entry.net_payout_atoms);
+            if next > max_atoms {
+                break;
+            }
+            payable = next;
+        }
+        payable
+    }
+
     /// Mark all entries for a miner as paid.
     pub fn mark_paid(&mut self, miner_address: &str) {
         for e in &mut self.entries {
@@ -200,11 +231,30 @@ impl PayoutLedger {
         }
     }
 
+    /// Mark unpaid entries for a miner as paid until `amount_atoms` is covered.
+    /// Returns the total net amount marked as paid.
+    pub fn mark_paid_up_to(&mut self, miner_address: &str, amount_atoms: u64) -> u64 {
+        let mut marked_atoms = 0u64;
+        for e in &mut self.entries {
+            if e.paid_out || e.miner_address != miner_address {
+                continue;
+            }
+            if marked_atoms >= amount_atoms {
+                break;
+            }
+            e.paid_out = true;
+            marked_atoms = marked_atoms.saturating_add(e.net_payout_atoms);
+        }
+        marked_atoms
+    }
+
     /// Aggregate stats: blocks found (distinct hashes), total gross, fee, pending.
     pub fn stats(&self) -> LedgerStats {
         let blocks_found = {
             let mut seen: HashSet<&str> = HashSet::new();
-            for e in &self.entries { seen.insert(e.block_hash.as_str()); }
+            for e in &self.entries {
+                seen.insert(e.block_hash.as_str());
+            }
             seen.len() as u64
         };
         let total_gross = self
@@ -238,7 +288,7 @@ impl PayoutLedger {
     /// Falls back to 100% for `fallback_addr` when the window is empty.
     pub fn pplns_split(&self, gross: u64, fallback_addr: &str) -> Vec<(String, u64)> {
         let weights = self.share_window.miner_weights();
-        let total   = self.share_window.total_weight();
+        let total = self.share_window.total_weight();
         if total == 0 || weights.is_empty() {
             return vec![(fallback_addr.to_string(), gross)];
         }
@@ -268,21 +318,28 @@ impl PayoutLedger {
                 wallet_address: addr.clone(),
                 shares: *share_counts.get(addr.as_str()).unwrap_or(&0),
                 weight: w,
-                pct:    if total_w > 0.0 { w as f64 / total_w * 100.0 } else { 0.0 },
+                pct: if total_w > 0.0 {
+                    w as f64 / total_w * 100.0
+                } else {
+                    0.0
+                },
             })
             .collect();
         miners.sort_by(|a, b| b.weight.cmp(&a.weight));
         WindowStats {
-            window_n:         self.share_window.n,
+            window_n: self.share_window.n,
             shares_in_window: self.share_window.len(),
-            total_weight:     self.share_window.total_weight(),
+            total_weight: self.share_window.total_weight(),
             miners,
         }
     }
 }
 
 fn _unix_now() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs()
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
 }
 
 #[derive(Debug, Serialize)]
@@ -303,9 +360,9 @@ mod tests {
 
     fn make_share(addr: &str, bits: u8) -> ShareRecord {
         ShareRecord {
-            wallet_address:    addr.to_string(),
-            worker_name:       "w".to_string(),
-            share_diff_bits:   bits,
+            wallet_address: addr.to_string(),
+            worker_name: "w".to_string(),
+            share_diff_bits: bits,
             submitted_at_unix: 0,
         }
     }
@@ -330,14 +387,22 @@ mod tests {
         let mut ledger = PayoutLedger::default();
         for _ in 0..10 {
             ledger.push_share(make_share("alice", 20));
-            ledger.push_share(make_share("bob",   20));
+            ledger.push_share(make_share("bob", 20));
         }
         let gross = 1_000_000u64;
         let splits = ledger.pplns_split(gross, "alice");
-        let alice = splits.iter().find(|(a, _)| a == "alice").map(|(_, g)| *g).unwrap_or(0);
-        let bob   = splits.iter().find(|(a, _)| a == "bob").map(|(_, g)| *g).unwrap_or(0);
+        let alice = splits
+            .iter()
+            .find(|(a, _)| a == "alice")
+            .map(|(_, g)| *g)
+            .unwrap_or(0);
+        let bob = splits
+            .iter()
+            .find(|(a, _)| a == "bob")
+            .map(|(_, g)| *g)
+            .unwrap_or(0);
         assert_eq!(alice, 500_000);
-        assert_eq!(bob,   500_000);
+        assert_eq!(bob, 500_000);
         assert!(alice + bob <= gross);
     }
 
@@ -346,19 +411,29 @@ mod tests {
         let mut ledger = PayoutLedger::default();
         // alice has 2x higher diff → 2x weight
         ledger.push_share(make_share("alice", 21)); // weight 2M
-        ledger.push_share(make_share("bob",   20)); // weight 1M
+        ledger.push_share(make_share("bob", 20)); // weight 1M
         let gross = 3_000_000u64;
         let splits = ledger.pplns_split(gross, "alice");
-        let alice = splits.iter().find(|(a, _)| a == "alice").map(|(_, g)| *g).unwrap_or(0);
-        let bob   = splits.iter().find(|(a, _)| a == "bob").map(|(_, g)| *g).unwrap_or(0);
+        let alice = splits
+            .iter()
+            .find(|(a, _)| a == "alice")
+            .map(|(_, g)| *g)
+            .unwrap_or(0);
+        let bob = splits
+            .iter()
+            .find(|(a, _)| a == "bob")
+            .map(|(_, g)| *g)
+            .unwrap_or(0);
         assert_eq!(alice, 2_000_000);
-        assert_eq!(bob,   1_000_000);
+        assert_eq!(bob, 1_000_000);
     }
 
     #[test]
     fn pplns_split_single_miner_gets_all() {
         let mut ledger = PayoutLedger::default();
-        for _ in 0..5 { ledger.push_share(make_share("solo", 20)); }
+        for _ in 0..5 {
+            ledger.push_share(make_share("solo", 20));
+        }
         let gross = 1_190_279_581u64;
         let splits = ledger.pplns_split(gross, "solo");
         assert_eq!(splits.len(), 1);
@@ -379,7 +454,16 @@ mod tests {
     fn pplns_split_sum_never_exceeds_gross() {
         let mut ledger = PayoutLedger::default();
         for i in 0..100u8 {
-            ledger.push_share(make_share(if i % 3 == 0 { "alice" } else if i % 3 == 1 { "bob" } else { "carol" }, 16 + (i % 8)));
+            ledger.push_share(make_share(
+                if i % 3 == 0 {
+                    "alice"
+                } else if i % 3 == 1 {
+                    "bob"
+                } else {
+                    "carol"
+                },
+                16 + (i % 8),
+            ));
         }
         let gross = 1_190_279_581u64;
         let splits = ledger.pplns_split(gross, "alice");
@@ -391,10 +475,25 @@ mod tests {
     fn blocks_found_counts_distinct_hashes() {
         let mut ledger = PayoutLedger::default();
         // One block → two PPLNS entries (two miners)
-        ledger.push(PayoutEntry::new(100, "hash_a".into(), "txm1alice".into(), 600_000));
-        ledger.push(PayoutEntry::new(100, "hash_a".into(), "txm1bob".into(),   400_000));
+        ledger.push(PayoutEntry::new(
+            100,
+            "hash_a".into(),
+            "txm1alice".into(),
+            600_000,
+        ));
+        ledger.push(PayoutEntry::new(
+            100,
+            "hash_a".into(),
+            "txm1bob".into(),
+            400_000,
+        ));
         // Second block
-        ledger.push(PayoutEntry::new(101, "hash_b".into(), "txm1alice".into(), 1_000_000));
+        ledger.push(PayoutEntry::new(
+            101,
+            "hash_b".into(),
+            "txm1alice".into(),
+            1_000_000,
+        ));
         let stats = ledger.stats();
         assert_eq!(stats.blocks_found, 2); // distinct hashes, not entry count
     }
@@ -437,12 +536,7 @@ mod tests {
     #[test]
     fn payout_entry_construction() {
         let gross = 1_523_557_865u64;
-        let entry = PayoutEntry::new(
-            100,
-            "abc123".to_string(),
-            "txm1miner".to_string(),
-            gross,
-        );
+        let entry = PayoutEntry::new(100, "abc123".to_string(), "txm1miner".to_string(), gross);
         assert_eq!(entry.gross_reward_atoms, gross);
         assert_eq!(entry.pool_fee_atoms + entry.net_payout_atoms, gross);
         assert!(!entry.paid_out);
@@ -455,26 +549,48 @@ mod tests {
     fn ledger_stats_accumulate_correctly() {
         let mut ledger = PayoutLedger::default();
         // Two blocks, two different miners
-        ledger.push(PayoutEntry::new(1, "h1".into(), "txm1alice".into(), 1_000_000));
-        ledger.push(PayoutEntry::new(2, "h2".into(), "txm1bob".into(), 2_000_000));
+        ledger.push(PayoutEntry::new(
+            1,
+            "h1".into(),
+            "txm1alice".into(),
+            1_000_000,
+        ));
+        ledger.push(PayoutEntry::new(
+            2,
+            "h2".into(),
+            "txm1bob".into(),
+            2_000_000,
+        ));
         let stats = ledger.stats();
         assert_eq!(stats.blocks_found, 2);
         assert_eq!(stats.total_gross_atoms, 3_000_000);
         // fee = 5% of 1M + 5% of 2M = 50_000 + 100_000 = 150_000
         assert_eq!(stats.total_fee_atoms, 150_000);
         // all unpaid → pending = net of both
-        assert_eq!(
-            stats.total_pending_net_atoms,
-            950_000 + 1_900_000
-        );
+        assert_eq!(stats.total_pending_net_atoms, 950_000 + 1_900_000);
     }
 
     #[test]
     fn ledger_pending_per_miner() {
         let mut ledger = PayoutLedger::default();
-        ledger.push(PayoutEntry::new(1, "h1".into(), "txm1alice".into(), 1_000_000));
-        ledger.push(PayoutEntry::new(2, "h2".into(), "txm1alice".into(), 1_000_000));
-        ledger.push(PayoutEntry::new(3, "h3".into(), "txm1bob".into(), 1_000_000));
+        ledger.push(PayoutEntry::new(
+            1,
+            "h1".into(),
+            "txm1alice".into(),
+            1_000_000,
+        ));
+        ledger.push(PayoutEntry::new(
+            2,
+            "h2".into(),
+            "txm1alice".into(),
+            1_000_000,
+        ));
+        ledger.push(PayoutEntry::new(
+            3,
+            "h3".into(),
+            "txm1bob".into(),
+            1_000_000,
+        ));
         // alice has 2 blocks pending
         assert_eq!(ledger.pending_atoms("txm1alice"), 1_900_000);
         assert_eq!(ledger.pending_atoms("txm1bob"), 950_000);
@@ -483,12 +599,89 @@ mod tests {
     #[test]
     fn ledger_mark_paid_clears_pending() {
         let mut ledger = PayoutLedger::default();
-        ledger.push(PayoutEntry::new(1, "h1".into(), "txm1alice".into(), 1_000_000));
+        ledger.push(PayoutEntry::new(
+            1,
+            "h1".into(),
+            "txm1alice".into(),
+            1_000_000,
+        ));
         assert_eq!(ledger.pending_atoms("txm1alice"), 950_000);
         ledger.mark_paid("txm1alice");
         assert_eq!(ledger.pending_atoms("txm1alice"), 0);
         // stats: no pending
         assert_eq!(ledger.stats().total_pending_net_atoms, 0);
+    }
+
+    #[test]
+    fn ledger_mark_paid_up_to_only_marks_requested_entries() {
+        let mut ledger = PayoutLedger::default();
+        ledger.push(PayoutEntry::new(
+            1,
+            "h1".into(),
+            "txm1alice".into(),
+            1_000_000,
+        ));
+        ledger.push(PayoutEntry::new(
+            2,
+            "h2".into(),
+            "txm1alice".into(),
+            2_000_000,
+        ));
+        ledger.push(PayoutEntry::new(
+            3,
+            "h3".into(),
+            "txm1alice".into(),
+            3_000_000,
+        ));
+        ledger.push(PayoutEntry::new(
+            4,
+            "h4".into(),
+            "txm1bob".into(),
+            4_000_000,
+        ));
+
+        let target = ledger.entries[0].net_payout_atoms + ledger.entries[1].net_payout_atoms;
+        let marked = ledger.mark_paid_up_to("txm1alice", target);
+
+        assert_eq!(marked, target);
+        assert!(ledger.entries[0].paid_out);
+        assert!(ledger.entries[1].paid_out);
+        assert!(!ledger.entries[2].paid_out);
+        assert!(!ledger.entries[3].paid_out);
+    }
+
+    #[test]
+    fn ledger_payable_atoms_up_to_keeps_whole_entries() {
+        let mut ledger = PayoutLedger::default();
+        ledger.push(PayoutEntry::new(
+            1,
+            "h1".into(),
+            "txm1alice".into(),
+            1_000_000,
+        ));
+        ledger.push(PayoutEntry::new(
+            2,
+            "h2".into(),
+            "txm1alice".into(),
+            2_000_000,
+        ));
+        ledger.push(PayoutEntry::new(
+            3,
+            "h3".into(),
+            "txm1alice".into(),
+            3_000_000,
+        ));
+
+        let first = ledger.entries[0].net_payout_atoms;
+        let second = ledger.entries[1].net_payout_atoms;
+        let third = ledger.entries[2].net_payout_atoms;
+
+        assert_eq!(ledger.payable_atoms_up_to("txm1alice", first - 1), 0);
+        assert_eq!(ledger.payable_atoms_up_to("txm1alice", first), first);
+        assert_eq!(
+            ledger.payable_atoms_up_to("txm1alice", first + second + third - 1),
+            first + second
+        );
     }
 
     #[test]

@@ -1469,11 +1469,7 @@ fn handle_rpc_stream(
     mempool_path: &Path,
     params: &ConsensusParams,
 ) -> Result<(), String> {
-    let mut buffer = [0u8; 65_536];
-    let bytes_read = stream
-        .read(&mut buffer)
-        .map_err(|err| format!("failed to read request: {err}"))?;
-    let request = String::from_utf8_lossy(&buffer[..bytes_read]);
+    let request = read_http_request(stream)?;
     let parsed = parse_http_request(&request).ok_or_else(|| "invalid HTTP request".to_owned())?;
 
     match (parsed.method.as_str(), parsed.path.as_str()) {
@@ -1796,6 +1792,62 @@ struct ParsedHttpRequest<'a> {
     method: String,
     path: String,
     body: &'a str,
+}
+
+fn header_end(buf: &[u8]) -> Option<usize> {
+    buf.windows(4).position(|window| window == b"\r\n\r\n")
+}
+
+fn parse_content_length(headers: &str) -> Option<usize> {
+    headers.lines().find_map(|line| {
+        let (name, value) = line.split_once(':')?;
+        if !name.eq_ignore_ascii_case("content-length") {
+            return None;
+        }
+        value.trim().parse::<usize>().ok()
+    })
+}
+
+fn read_http_request(stream: &mut TcpStream) -> Result<String, String> {
+    const MAX_REQUEST_BYTES: usize = 8 * 1024 * 1024;
+
+    let mut buffer = Vec::with_capacity(65_536);
+    let mut chunk = [0u8; 8192];
+    let mut expected_total = None;
+
+    loop {
+        let bytes_read = stream
+            .read(&mut chunk)
+            .map_err(|err| format!("failed to read request: {err}"))?;
+        if bytes_read == 0 {
+            break;
+        }
+
+        buffer.extend_from_slice(&chunk[..bytes_read]);
+        if buffer.len() > MAX_REQUEST_BYTES {
+            return Err("request too large".to_owned());
+        }
+
+        if expected_total.is_none() {
+            if let Some(end) = header_end(&buffer) {
+                let headers = String::from_utf8_lossy(&buffer[..end]);
+                let content_length = parse_content_length(&headers).unwrap_or(0);
+                expected_total = Some(end + 4 + content_length);
+
+                if content_length == 0 {
+                    break;
+                }
+            }
+        }
+
+        if let Some(total) = expected_total {
+            if buffer.len() >= total {
+                break;
+            }
+        }
+    }
+
+    String::from_utf8(buffer).map_err(|err| format!("request was not valid UTF-8: {err}"))
 }
 
 fn parse_http_request(request: &str) -> Option<ParsedHttpRequest<'_>> {

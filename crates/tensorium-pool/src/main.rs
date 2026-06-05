@@ -280,9 +280,7 @@ fn handle_connection(
         .set_write_timeout(Some(Duration::from_secs(HTTP_TIMEOUT_SECS)))
         .ok();
 
-    let mut buf = [0u8; 8192];
-    let n = stream.read(&mut buf).map_err(|e| format!("read: {e}"))?;
-    let request = String::from_utf8_lossy(&buf[..n]);
+    let request = read_http_request(&mut stream)?;
 
     let first_line = request.lines().next().unwrap_or("");
     let parts: Vec<&str> = first_line.splitn(3, ' ').collect();
@@ -315,6 +313,60 @@ fn handle_connection(
         }
         _ => write_response(&mut stream, 404, "{\"error\":\"not found\"}"),
     }
+}
+
+fn header_end(buf: &[u8]) -> Option<usize> {
+    buf.windows(4).position(|window| window == b"\r\n\r\n")
+}
+
+fn parse_content_length(headers: &str) -> Option<usize> {
+    headers.lines().find_map(|line| {
+        let (name, value) = line.split_once(':')?;
+        if !name.eq_ignore_ascii_case("content-length") {
+            return None;
+        }
+        value.trim().parse::<usize>().ok()
+    })
+}
+
+fn read_http_request(stream: &mut TcpStream) -> Result<String, String> {
+    const MAX_REQUEST_BYTES: usize = 8 * 1024 * 1024;
+
+    let mut buffer = Vec::with_capacity(8192);
+    let mut chunk = [0u8; 8192];
+    let mut expected_total = None;
+
+    loop {
+        let n = stream.read(&mut chunk).map_err(|e| format!("read: {e}"))?;
+        if n == 0 {
+            break;
+        }
+
+        buffer.extend_from_slice(&chunk[..n]);
+        if buffer.len() > MAX_REQUEST_BYTES {
+            return Err("request too large".to_owned());
+        }
+
+        if expected_total.is_none() {
+            if let Some(end) = header_end(&buffer) {
+                let headers = String::from_utf8_lossy(&buffer[..end]);
+                let content_length = parse_content_length(&headers).unwrap_or(0);
+                expected_total = Some(end + 4 + content_length);
+
+                if content_length == 0 {
+                    break;
+                }
+            }
+        }
+
+        if let Some(total) = expected_total {
+            if buffer.len() >= total {
+                break;
+            }
+        }
+    }
+
+    String::from_utf8(buffer).map_err(|e| format!("utf8: {e}"))
 }
 
 // ---------------------------------------------------------------------------
