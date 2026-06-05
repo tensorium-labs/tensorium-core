@@ -17,8 +17,9 @@ use tensorium_core::{
     block::{Transaction, TxInput, TxOutput},
     chain::MAINNET_CANDIDATE,
     script::standard::{
-        extract_multisig, htlc_claim_script_sig, htlc_refund_script_sig, htlc_script,
-        multisig_script, multisig_script_sig, p2pkh_from_address, p2pkh_from_pubkey,
+        extract_multisig, extract_p2sh_hash, htlc_claim_script_sig, htlc_refund_script_sig,
+        htlc_script, multisig_script, multisig_script_sig, p2pkh_from_address, p2pkh_from_pubkey,
+        p2sh_address_from_redeem, p2sh_multisig_script_sig, p2sh_script_from_redeem,
     },
     ChainState, UtxoSet, WalletKeypair,
 };
@@ -200,6 +201,66 @@ fn run() -> Result<(), String> {
             println!("m={m}  n={}", pubkey_refs.len());
             println!("size={} bytes", script.len());
         }
+        "p2sh-multisig-script" => {
+            let m: u8 = args
+                .get(2)
+                .ok_or("usage: txmwallet p2sh-multisig-script <m> <pubkey_hex1> ... <pubkey_hexN>")?
+                .parse::<u8>()
+                .map_err(|_| "invalid m: must be a number 1–16")?;
+            let pubkey_args: Vec<Vec<u8>> = args[3..]
+                .iter()
+                .map(|h| hex::decode(h).map_err(|_| format!("invalid pubkey hex: {h}")))
+                .collect::<Result<Vec<_>, _>>()?;
+            if pubkey_args.is_empty() {
+                return Err("p2sh-multisig-script requires at least one pubkey".to_owned());
+            }
+            let pubkey_refs: Vec<&[u8]> = pubkey_args.iter().map(|v| v.as_slice()).collect();
+            let redeem = multisig_script(m, &pubkey_refs)
+                .map_err(|e| format!("invalid multisig params: {e:?}"))?;
+            let p2sh_spk = p2sh_script_from_redeem(&redeem);
+            let address = p2sh_address_from_redeem(&redeem);
+            println!("redeem_script:    {}", hex::encode(&redeem));
+            println!("p2sh_scriptpubkey: {}", hex::encode(&p2sh_spk));
+            println!("address:          {address}");
+            println!("m={m}  n={}", pubkey_refs.len());
+            println!("note: save the redeem_script hex — required to spend");
+        }
+        "p2sh-multisig-spend" => {
+            let usage = "usage: txmwallet p2sh-multisig-spend <p2sh_spk_hex> <dest_addr> <redeem_script_hex> <amount_atoms> [rpc]";
+            let p2sh_spk_hex = args.get(2).ok_or(usage)?;
+            let dest_addr    = args.get(3).ok_or(usage)?;
+            let redeem_hex   = args.get(4).ok_or(usage)?;
+            let amount_atoms = args.get(5).ok_or(usage)?
+                .parse::<u64>().map_err(|_| "invalid amount_atoms: must be a number")?;
+            let rpc = args.get(6).map(String::as_str).unwrap_or(DEFAULT_RPC);
+
+            let p2sh_spk = hex::decode(p2sh_spk_hex)
+                .map_err(|_| "invalid p2sh_spk_hex: must be lowercase hex")?;
+            if extract_p2sh_hash(&p2sh_spk).is_none() {
+                return Err("p2sh_spk_hex is not a valid P2SH scriptPubKey (expected OP_HASH160 <20 bytes> OP_EQUAL)".to_owned());
+            }
+            let redeem = hex::decode(redeem_hex)
+                .map_err(|_| "invalid redeem_script_hex: must be lowercase hex")?;
+            let expected_spk = p2sh_script_from_redeem(&redeem);
+            if expected_spk != p2sh_spk {
+                return Err("redeem_script_hex does not hash to the given p2sh_spk_hex".to_owned());
+            }
+
+            let tx = build_unsigned_multisig_tx(rpc, p2sh_spk_hex, dest_addr, amount_atoms)?;
+            let tx_path = PathBuf::from("p2sh-multisig-spend-tx.json");
+            let raw = serde_json::to_string_pretty(&tx)
+                .map_err(|e| format!("serialize tx: {e}"))?;
+            fs::write(&tx_path, &raw)
+                .map_err(|e| format!("write {}: {e}", tx_path.display()))?;
+            println!("unsigned_txid={}", tx.id);
+            println!("inputs={}", tx.inputs.len());
+            println!("outputs={}", tx.outputs.len());
+            println!("written={}", tx_path.display());
+            println!("next:");
+            println!("  1. TENSORIUM_WALLET_PASSPHRASE=... txmwallet multisig-sign {}", tx_path.display());
+            println!("     (run for each required signer, each produces a .sig... file)");
+            println!("  2. txmwallet multisig-combine {} <sig1> <sig2> --redeem {}", tx_path.display(), redeem_hex);
+        }
         "send-from-script" => {
             let scriptpubkey_hex = args
                 .get(2)
@@ -274,10 +335,26 @@ fn run() -> Result<(), String> {
             let tx_path = PathBuf::from(args.get(2).ok_or(
                 "usage: txmwallet multisig-combine <tx_file> <sig_file1> <sig_file2> [...]",
             )?);
-            if args.len() < 5 {
+            let mut redeem_hex: Option<String> = None;
+            let mut sig_path_strs: Vec<&str> = Vec::new();
+            let mut idx = 3usize;
+            while idx < args.len() {
+                if args[idx] == "--redeem" {
+                    idx += 1;
+                    redeem_hex = Some(
+                        args.get(idx)
+                            .ok_or("--redeem requires a hex value")?
+                            .clone(),
+                    );
+                } else {
+                    sig_path_strs.push(&args[idx]);
+                }
+                idx += 1;
+            }
+            let sig_paths: Vec<PathBuf> = sig_path_strs.iter().map(PathBuf::from).collect();
+            if sig_paths.len() < 2 {
                 return Err("multisig-combine requires at least 2 sig files".to_owned());
             }
-            let sig_paths: Vec<PathBuf> = args[3..].iter().map(PathBuf::from).collect();
 
             let raw = fs::read_to_string(&tx_path)
                 .map_err(|e| format!("read {}: {e}", tx_path.display()))?;
@@ -312,7 +389,13 @@ fn run() -> Result<(), String> {
             }
 
             let sig_refs: Vec<&[u8]> = collected_sigs.iter().map(|v| v.as_slice()).collect();
-            let script_sig = multisig_script_sig(&sig_refs);
+            let script_sig = if let Some(ref r_hex) = redeem_hex {
+                let redeem = hex::decode(r_hex)
+                    .map_err(|_| "invalid --redeem hex: must be lowercase hex".to_owned())?;
+                p2sh_multisig_script_sig(&sig_refs, &redeem)
+            } else {
+                multisig_script_sig(&sig_refs)
+            };
 
             for input in &mut tx.inputs {
                 input.signature_script = script_sig.clone();
@@ -650,8 +733,10 @@ fn print_help() {
     println!("  send-from-script <spk_hex> <to> <atoms>       build unsigned multisig spend tx");
     println!("  multisig-sign <tx_file>                       sign a multisig tx with this wallet");
     println!(
-        "  multisig-combine <tx_file> <sig1> <sig2>...   combine partial sigs into broadcast tx"
+        "  multisig-combine <tx_file> <sig1> <sig2>... [--redeem <hex>]  combine sigs (add --redeem for P2SH)"
     );
+    println!("  p2sh-multisig-script <m> <pk1_hex>...        build P2SH-multisig address (txms1...)");
+    println!("  p2sh-multisig-spend <spk_hex> <to> <redeem_hex> <atoms> [rpc]  build unsigned P2SH spend tx");
     println!("  htlc-secret                                            generate a 32-byte preimage + its sha256 hash");
     println!("  htlc-script <hash_hex> <recipient_addr> <refund_addr> <locktime_height>");
     println!("  htlc-claim <spk_hex> <dest_addr> <preimage_hex> [rpc]  spend HTLC via preimage (claim branch)");
