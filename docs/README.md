@@ -14,7 +14,6 @@ The repository keeps top-level project entrypoints lean and stores supporting do
 These stay in the repository root because they are standard entrypoints for GitHub visitors and tooling:
 
 - `README.md`
-- `MAINNET_READINESS.md`
 - `CHANGELOG.md`
 - `Cargo.toml`
 - `install.sh`

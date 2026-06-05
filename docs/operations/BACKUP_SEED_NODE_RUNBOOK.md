@@ -283,7 +283,6 @@ Mark `backup seed node` complete when all of these are true:
 3. node has synced from the primary seed successfully
 4. smoke checks are green
 5. monitoring is installed
-6. `MAINNET_READINESS.md` is updated with the host role and verification date
 
 ## Next Step After Completion
 

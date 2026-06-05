@@ -113,7 +113,6 @@ These are operational expectations, not contractual guarantees:
 The values here are aligned with:
 
 - `CEX_LISTING_PACKAGE.md`
-- `MAINNET_READINESS.md`
 - `README.md`
 - `../project/RISK_DISCLOSURE.md`
 - `../operations/PUBLIC_RPC_POSTURE.md`
