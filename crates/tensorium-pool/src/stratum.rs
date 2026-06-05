@@ -334,10 +334,17 @@ fn submit_block(node_rpc: &str, job: &StratumJob, nonce: u64, raw_template: Opti
     let port = &node_rpc[colon + 1..];
     eprintln!("[stratum] BLOCK! height={} nonce={} job={}", job.height, nonce, job.job_id);
 
+    // Node's /submitblock expects a Block struct directly: {"header":{...},"transactions":[...]}
+    // The cached template has an outer "template" wrapper that must be stripped.
     let body = if let Some(raw) = raw_template {
         if let Ok(mut v) = serde_json::from_str::<Value>(raw) {
+            // Set nonce inside template, then unwrap the "template" layer.
             v["template"]["header"]["nonce"] = json!(nonce);
-            v.to_string()
+            if let Some(inner) = v.get("template").cloned() {
+                inner.to_string()
+            } else {
+                build_fallback_body(job, nonce)
+            }
         } else { build_fallback_body(job, nonce) }
     } else { build_fallback_body(job, nonce) };
 
@@ -352,16 +359,29 @@ fn submit_block(node_rpc: &str, job: &StratumJob, nonce: u64, raw_template: Opti
     if conn.write_all(req.as_bytes()).is_err() { return false; }
     let mut resp = String::new();
     conn.read_to_string(&mut resp).ok();
-    resp.contains("accepted") || resp.contains("true")
+    // Parse response body (after HTTP headers) and check accepted field.
+    let body = resp.split("\r\n\r\n").nth(1).unwrap_or(&resp);
+    serde_json::from_str::<Value>(body)
+        .ok()
+        .and_then(|v| v["accepted"].as_bool())
+        .unwrap_or(false)
 }
 
 fn build_fallback_body(job: &StratumJob, nonce: u64) -> String {
-    json!({ "template": { "header": {
-        "chain_id": job.chain_id, "height": job.height,
-        "previous_hash": job.previous_hash.to_vec(), "merkle_root": job.merkle_root.to_vec(),
-        "timestamp_seconds": job.timestamp, "leading_zero_bits": job.difficulty_bits,
-        "version": job.version, "nonce": nonce
-    }, "transactions": [] }}).to_string()
+    // Node /submitblock expects Block directly (no "template" wrapper).
+    json!({
+        "header": {
+            "chain_id": job.chain_id,
+            "height": job.height,
+            "previous_hash": job.previous_hash.to_vec(),
+            "merkle_root": job.merkle_root.to_vec(),
+            "timestamp_seconds": job.timestamp,
+            "leading_zero_bits": job.difficulty_bits,
+            "version": job.version,
+            "nonce": nonce
+        },
+        "transactions": []
+    }).to_string()
 }
 
 // ── Mining.notify builder ─────────────────────────────────────────────────────
