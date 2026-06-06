@@ -2,6 +2,10 @@
 
 All notable changes to Tensorium are documented in this file.
 
+## v0.3.5-mainnet (2026-06-06)
+- Dynamic fee estimation: `/estimatefee` now returns slow/normal/fast tiers based on mempool congestion
+- Chrome wallet: 3-pill fee selector with congestion badge and custom fee input
+
 ## [v0.3.4-mainnet — Scripting S4: P2SH-Multisig] — 2026-06-05
 
 ### Added
