@@ -5,6 +5,8 @@ All notable changes to Tensorium are documented in this file.
 ## v0.3.5-mainnet (2026-06-06)
 - Dynamic fee estimation: `/estimatefee` now returns slow/normal/fast tiers based on mempool congestion
 - Chrome wallet: 3-pill fee selector with congestion badge and custom fee input
+- Release now includes `txmminer` and `tensorium-pool` binaries (previously missing from v0.3.4 release)
+- Fixed `txmminer` binary: rebuilt against current `TxOutput` struct (`script_pubkey` field); old binary from Jun 1 used obsolete `address` field and failed to parse node block templates
 
 ## [v0.3.4-mainnet — Scripting S4: P2SH-Multisig] — 2026-06-05
 
