@@ -17,6 +17,7 @@ use tensorium_core::{
     block::{merkle_root as compute_merkle_root, BlockHeader, Transaction},
     chain::{ConsensusParams, MAINNET_CANDIDATE},
     emission::reward_at_height,
+    mempool::{CongestionLevel, FeeTiers},
     pow::header_meets_work,
     script::standard::{extract_address, p2pkh_from_address},
     Block, ChainState, Hash256, Mempool, StateError, UtxoSet,
@@ -1654,21 +1655,19 @@ fn handle_rpc_stream(
 
         ("GET", "/estimatefee") => {
             let mempool = load_mempool(&mempool_path);
-            let fee_stats = mempool.fee_stats();
-            // Recommend max(min_relay, median) so users beat the current queue.
-            let recommended = fee_stats.median_fee_atoms
-                .max(fee_stats.min_relay_fee_atoms);
+            let tiers = mempool.fee_tiers();
             write_json_response(
                 stream,
                 200,
                 &json!({
-                    "min_relay_fee_atoms":  fee_stats.min_relay_fee_atoms,
-                    "priority_fee_atoms":   fee_stats.priority_fee_atoms,
-                    "median_fee_atoms":     fee_stats.median_fee_atoms,
-                    "recommended_fee_atoms": recommended,
-                    "min_relay_fee_txm":    fee_stats.min_relay_fee_atoms as f64 / 1e8,
-                    "priority_fee_txm":     fee_stats.priority_fee_atoms  as f64 / 1e8,
-                    "recommended_fee_txm":  recommended as f64 / 1e8,
+                    "slow_atoms":       tiers.slow_atoms,
+                    "normal_atoms":     tiers.normal_atoms,
+                    "fast_atoms":       tiers.fast_atoms,
+                    "congestion_level": tiers.congestion_level,
+                    "mempool_count":    tiers.mempool_count,
+                    "slow_txm":         tiers.slow_atoms   as f64 / 1e8,
+                    "normal_txm":       tiers.normal_atoms as f64 / 1e8,
+                    "fast_txm":         tiers.fast_atoms   as f64 / 1e8,
                 }),
             )
         }
