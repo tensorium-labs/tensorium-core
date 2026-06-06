@@ -189,6 +189,48 @@ impl Mempool {
             priority_fee_atoms: PRIORITY_FEE_ATOMS,
         }
     }
+
+    /// Dynamic fee tiers based on current mempool congestion.
+    pub fn fee_tiers(&self) -> FeeTiers {
+        const SLOW_FLOOR:   u64 = MIN_RELAY_FEE_ATOMS;
+        const NORMAL_FLOOR: u64 = MIN_RELAY_FEE_ATOMS * 2;
+        const FAST_FLOOR:   u64 = MIN_RELAY_FEE_ATOMS * 10;
+
+        let count = self.pending.len() as u64;
+
+        let congestion_level = if count < 5 {
+            CongestionLevel::Low
+        } else if count < 20 {
+            CongestionLevel::Medium
+        } else {
+            CongestionLevel::High
+        };
+
+        // For Low and Medium congestion use floor values; only apply percentile
+        // pricing for High congestion where the mempool is significantly loaded.
+        let (slow, normal, fast) = match congestion_level {
+            CongestionLevel::High => {
+                let mut fees: Vec<u64> =
+                    self.pending.values().map(|e| e.fee_atoms).collect();
+                fees.sort_unstable();
+                let len = fees.len();
+                (
+                    fees[len * 25 / 100].max(SLOW_FLOOR),
+                    fees[len * 50 / 100].max(NORMAL_FLOOR),
+                    fees[len * 75 / 100].max(FAST_FLOOR),
+                )
+            }
+            _ => (SLOW_FLOOR, NORMAL_FLOOR, FAST_FLOOR),
+        };
+
+        FeeTiers {
+            slow_atoms:   slow,
+            normal_atoms: normal,
+            fast_atoms:   fast,
+            congestion_level,
+            mempool_count: count,
+        }
+    }
 }
 
 #[derive(Debug, serde::Serialize)]
@@ -200,6 +242,19 @@ pub struct FeeStats {
     pub median_fee_atoms: u64,
     pub min_relay_fee_atoms: u64,
     pub priority_fee_atoms: u64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CongestionLevel { Low, Medium, High }
+
+#[derive(Debug, Serialize)]
+pub struct FeeTiers {
+    pub slow_atoms:       u64,
+    pub normal_atoms:     u64,
+    pub fast_atoms:       u64,
+    pub congestion_level: CongestionLevel,
+    pub mempool_count:    u64,
 }
 
 // ---------------------------------------------------------------------------
@@ -385,5 +440,69 @@ mod tests {
             Err(MempoolError::PendingConflict)
         );
         assert_eq!(mp.len(), 1);
+    }
+
+    #[test]
+    fn fee_tiers_empty_mempool() {
+        let mp = Mempool::new();
+        let tiers = mp.fee_tiers();
+        assert_eq!(tiers.slow_atoms,   MIN_RELAY_FEE_ATOMS);
+        assert_eq!(tiers.normal_atoms, MIN_RELAY_FEE_ATOMS * 2);
+        assert_eq!(tiers.fast_atoms,   MIN_RELAY_FEE_ATOMS * 10);
+        assert_eq!(tiers.mempool_count, 0);
+        assert!(matches!(tiers.congestion_level, CongestionLevel::Low));
+    }
+
+    #[test]
+    fn fee_tiers_low_congestion() {
+        let mut mp = Mempool::new();
+        for i in 0u8..3 {
+            let fee = MIN_RELAY_FEE_ATOMS + i as u64;
+            mp.pending.insert(
+                format!("tx{i}"),
+                MempoolEntry { tx: Transaction::coinbase(i as u64, 0, "x"), fee_atoms: fee },
+            );
+        }
+        let tiers = mp.fee_tiers();
+        assert!(tiers.slow_atoms   >= MIN_RELAY_FEE_ATOMS);
+        assert!(tiers.normal_atoms >= MIN_RELAY_FEE_ATOMS * 2);
+        assert!(tiers.fast_atoms   >= MIN_RELAY_FEE_ATOMS * 10);
+        assert!(tiers.slow_atoms <= tiers.normal_atoms);
+        assert!(tiers.normal_atoms <= tiers.fast_atoms);
+        assert!(matches!(tiers.congestion_level, CongestionLevel::Low));
+    }
+
+    #[test]
+    fn fee_tiers_medium_congestion() {
+        let mut mp = Mempool::new();
+        for i in 0u8..8 {
+            let fee = MIN_RELAY_FEE_ATOMS + i as u64 * 1_000;
+            mp.pending.insert(
+                format!("tx{i}"),
+                MempoolEntry { tx: Transaction::coinbase(i as u64, 0, "x"), fee_atoms: fee },
+            );
+        }
+        let tiers = mp.fee_tiers();
+        assert_eq!(tiers.slow_atoms,   MIN_RELAY_FEE_ATOMS);
+        assert_eq!(tiers.normal_atoms, MIN_RELAY_FEE_ATOMS * 2);
+        assert_eq!(tiers.fast_atoms,   MIN_RELAY_FEE_ATOMS * 10);
+        assert!(matches!(tiers.congestion_level, CongestionLevel::Medium));
+    }
+
+    #[test]
+    fn fee_tiers_high_congestion() {
+        let mut mp = Mempool::new();
+        for i in 0u8..25 {
+            let fee = MIN_RELAY_FEE_ATOMS + i as u64 * 1_000;
+            mp.pending.insert(
+                format!("tx{i:02}"),
+                MempoolEntry { tx: Transaction::coinbase(i as u64, 0, "x"), fee_atoms: fee },
+            );
+        }
+        let tiers = mp.fee_tiers();
+        assert!(matches!(tiers.congestion_level, CongestionLevel::High));
+        assert!(tiers.slow_atoms <= tiers.normal_atoms);
+        assert!(tiers.normal_atoms <= tiers.fast_atoms);
+        assert_eq!(tiers.mempool_count, 25);
     }
 }
