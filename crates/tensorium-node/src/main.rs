@@ -17,7 +17,6 @@ use tensorium_core::{
     block::{merkle_root as compute_merkle_root, BlockHeader, Transaction},
     chain::{ConsensusParams, MAINNET_CANDIDATE},
     emission::reward_at_height,
-    mempool::{CongestionLevel, FeeTiers},
     pow::header_meets_work,
     script::standard::{extract_address, p2pkh_from_address},
     Block, ChainState, Hash256, Mempool, StateError, UtxoSet,
