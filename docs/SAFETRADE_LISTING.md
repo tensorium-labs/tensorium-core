@@ -44,13 +44,23 @@ Submission материals for listing **native TXM** on SafeTrade (safetrade.co
   `/getutxos/<addr|spk>`, `/sendrawtransaction`, `/getbalance` via UTXO scan),
   **not** Bitcoin-core JSON-RPC.
 
-### ⚠️ Integration gap to resolve before listing
-Most exchanges automate deposits/withdrawals via a Bitcoin-core-style RPC
-(`getnewaddress`, `getbalance`, `sendtoaddress`, `listtransactions`, `validateaddress`).
-TXM does not expose these natively. To list, we should provide a small
-**Bitcoin-RPC-compatible adapter** that wraps `tensorium-node` + `txmwallet`
-(HD/derived deposit addresses, balance, send, tx listing). This is the main
-engineering task for any CEX integration and is reusable across exchanges.
+### ✅ Integration: Bitcoin-RPC adapter (built)
+The Bitcoin-core-style RPC most exchanges expect is provided by
+**`crates/txm-rpc-adapter`** (`txm-rpc-adapter` binary) — it wraps
+`tensorium-node` + the core wallet crypto and exposes:
+`getblockcount`, `getbestblockhash`, `getblockhash`, `getblock`,
+`getblockchaininfo`, `getnetworkinfo`, `getwalletinfo`, `getnewaddress`,
+`validateaddress`, `getbalance`, `sendtoaddress`, `listsinceblock`,
+`listtransactions`, `gettransaction`, `estimatesmartfee`, `settxfee`.
+
+- Deposits: background block scanner records outputs to managed addresses.
+- Withdrawals: `sendtoaddress` selects UTXOs across all managed addresses and
+  signs each input with its own key.
+- HTTP Basic auth (`RPC_USER`/`RPC_PASS`), decimal-TXM amounts (8 dp).
+- Run it on the exchange-facing host next to a `tensorium-node`. See the crate
+  README for the exact env/run command.
+
+Give SafeTrade the adapter's host:port + RPC credentials when integration starts.
 
 ## Supply transparency (for the application)
 - Founder allocation: 1,000,000 TXM (intended 5-year lock — in progress).
