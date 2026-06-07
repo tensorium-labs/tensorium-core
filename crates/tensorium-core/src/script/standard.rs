@@ -364,6 +364,61 @@ pub fn extract_htlc(spk: &[u8]) -> Option<([u8; 32], [u8; 20], [u8; 20], u64)> {
     Some((hash, recipient_hash, refund_hash, locktime))
 }
 
+/// Build a CLTV time-locked P2PKH script — one vesting tranche.
+/// `<locktime> OP_CHECKLOCKTIMEVERIFY OP_DROP OP_DUP OP_HASH160 <hash20> OP_EQUALVERIFY OP_CHECKSIG`
+/// Spendable only at block height >= `locktime`, by the key whose hash160 == `hash20`
+/// (spend scriptSig is an ordinary P2PKH `[sig][pubkey]`).
+pub fn cltv_p2pkh_script(locktime: u64, hash20: &[u8; 20]) -> Vec<u8> {
+    let lt = encode_locktime(locktime);
+    let mut s = Vec::with_capacity(7 + lt.len() + 20);
+    s.push(lt.len() as u8);
+    s.extend_from_slice(&lt);
+    s.push(OP_CHECKLOCKTIMEVERIFY);
+    s.push(OP_DROP);
+    s.push(OP_DUP);
+    s.push(OP_HASH160);
+    s.push(0x14);
+    s.extend_from_slice(hash20);
+    s.push(OP_EQUALVERIFY);
+    s.push(OP_CHECKSIG);
+    s
+}
+
+/// Parse a script built by `cltv_p2pkh_script`. Returns `Some((locktime, hash20))`.
+pub fn extract_cltv_p2pkh(spk: &[u8]) -> Option<(u64, [u8; 20])> {
+    if spk.is_empty() {
+        return None;
+    }
+    let lt_len = spk[0] as usize;
+    if lt_len == 0 || lt_len > 8 {
+        return None;
+    }
+    // <push><lt> CLTV DROP DUP HASH160 0x14 <20> EQUALVERIFY CHECKSIG
+    let expected = 1 + lt_len + 5 + 20 + 2;
+    if spk.len() != expected {
+        return None;
+    }
+    let mut i = 1;
+    let mut lt_buf = [0u8; 8];
+    lt_buf[..lt_len].copy_from_slice(&spk[i..i + lt_len]);
+    i += lt_len;
+    if spk[i] != OP_CHECKLOCKTIMEVERIFY
+        || spk[i + 1] != OP_DROP
+        || spk[i + 2] != OP_DUP
+        || spk[i + 3] != OP_HASH160
+        || spk[i + 4] != 0x14
+    {
+        return None;
+    }
+    let h_start = i + 5;
+    let mut hash20 = [0u8; 20];
+    hash20.copy_from_slice(&spk[h_start..h_start + 20]);
+    if spk[h_start + 20] != OP_EQUALVERIFY || spk[h_start + 21] != OP_CHECKSIG {
+        return None;
+    }
+    Some((u64::from_le_bytes(lt_buf), hash20))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -465,6 +520,58 @@ mod tests {
     fn htlc_extract_rejects_non_htlc() {
         assert_eq!(extract_htlc(&[0xac]), None);
         assert_eq!(extract_htlc(&[]), None);
+    }
+
+    #[test]
+    fn cltv_p2pkh_roundtrip() {
+        let h = [0x55u8; 20];
+        let spk = cltv_p2pkh_script(123_456, &h);
+        let (lt, hash) = extract_cltv_p2pkh(&spk).expect("must parse");
+        assert_eq!(lt, 123_456);
+        assert_eq!(hash, h);
+    }
+
+    #[test]
+    fn cltv_p2pkh_extract_rejects_non_cltv() {
+        assert_eq!(extract_cltv_p2pkh(&[]), None);
+        assert_eq!(extract_cltv_p2pkh(&[0xac]), None);
+        // a plain P2PKH (no CLTV prefix) must not match
+        assert_eq!(extract_cltv_p2pkh(&p2pkh_script(&[0x11u8; 20])), None);
+    }
+
+    #[test]
+    fn cltv_p2pkh_spendable_only_at_or_after_locktime() {
+        use crate::hash::Hash256;
+        use crate::script::vm::{execute, ScriptContext};
+        use crate::script::ScriptError;
+        use k256::ecdsa::{signature::Signer, Signature};
+
+        let (sk, pk, hash20) = htlc_test_keypair();
+        let spk = cltv_p2pkh_script(100, &hash20);
+        let msg = Hash256([7u8; 32]);
+        let sig: Signature = sk.sign(&msg.0);
+        let der = sig.to_der().as_bytes().to_vec();
+        let script_sig = p2pkh_script_sig(&der, &pk);
+
+        // At/after locktime → spendable.
+        let ok = execute(
+            &script_sig,
+            &spk,
+            &ScriptContext { sig_hash: msg, block_height: 100 },
+        )
+        .unwrap();
+        assert!(ok, "spend at locktime height must succeed");
+
+        // Before locktime → LockTimeNotMet (fail-closed).
+        let early = execute(
+            &script_sig,
+            &spk,
+            &ScriptContext { sig_hash: msg, block_height: 99 },
+        );
+        assert!(
+            matches!(early, Err(ScriptError::LockTimeNotMet)),
+            "spend before locktime must fail, got {early:?}"
+        );
     }
 
     #[test]

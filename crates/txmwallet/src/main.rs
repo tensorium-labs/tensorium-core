@@ -15,9 +15,10 @@ use tensorium_core::{
     block::{Transaction, TxInput, TxOutput},
     chain::MAINNET_CANDIDATE,
     script::standard::{
-        extract_multisig, extract_p2sh_hash, htlc_claim_script_sig, htlc_refund_script_sig,
-        htlc_script, multisig_script, multisig_script_sig, p2pkh_from_address, p2pkh_from_pubkey,
-        p2sh_address_from_redeem, p2sh_multisig_script_sig, p2sh_script_from_redeem,
+        cltv_p2pkh_script, extract_multisig, extract_p2sh_hash, htlc_claim_script_sig,
+        htlc_refund_script_sig, htlc_script, multisig_script, multisig_script_sig,
+        p2pkh_from_address, p2pkh_from_pubkey, p2pkh_script_sig, p2sh_address_from_redeem,
+        p2sh_multisig_script_sig, p2sh_script_from_redeem,
     },
     ChainState, UtxoSet, WalletKeypair,
 };
@@ -516,10 +517,160 @@ fn run() -> Result<(), String> {
             println!("note: the node only accepts this once chain height >= the HTLC locktime");
             println!("broadcast: txmwallet broadcast {} {rpc}", tx_path.display());
         }
+        "vesting-lock" => {
+            let usage = "usage: TENSORIUM_WALLET_PASSPHRASE=... txmwallet vesting-lock <recipient_addr> <total_atoms> [rpc] [tranches] [interval_blocks] [liquid_bps]";
+            let recipient = args.get(2).ok_or(usage)?;
+            let total_atoms: u64 = args.get(3).ok_or(usage)?.parse().map_err(|_| "bad total_atoms")?;
+            let rpc = args.get(4).map(String::as_str).unwrap_or(DEFAULT_RPC);
+            let tranches: u64 = args.get(5).map(|s| s.parse().unwrap_or(6)).unwrap_or(6);
+            let interval: u64 = args.get(6).map(|s| s.parse().unwrap_or(43_200)).unwrap_or(43_200);
+            let liquid_bps: u64 = args.get(7).map(|s| s.parse().unwrap_or(2_000)).unwrap_or(2_000);
+
+            let passphrase = passphrase_from_env()?;
+            let wallet = load_wallet(&wallet_path)?;
+            let keypair = wallet.decrypt(&passphrase)?;
+
+            // First tranche unlocks one interval after the current tip.
+            #[derive(serde::Deserialize)]
+            struct Tip { height: u64 }
+            let tip: Tip = serde_json::from_str(&rpc_get(rpc, "/getblockcount")?)
+                .map_err(|e| format!("getblockcount parse: {e}"))?;
+            let start_height = tip.height + interval;
+
+            let (tx, schedule) = build_signed_vesting_via_rpc(
+                &wallet, &keypair, rpc, recipient, total_atoms,
+                tensorium_core::mempool::MIN_RELAY_FEE_ATOMS,
+                start_height, tranches, interval, liquid_bps,
+            )?;
+            let raw = serde_json::to_string(&tx).map_err(|e| format!("serialize: {e}"))?;
+            let resp = rpc_post(rpc, "/sendrawtransaction", &raw)?;
+            println!("vesting_lock_txid={}", tx.id);
+            println!("recipient={recipient} total_atoms={total_atoms}");
+            println!("--- vesting schedule (give these to the buyer; claim each with: txmwallet vesting-claim <spk_hex> <dest> {rpc}) ---");
+            for (label, height, atoms, spk_hex) in &schedule {
+                println!("{label}: unlock_height={height} atoms={atoms} spk={spk_hex}");
+            }
+            println!("node response: {resp}");
+        }
+
+        "vesting-claim" => {
+            let usage = "usage: TENSORIUM_WALLET_PASSPHRASE=... txmwallet vesting-claim <spk_hex> <dest_addr> [rpc]";
+            let spk_hex = args.get(2).ok_or(usage)?;
+            let dest_addr = args.get(3).ok_or(usage)?;
+            let rpc = args.get(4).map(String::as_str).unwrap_or(DEFAULT_RPC);
+
+            let passphrase = passphrase_from_env()?;
+            let wallet = load_wallet(&wallet_path)?;
+            let keypair = wallet.decrypt(&passphrase)?;
+
+            let mut tx = build_unsigned_htlc_spend(rpc, spk_hex, dest_addr)?;
+            let sig_hash = tx.signature_hash();
+            let der_sig = keypair.sign_hash(&sig_hash).map_err(|e| format!("sign: {e:?}"))?;
+            let pubkey = hex::decode(&wallet.public_key_hex)
+                .map_err(|_| "invalid wallet pubkey hex".to_owned())?;
+            let script_sig = p2pkh_script_sig(&der_sig, &pubkey);
+            for input in &mut tx.inputs {
+                input.signature_script = script_sig.clone();
+            }
+            tx.refresh_id();
+            let raw = serde_json::to_string(&tx).map_err(|e| format!("serialize: {e}"))?;
+            let resp = rpc_post(rpc, "/sendrawtransaction", &raw)?;
+            println!("vesting_claim_txid={}", tx.id);
+            println!("note: the node accepts this only once chain height >= the tranche's unlock height");
+            println!("node response: {resp}");
+        }
+
         _ => print_help(),
     }
 
     Ok(())
+}
+
+/// Build + sign a vesting-lock transaction from the wallet's own (P2PKH) UTXOs.
+/// `liquid_bps` of `total_atoms` goes to a plain P2PKH output for `recipient`
+/// (immediately spendable); the remainder is split into `tranches` CLTV-locked
+/// P2PKH outputs at `start_height`, `start_height + interval`, … each spendable
+/// only by `recipient` at/after its unlock height. Returns the signed tx and a
+/// human-readable schedule of (label, unlock_height, atoms, scriptpubkey_hex).
+#[allow(clippy::too_many_arguments)]
+fn build_signed_vesting_via_rpc(
+    wallet: &WalletFile,
+    keypair: &WalletKeypair,
+    rpc: &str,
+    recipient: &str,
+    total_atoms: u64,
+    fee_atoms: u64,
+    start_height: u64,
+    tranches: u64,
+    interval: u64,
+    liquid_bps: u64,
+) -> Result<(Transaction, Vec<(String, u64, u64, String)>), String> {
+    use tensorium_core::block::OutPoint;
+    use tensorium_core::hash::Hash256;
+
+    if tranches == 0 {
+        return Err("tranches must be >= 1".to_owned());
+    }
+    if liquid_bps > 10_000 {
+        return Err("liquid_bps must be <= 10000".to_owned());
+    }
+
+    // recipient hash160 = bytes [3..23] of its P2PKH script.
+    let rcpt_spk = p2pkh_from_address(recipient)
+        .map_err(|_| format!("invalid recipient address: {recipient}"))?;
+    let mut rcpt_hash = [0u8; 20];
+    rcpt_hash.copy_from_slice(&rcpt_spk[3..23]);
+
+    #[derive(serde::Deserialize)]
+    struct RpcUtxo { txid_bytes: Vec<u8>, output_index: u32, value_atoms: u64, mature: bool }
+    #[derive(serde::Deserialize)]
+    struct RpcUtxoResp { utxos: Vec<RpcUtxo> }
+
+    let needed = total_atoms.saturating_add(fee_atoms);
+    let body = rpc_get(rpc, &format!("/getutxos/{}", wallet.address))?;
+    let resp: RpcUtxoResp = serde_json::from_str(&body).map_err(|e| format!("UTXO parse: {e}"))?;
+    let mut inputs = Vec::new();
+    let mut selected_atoms = 0u64;
+    for u in resp.utxos {
+        if !u.mature { continue; }
+        let hash = Hash256(u.txid_bytes.as_slice().try_into().map_err(|_| "bad txid len".to_owned())?);
+        inputs.push(TxInput { previous_output: OutPoint { txid: hash, output_index: u.output_index }, signature_script: Vec::new() });
+        selected_atoms = selected_atoms.saturating_add(u.value_atoms);
+        if selected_atoms >= needed { break; }
+    }
+    if selected_atoms < needed {
+        return Err(format!("insufficient mature balance: have {selected_atoms}, need {needed}"));
+    }
+
+    let liquid = total_atoms.saturating_mul(liquid_bps) / 10_000;
+    let vested_total = total_atoms - liquid;
+    let per = vested_total / tranches;
+
+    let mut outputs = Vec::new();
+    let mut schedule = Vec::new();
+    if liquid > 0 {
+        outputs.push(TxOutput { value_atoms: liquid, script_pubkey: rcpt_spk.clone() });
+        schedule.push(("liquid".to_owned(), 0u64, liquid, hex::encode(&rcpt_spk)));
+    }
+    for i in 0..tranches {
+        let amount = if i == tranches - 1 { vested_total - per * (tranches - 1) } else { per };
+        let unlock = start_height + i * interval;
+        let spk = cltv_p2pkh_script(unlock, &rcpt_hash);
+        schedule.push((format!("tranche {}", i + 1), unlock, amount, hex::encode(&spk)));
+        outputs.push(TxOutput { value_atoms: amount, script_pubkey: spk });
+    }
+
+    let change = selected_atoms - total_atoms - fee_atoms;
+    if change > 0 {
+        outputs.push(TxOutput {
+            value_atoms: change,
+            script_pubkey: p2pkh_from_address(&wallet.address).map_err(|_| "bad wallet addr".to_owned())?,
+        });
+    }
+
+    let mut tx = Transaction::payment(inputs, outputs);
+    keypair.sign_transaction(&mut tx).map_err(|e| e.to_string())?;
+    Ok((tx, schedule))
 }
 
 fn wallet_path_from_env() -> PathBuf {
@@ -739,6 +890,9 @@ fn print_help() {
     println!("  htlc-script <hash_hex> <recipient_addr> <refund_addr> <locktime_height>");
     println!("  htlc-claim <spk_hex> <dest_addr> <preimage_hex> [rpc]  spend HTLC via preimage (claim branch)");
     println!("  htlc-refund <spk_hex> <dest_addr> [rpc]                spend HTLC after locktime (refund branch)");
+    println!("  vesting-lock <recipient_addr> <total_atoms> [rpc] [tranches] [interval] [liquid_bps]");
+    println!("                                                         lock tokens for a buyer: liquid %% now + CLTV tranches (default 20%% + 6×monthly)");
+    println!("  vesting-claim <spk_hex> <dest_addr> [rpc]              buyer spends a matured CLTV vesting tranche");
     println!();
     println!("env:");
     println!("  TENSORIUM_WALLET             wallet file, default {DEFAULT_WALLET_PATH}");
