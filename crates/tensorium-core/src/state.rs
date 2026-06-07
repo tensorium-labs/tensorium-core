@@ -1098,4 +1098,35 @@ mod tests {
         assert_eq!(state.height(), Some(1));
         assert_eq!(state.read_meta_utxo_tip(), good_utxo_tip);
     }
+
+    #[test]
+    fn incremental_utxo_matches_full_replay_after_extensions() {
+        use crate::chain::TEST_PARAMS;
+        let mut state = ChainState::new();
+        state.init_genesis(&TEST_PARAMS, 1_700_000_000, 1_000_000).unwrap();
+        state.ensure_utxo_synced(&TEST_PARAMS).unwrap();
+
+        let mut ts = 1_700_000_060;
+        for _ in 0..6 {
+            let cand = state.candidate_block(&TEST_PARAMS, ts, "miner").unwrap();
+            let header = mine_header(cand.header.clone(), 1_000_000).unwrap();
+            state.submit_block(&TEST_PARAMS, Block::new(header, cand.transactions), ts).unwrap();
+            ts += 60;
+        }
+
+        // The incrementally maintained CF_UTXO must equal a from-scratch replay.
+        let chain: Vec<Block> = state.canonical_blocks_iter().collect();
+        let mut expected = UtxoSet::new();
+        for b in &chain {
+            expected.apply_block(&TEST_PARAMS, b).unwrap();
+        }
+        // Every expected entry is present and equal.
+        for (op, entry) in &expected.entries {
+            assert_eq!(state.utxo_get(op).as_ref(), Some(entry), "missing/mismatched utxo {op:?}");
+        }
+        // And there are no extra entries: counts match.
+        let cf = state.db.cf_handle(CF_UTXO).expect("utxo CF");
+        let persisted_count = state.db.iterator_cf(cf, rocksdb::IteratorMode::Start).count();
+        assert_eq!(persisted_count, expected.entries.len(), "persistent UTXO has extra/missing entries");
+    }
 }
