@@ -60,6 +60,10 @@ const MAX_INBOUND_PEERS: usize = 64;
 /// Seconds before a P2P read or write operation times out. Keeps a slow or
 /// dead peer from holding a thread indefinitely.
 const P2P_IO_TIMEOUT_SECS: u64 = 30;
+/// Seconds before an outbound P2P connect attempt gives up. A peer that is
+/// down but unreachable (packets silently dropped) would otherwise block on the
+/// OS SYN-retry timeout (~2 min). Keeps cron sync and block broadcast bounded.
+const P2P_CONNECT_TIMEOUT_SECS: u64 = 5;
 /// Seconds before an RPC read operation times out. Guards against slow HTTP
 /// clients that never finish sending the request.
 const RPC_READ_TIMEOUT_SECS: u64 = 10;
@@ -758,6 +762,26 @@ enum P2pMsg {
 }
 
 /// Read one newline-terminated line from `stream` byte-by-byte.
+/// Open an outbound P2P connection with a bounded connect timeout and read/write
+/// timeouts applied. Inbound connections get their timeouts in `serve_p2p`; this
+/// is the matching guard for every outbound connect (sync, broadcast, diagnostic
+/// handshake) so a dead-but-unreachable peer can never hang a thread forever.
+fn p2p_connect(peer: &str) -> Result<TcpStream, String> {
+    use std::net::ToSocketAddrs;
+    let addr = peer
+        .to_socket_addrs()
+        .map_err(|err| format!("resolve {peer}: {err}"))?
+        .next()
+        .ok_or_else(|| format!("no address resolved for {peer}"))?;
+    let stream =
+        TcpStream::connect_timeout(&addr, Duration::from_secs(P2P_CONNECT_TIMEOUT_SECS))
+            .map_err(|err| format!("connect {peer}: {err}"))?;
+    let timeout = Some(Duration::from_secs(P2P_IO_TIMEOUT_SECS));
+    let _ = stream.set_read_timeout(timeout);
+    let _ = stream.set_write_timeout(timeout);
+    Ok(stream)
+}
+
 fn read_p2p_line(stream: &mut TcpStream) -> Result<String, String> {
     let mut buf = Vec::new();
     let mut byte = [0u8; 1];
@@ -1132,7 +1156,7 @@ fn push_block_to_peer(
     state: &ChainState,
     params: &ConsensusParams,
 ) -> Result<u64, String> {
-    let mut stream = TcpStream::connect(peer).map_err(|err| format!("connect {peer}: {err}"))?;
+    let mut stream = p2p_connect(peer)?;
 
     write_p2p_line(&mut stream, &local_hello(state, params))?;
     let line = read_p2p_line(&mut stream)?;
@@ -1164,7 +1188,7 @@ fn push_tx_to_peer(
     state: &ChainState,
     params: &ConsensusParams,
 ) -> Result<Hash256, String> {
-    let mut stream = TcpStream::connect(peer).map_err(|err| format!("connect {peer}: {err}"))?;
+    let mut stream = p2p_connect(peer)?;
 
     write_p2p_line(&mut stream, &local_hello(state, params))?;
     let line = read_p2p_line(&mut stream)?;
@@ -1192,7 +1216,7 @@ fn push_tx_to_peer(
 
 /// Broadcast a block to every configured peer.  Per-peer errors are logged.
 fn broadcast_block_to_peers(block: &Block, state: &ChainState, params: &ConsensusParams) {
-    let peers = configured_peers();
+    let peers = peers_for(params);
     for peer in &peers {
         match push_block_to_peer(peer, block, state, params) {
             Ok(height) => println!("broadcast block to {peer} accepted height={height}"),
@@ -1203,7 +1227,7 @@ fn broadcast_block_to_peers(block: &Block, state: &ChainState, params: &Consensu
 
 /// Broadcast a transaction to every configured peer.  Per-peer errors are logged.
 fn broadcast_tx_to_peers(tx: &Transaction, state: &ChainState, params: &ConsensusParams) {
-    let peers = configured_peers();
+    let peers = peers_for(params);
     for peer in &peers {
         match push_tx_to_peer(peer, tx, state, params) {
             Ok(txid) => println!("broadcast tx to {peer} accepted txid={txid}"),
@@ -1245,6 +1269,21 @@ fn configured_peers() -> Vec<String> {
     DEFAULT_SEEDS.iter().map(|s| s.to_string()).collect()
 }
 
+/// Select the peer list appropriate to the chain being served.
+///
+/// The mainnet-candidate daemon configures peers via TENSORIUM_MC_PEERS (and
+/// sets TENSORIUM_NO_DEFAULT_SEEDS=1). Broadcasting must read that list — not
+/// the legacy TENSORIUM_PEERS list — otherwise pool-found blocks are pushed to
+/// an empty peer set and never actively propagate to the other node, leaving
+/// reconvergence entirely to the periodic monitor sync.
+fn peers_for(params: &ConsensusParams) -> Vec<String> {
+    if params.chain_id == MAINNET_CANDIDATE.chain_id {
+        configured_mc_peers()
+    } else {
+        configured_peers()
+    }
+}
+
 fn configured_mc_peers() -> Vec<String> {
     let raw = env::var("TENSORIUM_MC_PEERS").unwrap_or_default();
     let manual: Vec<String> = raw
@@ -1268,8 +1307,7 @@ fn configured_mc_peers() -> Vec<String> {
 
 fn connect_peer(peer: &str, state_path: &Path, params: &ConsensusParams) -> Result<(), String> {
     let state = load_state(state_path)?;
-    let mut stream =
-        TcpStream::connect(peer).map_err(|err| format!("failed to connect to {peer}: {err}"))?;
+    let mut stream = p2p_connect(peer)?;
 
     write_p2p_line(&mut stream, &local_hello(&state, params))?;
     let line = read_p2p_line(&mut stream)?;
@@ -1389,8 +1427,7 @@ fn sync_from_peer(
     let our_height = state.height().unwrap_or(0);
 
     // --- handshake ---
-    let mut stream =
-        TcpStream::connect(peer).map_err(|err| format!("failed to connect to {peer}: {err}"))?;
+    let mut stream = p2p_connect(peer)?;
 
     write_p2p_line(&mut stream, &local_hello(&state, params))?;
     let line = read_p2p_line(&mut stream)?;
@@ -2192,6 +2229,53 @@ mod tests {
             local.tip().unwrap().hash(),
             remote_tip_hash,
             "local must reorg onto the peer's taller/heavier chain after finding the common ancestor"
+        );
+    }
+
+    // --- broadcast peer selection: mainnet-candidate must use MC peers ---
+
+    #[test]
+    fn peers_for_mainnet_candidate_uses_mc_peer_list() {
+        // Regression test for the silent block-propagation failure on the live
+        // DO/Vultr mainnet: the daemon sets TENSORIUM_MC_PEERS (+ NO_DEFAULT_SEEDS)
+        // but broadcast_block_to_peers selected peers via configured_peers(),
+        // which reads TENSORIUM_PEERS — left unset — so every pool-found block
+        // was broadcast to an EMPTY list and never actively reached the other
+        // node. peers_for() must pick the MC peer list for the MC chain.
+        //
+        // Set both env vars to distinct values so the assertion proves the MC
+        // branch reads TENSORIUM_MC_PEERS and not TENSORIUM_PEERS, independent
+        // of the NO_DEFAULT_SEEDS fallback path.
+        env::set_var("TENSORIUM_MC_PEERS", "10.0.0.1:33333");
+        env::set_var("TENSORIUM_PEERS", "10.0.0.2:33333");
+
+        let mc_peers = peers_for(&MAINNET_CANDIDATE);
+        assert_eq!(
+            mc_peers,
+            vec!["10.0.0.1:33333".to_owned()],
+            "mainnet-candidate broadcast must use TENSORIUM_MC_PEERS, not TENSORIUM_PEERS"
+        );
+
+        env::remove_var("TENSORIUM_MC_PEERS");
+        env::remove_var("TENSORIUM_PEERS");
+    }
+
+    // --- client-side connect: must error (not hang/panic) on a dead peer ---
+
+    #[test]
+    fn p2p_connect_errors_on_unreachable_peer() {
+        // Outbound P2P connections (sync_from_peer / push_block_to_peer) must
+        // not block a thread forever on a peer that never responds. p2p_connect
+        // wraps connect with a bounded timeout and returns Err instead of
+        // hanging. Bind then drop a listener to get a guaranteed-refused port.
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        drop(listener);
+
+        let result = p2p_connect(&addr.to_string());
+        assert!(
+            result.is_err(),
+            "connecting to a closed port must return Err, not hang or panic"
         );
     }
 }
