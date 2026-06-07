@@ -5,15 +5,16 @@ use tempfile::TempDir;
 use thiserror::Error;
 
 use crate::{
-    block::{merkle_root, Block, BlockHeader, Transaction},
+    block::{merkle_root, Block, BlockHeader, OutPoint, Transaction},
     chain::ConsensusParams,
     emission::reward_at_height,
     hash::Hash256,
     pow::mine_header,
     storage::{
-        decode_block, encode_block, encode_height,
-        CF_BLOCKS, CF_CANONICAL, CF_META, META_HEIGHT, META_TIP,
+        decode_block, decode_utxo_entry, encode_block, encode_height, encode_outpoint, encode_utxo_entry,
+        CF_BLOCKS, CF_CANONICAL, CF_META, CF_UTXO, META_HEIGHT, META_TIP, META_UTXO_TIP,
     },
+    utxo::{UtxoEntry, UtxoError, UtxoSet},
     validation::{validate_block, ValidationError},
 };
 
@@ -22,6 +23,7 @@ fn cf_options() -> Vec<ColumnFamilyDescriptor> {
         ColumnFamilyDescriptor::new(CF_BLOCKS,    Options::default()),
         ColumnFamilyDescriptor::new(CF_CANONICAL, Options::default()),
         ColumnFamilyDescriptor::new(CF_META,      Options::default()),
+        ColumnFamilyDescriptor::new(CF_UTXO,      Options::default()),
     ]
 }
 
@@ -159,6 +161,8 @@ pub enum StateError {
     UnknownParent,
     #[error(transparent)]
     Validation(#[from] ValidationError),
+    #[error(transparent)]
+    Utxo(#[from] UtxoError),
 }
 
 impl ChainState {
@@ -183,6 +187,30 @@ impl ChainState {
     pub(crate) fn get_block_by_hash(&self, hash: Hash256) -> Option<Block> {
         let cf = self.db.cf_handle(CF_BLOCKS).expect("blocks CF");
         self.db.get_cf(cf, &hash.0).expect("DB read").map(|b| decode_block(&b))
+    }
+
+    fn utxo_get(&self, outpoint: &OutPoint) -> Option<UtxoEntry> {
+        let cf = self.db.cf_handle(CF_UTXO).expect("utxo CF");
+        self.db
+            .get_cf(cf, encode_outpoint(outpoint))
+            .expect("DB read")
+            .map(|b| decode_utxo_entry(&b))
+    }
+
+    /// Test/helper: write a single UTXO entry directly (no batch).
+    fn utxo_put_direct(&self, outpoint: &OutPoint, entry: &UtxoEntry) {
+        let cf = self.db.cf_handle(CF_UTXO).expect("utxo CF");
+        self.db
+            .put_cf(cf, encode_outpoint(outpoint), encode_utxo_entry(entry))
+            .expect("DB put");
+    }
+
+    fn read_meta_utxo_tip(&self) -> Option<Hash256> {
+        let cf = self.db.cf_handle(CF_META).expect("meta CF");
+        self.db
+            .get_cf(cf, META_UTXO_TIP)
+            .expect("meta read")
+            .and_then(|b| b.as_slice().try_into().ok().map(Hash256))
     }
 
     /// Return the canonical block at `height`, if present.
@@ -753,6 +781,23 @@ mod tests {
         state.init_genesis(&TEST_PARAMS, 1_700_000_000, 1_000_000).unwrap();
         let got = state.get_block_by_height(0).expect("genesis at height 0");
         assert_eq!(got.header.height, 0);
+    }
+
+    #[test]
+    fn utxo_cf_put_get_roundtrip() {
+        use crate::block::{OutPoint, TxOutput};
+        use crate::hash::Hash256;
+        use crate::utxo::UtxoEntry;
+        let state = ChainState::new();
+        let op = OutPoint { txid: Hash256([3u8; 32]), output_index: 2 };
+        let entry = UtxoEntry {
+            output: TxOutput { value_atoms: 500, script_pubkey: vec![1, 2, 3] },
+            created_height: 9,
+            coinbase: false,
+        };
+        state.utxo_put_direct(&op, &entry);
+        assert_eq!(state.utxo_get(&op), Some(entry));
+        assert_eq!(state.utxo_get(&OutPoint { txid: Hash256([9u8; 32]), output_index: 0 }), None);
     }
 
     #[test]
