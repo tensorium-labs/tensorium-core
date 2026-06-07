@@ -337,6 +337,9 @@ impl ChainState {
         if self.block_known(&block_hash) {
             return Err(StateError::AlreadyKnown);
         }
+        // Make sure the persistent UTXO set reflects the current tip before we
+        // validate against it (rebuilds once after upgrade; cheap when synced).
+        self.ensure_utxo_synced(params)?;
         let parent_hash = block.header.previous_hash;
         let parent = self.get_block_by_hash(parent_hash).ok_or(StateError::UnknownParent)?;
         validate_block(params, Some(&parent), &block, now_seconds)?;
@@ -351,30 +354,49 @@ impl ChainState {
         let old_work     = self.chain_work(old_tip_hash);
 
         if new_work > old_work {
-            let new_canonical = self.build_canonical_chain(block_hash);
-            let height = new_canonical.last().map(|b| b.header.height).unwrap_or(0);
-            let old_height = self.height_cache.unwrap_or(0);
-            let mut batch = WriteBatch::default();
-            let canonical_cf = self.db.cf_handle(CF_CANONICAL).expect("canonical CF");
-            let meta_cf      = self.db.cf_handle(CF_META).expect("meta CF");
-            for b in &new_canonical {
-                batch.put_cf(canonical_cf, &encode_height(b.header.height), &b.hash().0);
+            if parent_hash == old_tip_hash {
+                // Fast path: the block extends the current canonical tip. The
+                // persistent UTXO set already reflects the parent, so validate
+                // against it and apply the block's delta.
+                self.validate_block_utxo(params, &block)?;
+                let height = block.header.height;
+                let canonical_cf = self.db.cf_handle(CF_CANONICAL).expect("canonical CF");
+                let meta_cf = self.db.cf_handle(CF_META).expect("meta CF");
+                let mut batch = WriteBatch::default();
+                batch.put_cf(canonical_cf, &encode_height(height), &block_hash.0);
+                self.apply_utxo_delta_to_batch(&mut batch, &block);
+                batch.put_cf(meta_cf, META_TIP, &block_hash.0);
+                batch.put_cf(meta_cf, META_HEIGHT, &encode_height(height));
+                batch.put_cf(meta_cf, META_UTXO_TIP, &block_hash.0);
+                self.write_batch(batch);
+                self.tip_cache = Some(block.clone());
+                self.height_cache = Some(height);
+            } else {
+                // Reorg: rebuild the UTXO set along the new canonical chain. The
+                // replay validates every block on the branch; if any is invalid
+                // the reorg is rejected and the old chain + UTXO are preserved.
+                let new_canonical = self.build_canonical_chain(block_hash);
+                let set = self.replay_utxo(params, &new_canonical)?;
+                let height = new_canonical.last().map(|b| b.header.height).unwrap_or(0);
+                let old_height = self.height_cache.unwrap_or(0);
+                let canonical_cf = self.db.cf_handle(CF_CANONICAL).expect("canonical CF");
+                let meta_cf = self.db.cf_handle(CF_META).expect("meta CF");
+                let mut batch = WriteBatch::default();
+                for b in &new_canonical {
+                    batch.put_cf(canonical_cf, &encode_height(b.header.height), &b.hash().0);
+                }
+                // Prune stale tail entries when the winning chain is shorter
+                // (see commit 842b2b8).
+                for h in (height + 1)..=old_height {
+                    batch.delete_cf(canonical_cf, &encode_height(h));
+                }
+                batch.put_cf(meta_cf, META_TIP, &block_hash.0);
+                batch.put_cf(meta_cf, META_HEIGHT, &encode_height(height));
+                self.rewrite_utxo_into_batch(&mut batch, &set, &block_hash);
+                self.write_batch(batch);
+                self.tip_cache = Some(block.clone());
+                self.height_cache = Some(height);
             }
-            // A reorg can replace a taller chain with a shorter one that has
-            // more cumulative work (retargeting makes this possible). The old
-            // chain's canonical entries at heights beyond the new tip would
-            // otherwise survive as orphaned tail entries — canonical_blocks_iter
-            // has no upper bound, so it would yield [new chain][stale old tail],
-            // a sequence whose transactions don't connect (apply_block fails
-            // with "spends an output that does not exist"). Prune them here.
-            for h in (height + 1)..=old_height {
-                batch.delete_cf(canonical_cf, &encode_height(h));
-            }
-            batch.put_cf(meta_cf, META_TIP,    &block_hash.0);
-            batch.put_cf(meta_cf, META_HEIGHT, &encode_height(height));
-            self.write_batch(batch);
-            self.tip_cache    = Some(block.clone());
-            self.height_cache = Some(height);
         }
         Ok(block)
     }
@@ -438,6 +460,47 @@ impl ChainState {
             batch.put_cf(utxo_cf, encode_outpoint(op), encode_utxo_entry(entry));
         }
         batch.put_cf(meta_cf, META_UTXO_TIP, &utxo_tip.0);
+    }
+
+    /// Validate a block's transactions against the persistent UTXO set by
+    /// seeding a temporary set with exactly the inputs the block references and
+    /// running the canonical `apply_block` rules.
+    fn validate_block_utxo(&self, params: &ConsensusParams, block: &Block) -> Result<(), StateError> {
+        let mut seed = UtxoSet::new();
+        for tx in block.transactions.iter().skip(1) {
+            for input in &tx.inputs {
+                if let Some(entry) = self.utxo_get(&input.previous_output) {
+                    seed.entries.insert(input.previous_output, entry);
+                }
+                // absent input → apply_block returns MissingInput
+            }
+        }
+        seed.apply_block(params, block)?;
+        Ok(())
+    }
+
+    /// Append a single block's UTXO delta (spend inputs, create outputs) to `batch`.
+    fn apply_utxo_delta_to_batch(&self, batch: &mut WriteBatch, block: &Block) {
+        let utxo_cf = self.db.cf_handle(CF_UTXO).expect("utxo CF");
+        for tx in block.transactions.iter().skip(1) {
+            for input in &tx.inputs {
+                batch.delete_cf(utxo_cf, encode_outpoint(&input.previous_output));
+            }
+        }
+        for tx in &block.transactions {
+            for (index, output) in tx.outputs.iter().enumerate() {
+                if output.script_pubkey.first() == Some(&crate::script::OP_RETURN) {
+                    continue;
+                }
+                let outpoint = OutPoint { txid: tx.id, output_index: index as u32 };
+                let entry = UtxoEntry {
+                    output: output.clone(),
+                    created_height: block.header.height,
+                    coinbase: tx.is_coinbase(),
+                };
+                batch.put_cf(utxo_cf, encode_outpoint(&outpoint), encode_utxo_entry(&entry));
+            }
+        }
     }
 
     /// Expose raw DB handle — used by migration only.
@@ -812,6 +875,51 @@ mod tests {
         // heavier extension of chain A is still possible) — they're just no
         // longer indexed as canonical.
         assert!(state.get_block_by_hash(chain_a[4].hash()).is_some());
+    }
+
+    #[test]
+    fn submit_block_rejects_inflated_coinbase_extension() {
+        use crate::chain::TEST_PARAMS;
+        use crate::emission::reward_at_height;
+        let mut state = ChainState::new();
+        state.init_genesis(&TEST_PARAMS, 1_700_000_000, 1_000_000).unwrap();
+        let genesis = state.get_block_by_height(0).unwrap();
+
+        // Build a height-1 block whose coinbase pays double the scheduled reward.
+        let mut c = candidate_block(&TEST_PARAMS, Some(&genesis), 1_700_000_060, "miner", vec![], 0);
+        let inflated = reward_at_height(&TEST_PARAMS, 1).saturating_mul(2);
+        c.transactions[0] = Transaction::coinbase(1, inflated, "attacker");
+        c.header.merkle_root = merkle_root(&c.transactions);
+        c.header.nonce = 0;
+        let header = mine_header(c.header.clone(), 10_000_000).unwrap();
+        let bad = Block::new(header, c.transactions);
+
+        let result = state.submit_block(&TEST_PARAMS, bad.clone(), 1_700_000_060);
+        assert!(matches!(result, Err(StateError::Utxo(_))), "inflated coinbase must be rejected, got {result:?}");
+        // The block must NOT have become canonical.
+        assert_eq!(state.height(), Some(0));
+        assert_ne!(state.tip().unwrap().hash(), bad.hash());
+    }
+
+    #[test]
+    fn submit_block_accepts_valid_extension_and_tracks_utxo() {
+        use crate::chain::TEST_PARAMS;
+        let mut state = ChainState::new();
+        state.init_genesis(&TEST_PARAMS, 1_700_000_000, 1_000_000).unwrap();
+        state.ensure_utxo_synced(&TEST_PARAMS).unwrap();
+
+        let candidate = state.candidate_block(&TEST_PARAMS, 1_700_000_060, "miner").unwrap();
+        let header = mine_header(candidate.header.clone(), 1_000_000).unwrap();
+        let block = Block::new(header, candidate.transactions);
+        state.submit_block(&TEST_PARAMS, block.clone(), 1_700_000_060).unwrap();
+
+        assert_eq!(state.height(), Some(1));
+        // The new coinbase output is now in the persistent UTXO set, and the
+        // persisted tip stamp tracks the new block.
+        assert_eq!(state.read_meta_utxo_tip(), Some(block.hash()));
+        let coinbase = &block.transactions[0];
+        let op = crate::block::OutPoint { txid: coinbase.id, output_index: 0 };
+        assert!(state.utxo_get(&op).is_some(), "coinbase output must be tracked in CF_UTXO");
     }
 
     #[test]
