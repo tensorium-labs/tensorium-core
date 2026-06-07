@@ -46,6 +46,11 @@ const MC_GENESIS_NONCE: u64 = 798_243_452_272;
 const P2P_PROTOCOL_VERSION: u32 = 1;
 /// Maximum blocks returned per GetBlocks response.
 const SYNC_BATCH_SIZE: usize = 50;
+/// Maximum number of blocks `sync_blocks` will walk backward while searching
+/// for a common ancestor with a peer whose chain forked below our current
+/// tip. A real transient fork is at most a few blocks deep; anything beyond
+/// this depth indicates an incompatible chain rather than a healable fork.
+const MAX_FORK_SEARCH_DEPTH: u64 = 1000;
 /// Maximum newline-delimited P2P message size. Keeps malformed peers from
 /// growing an unbounded buffer before JSON parsing.
 const MAX_P2P_LINE_BYTES: usize = 1_048_576;
@@ -1290,6 +1295,82 @@ fn print_manual_peers() {
     }
 }
 
+/// Fetches blocks from a peer via `fetch` and applies them to `state`.
+///
+/// `fetch(from_height)` must return the peer's canonical blocks starting at
+/// `from_height` in ascending order (an empty vec means "no more blocks").
+///
+/// Naively always requesting `from_height = our_height + 1` only works when
+/// the peer's chain is a strict linear extension of ours. If the two chains
+/// instead **forked below our current tip** (each side mined its own blocks
+/// past a shared ancestor — exactly what produces a prolonged network
+/// partition), the peer's block at `our_height + 1` has a `previous_hash`
+/// that we never received, so `submit_block` returns `UnknownParent` and a
+/// naive loop must abort — leaving the fork to grow forever, since neither
+/// side can ever apply the other's blocks.
+///
+/// To heal that case, on `UnknownParent` we walk `from_height` backward one
+/// block at a time until we reach a height whose peer-supplied block has a
+/// parent we already know (the common ancestor). From there the peer's fork
+/// blocks all apply successfully — `submit_block`'s chain_work-based fork
+/// choice then reorgs onto the peer's chain automatically if it has more
+/// cumulative work, exactly as it would for any other competing chain.
+fn sync_blocks(
+    state: &mut ChainState,
+    params: &ConsensusParams,
+    remote_height: u64,
+    mut fetch: impl FnMut(u64) -> Result<Vec<Block>, String>,
+) -> Result<usize, String> {
+    let mut synced: usize = 0;
+    let mut fetch_from = state.height().unwrap_or(0) + 1;
+    let mut backtrack: u64 = 0;
+
+    loop {
+        let blocks = fetch(fetch_from)?;
+        if blocks.is_empty() {
+            break;
+        }
+
+        let mut forked_at: Option<u64> = None;
+        let mut applied: usize = 0;
+        for block in blocks {
+            let height = block.header.height;
+            match state.submit_block(params, block, now_seconds()) {
+                Ok(_) | Err(StateError::AlreadyKnown) => applied += 1,
+                Err(StateError::UnknownParent) if fetch_from > 1 => {
+                    forked_at = Some(height);
+                    break;
+                }
+                Err(err) => return Err(format!("sync failed at height {height}: {err}")),
+            }
+        }
+
+        if let Some(height) = forked_at {
+            backtrack += 1;
+            if backtrack > MAX_FORK_SEARCH_DEPTH {
+                return Err(format!(
+                    "sync failed: no common ancestor found within {MAX_FORK_SEARCH_DEPTH} \
+                     blocks while walking back from height {height} — chains may be incompatible"
+                ));
+            }
+            fetch_from -= 1;
+            continue;
+        }
+
+        backtrack = 0;
+        synced += applied;
+        let current_height = state.height().unwrap_or(0);
+        fetch_from = current_height + 1;
+        println!("  synced +{applied} blocks  height={current_height}  total_synced={synced}");
+
+        if current_height >= remote_height {
+            break;
+        }
+    }
+
+    Ok(synced)
+}
+
 /// Download all blocks that `peer` has but we do not.
 ///
 /// Prerequisites:
@@ -1297,7 +1378,8 @@ fn print_manual_peers() {
 /// - `peer` must be running `p2p-listen`.
 ///
 /// Blocks are fetched in batches of SYNC_BATCH_SIZE, validated against our
-/// local chain, and persisted after each successful batch.
+/// local chain, and persisted after each successful batch. See `sync_blocks`
+/// for how forks below our current tip are detected and healed.
 fn sync_from_peer(
     peer: &str,
     state_path: &Path,
@@ -1329,46 +1411,21 @@ fn sync_from_peer(
         remote.height
     );
 
-    let mut synced: usize = 0;
-    let mut current_height = our_height;
-
-    // --- fetch loop ---
-    loop {
-        let from = current_height + 1;
-        write_p2p_line(&mut stream, &P2pMsg::GetBlocks { from_height: from })?;
-
+    let synced = sync_blocks(&mut state, params, remote.height, |from_height| {
+        write_p2p_line(&mut stream, &P2pMsg::GetBlocks { from_height })?;
         let line = read_p2p_line(&mut stream)?;
         let response: P2pMsg = serde_json::from_str(&line)
             .map_err(|err| format!("parse sync response from {peer}: {err}"))?;
-
-        let P2pMsg::Blocks { blocks } = response else {
-            return Err(format!("unexpected message during sync (expected Blocks)"));
-        };
-
-        if blocks.is_empty() {
-            break;
+        match response {
+            P2pMsg::Blocks { blocks } => Ok(blocks),
+            _ => Err("unexpected message during sync (expected Blocks)".to_owned()),
         }
+    })?;
 
-        let batch_count = blocks.len();
-        for block in blocks {
-            let height = block.header.height;
-            match state.submit_block(params, block, now_seconds()) {
-                Ok(_) => {}
-                Err(StateError::AlreadyKnown) => {} // resume after interrupted sync
-                Err(err) => return Err(format!("sync failed at height {height}: {err}")),
-            }
-            current_height = height;
-        }
-
-        synced += batch_count;
-        println!("  synced +{batch_count} blocks  height={current_height}  total_synced={synced}");
-
-        if current_height >= remote.height {
-            break;
-        }
-    }
-
-    println!("sync complete: tip={current_height} synced={synced} blocks from {peer}");
+    println!(
+        "sync complete: tip={} synced={synced} blocks from {peer}",
+        state.height().unwrap_or(our_height)
+    );
     Ok(())
 }
 
@@ -2060,5 +2117,81 @@ mod tests {
         let reopened = load_state(&state_path).unwrap();
         assert_eq!(reopened.height(), Some(0));
         assert!(state_path.with_extension("db").exists());
+    }
+
+    // --- sync_blocks: fork-below-tip healing ---
+
+    #[test]
+    fn sync_blocks_walks_back_to_find_common_ancestor_on_fork_below_tip() {
+        // Reproduces the live DO/Vultr mainnet-candidate partition (height
+        // 962 vs 960, diverging at height 959): two nodes mine their own
+        // blocks past a shared ancestor, ending up with chains that differ
+        // *below* both tips. The naive "always fetch from our_height + 1"
+        // loop hits StateError::UnknownParent on the very first fetched
+        // block and aborts — the fork then grows forever, since neither
+        // gossip nor that loop can ever connect the other side's chain.
+        use tensorium_core::{chain::TEST_PARAMS, pow::mine_header};
+
+        fn extend(state: &mut ChainState, count: u64, base_ts: u64, miner: &str) {
+            for i in 0..count {
+                let candidate = state.candidate_block(&TEST_PARAMS, base_ts + i, miner).unwrap();
+                let header = mine_header(candidate.header.clone(), 1_000_000).unwrap();
+                let block = Block::new(header, candidate.transactions);
+                state.submit_block(&TEST_PARAMS, block, base_ts + i).unwrap();
+            }
+        }
+
+        // `local` and `remote` start from an identical genesis + 3-block
+        // common chain (deterministic mining ⇒ identical hashes).
+        let mut local = ChainState::new();
+        local.init_genesis(&TEST_PARAMS, 1_700_000_000, 1_000_000).unwrap();
+        extend(&mut local, 3, 1_700_000_060, "miner-common");
+
+        let mut remote = ChainState::new();
+        remote.init_genesis(&TEST_PARAMS, 1_700_000_000, 1_000_000).unwrap();
+        extend(&mut remote, 3, 1_700_000_060, "miner-common");
+        assert_eq!(
+            local.tip().unwrap().hash(),
+            remote.tip().unwrap().hash(),
+            "test setup: local and remote must share an identical common chain"
+        );
+
+        // Below both tips, each side mines its own competing fork:
+        // local stays short (height 5), remote ends up taller (height 7) —
+        // mirroring DO (962) being ahead of Vultr (960) after both diverged
+        // at height 959.
+        extend(&mut local, 2, 1_700_001_000, "miner-local");
+        extend(&mut remote, 4, 1_700_002_000, "miner-remote");
+        assert_eq!(local.height(), Some(5));
+        assert_eq!(remote.height(), Some(7));
+        assert_ne!(
+            local.get_block_by_height(4).unwrap().hash(),
+            remote.get_block_by_height(4).unwrap().hash(),
+            "test setup: chains must diverge below both tips (at height 4)"
+        );
+
+        let remote_height = remote.height().unwrap();
+        let remote_tip_hash = remote.tip().unwrap().hash();
+        let fetch = |from_height: u64| -> Result<Vec<Block>, String> {
+            let mut out = Vec::new();
+            for h in from_height..=remote_height {
+                match remote.get_block_by_height(h) {
+                    Some(block) => out.push(block),
+                    None => break,
+                }
+            }
+            Ok(out)
+        };
+
+        let synced = sync_blocks(&mut local, &TEST_PARAMS, remote_height, fetch)
+            .expect("sync_blocks must walk back past the fork point and heal the divergence");
+
+        assert!(synced > 0, "expected the peer's fork blocks to be applied");
+        assert_eq!(local.height(), Some(remote_height));
+        assert_eq!(
+            local.tip().unwrap().hash(),
+            remote_tip_hash,
+            "local must reorg onto the peer's taller/heavier chain after finding the common ancestor"
+        );
     }
 }
