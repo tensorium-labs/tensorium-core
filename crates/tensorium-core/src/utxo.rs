@@ -112,9 +112,13 @@ impl UtxoSet {
             .ok_or(UtxoError::MissingCoinbase)?;
 
         // ── Phase 1: read-only — validate non-coinbase txs and sum fees ──────
+        // `seen` spans the whole block (not just one transaction) so that two
+        // different transactions in the same block cannot both claim the same
+        // outpoint — entries aren't removed from `self.entries` until Phase 3,
+        // so a per-transaction set alone would miss this intra-block double-spend.
+        let mut seen: HashSet<OutPoint> = HashSet::new();
         let mut total_fees = 0u64;
         for tx in block.transactions.iter().skip(1) {
-            let mut seen: HashSet<OutPoint> = HashSet::new();
             let mut input_sum = 0u64;
             for input in &tx.inputs {
                 if !seen.insert(input.previous_output) {

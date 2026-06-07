@@ -1002,4 +1002,100 @@ mod tests {
         assert_eq!(state.get_block_by_height(0).unwrap().header.height, 0);
         assert_eq!(state.get_block_by_height(1).unwrap().header.height, 1);
     }
+
+    #[test]
+    fn submit_block_rejects_double_spend_in_extension() {
+        use crate::block::{OutPoint, TxInput, TxOutput};
+        use crate::chain::TEST_PARAMS;
+        use crate::script::standard::p2pkh_from_address;
+        use crate::wallet::WalletKeypair;
+
+        let keypair = WalletKeypair::generate();
+        let mut state = ChainState::new();
+        state.init_genesis(&TEST_PARAMS, 1_700_000_000, 1_000_000).unwrap();
+        state.ensure_utxo_synced(&TEST_PARAMS).unwrap();
+
+        // Height 1: coinbase to our address.
+        let mut c1 = candidate_block(&TEST_PARAMS, Some(&state.tip().unwrap().clone()), 1_700_000_060, "x", vec![], 0);
+        let cb1 = Transaction::coinbase(1, crate::emission::reward_at_height(&TEST_PARAMS, 1), keypair.address.as_str());
+        c1.transactions[0] = cb1.clone();
+        c1.header.merkle_root = merkle_root(&c1.transactions);
+        let h1 = mine_header(c1.header.clone(), 10_000_000).unwrap();
+        let b1 = Block::new(h1, c1.transactions);
+        state.submit_block(&TEST_PARAMS, b1, 1_700_000_060).unwrap();
+
+        // Advance past coinbase maturity so the coinbase is spendable.
+        let mut ts = 1_700_000_120;
+        for _ in 0..TEST_PARAMS.coinbase_maturity_blocks {
+            let cand = state.candidate_block(&TEST_PARAMS, ts, "x").unwrap();
+            let hh = mine_header(cand.header.clone(), 10_000_000).unwrap();
+            state.submit_block(&TEST_PARAMS, Block::new(hh, cand.transactions), ts).unwrap();
+            ts += 60;
+        }
+
+        // Build a block that spends the same coinbase output twice.
+        let outpoint = OutPoint { txid: cb1.id, output_index: 0 };
+        let mut spend = |val: u64| {
+            let mut tx = Transaction::payment(
+                vec![TxInput { previous_output: outpoint, signature_script: Vec::new() }],
+                vec![TxOutput { value_atoms: val, script_pubkey: p2pkh_from_address(keypair.address.as_str()).unwrap() }],
+            );
+            keypair.sign_transaction(&mut tx).unwrap();
+            tx
+        };
+        let next_h = state.height().unwrap() + 1;
+        let coinbase = Transaction::coinbase(next_h, crate::emission::reward_at_height(&TEST_PARAMS, next_h), "x");
+        let txs = vec![coinbase, spend(10), spend(10)];
+        let header = BlockHeader {
+            version: 1,
+            chain_id: TEST_PARAMS.chain_id.to_owned(),
+            height: next_h,
+            previous_hash: state.tip().unwrap().hash(),
+            merkle_root: merkle_root(&txs),
+            timestamp_seconds: ts,
+            leading_zero_bits: TEST_PARAMS.initial_leading_zero_bits,
+            nonce: 0,
+        };
+        let mined = mine_header(header, 10_000_000).unwrap();
+        let bad = Block::new(mined, txs);
+
+        let before = state.height();
+        let result = state.submit_block(&TEST_PARAMS, bad, ts);
+        assert!(matches!(result, Err(StateError::Utxo(_))), "double-spend must be rejected, got {result:?}");
+        assert_eq!(state.height(), before, "rejected block must not advance the tip");
+    }
+
+    #[test]
+    fn reorg_to_invalid_branch_is_rejected_and_preserves_state() {
+        use crate::chain::TEST_PARAMS;
+        use crate::emission::reward_at_height;
+        let mut state = ChainState::new();
+        state.init_genesis(&TEST_PARAMS, 1_700_000_000, 1_000_000).unwrap();
+        let genesis = state.get_block_by_height(0).unwrap();
+        state.ensure_utxo_synced(&TEST_PARAMS).unwrap();
+
+        // Canonical: one valid block off genesis.
+        let c1 = candidate_block(&TEST_PARAMS, Some(&genesis), 1_700_000_060, "miner-a", vec![], 0);
+        let h1 = mine_header(c1.header.clone(), 10_000_000).unwrap();
+        let good = Block::new(h1, c1.transactions);
+        state.submit_block(&TEST_PARAMS, good.clone(), 1_700_000_060).unwrap();
+        let good_utxo_tip = state.read_meta_utxo_tip();
+
+        // Competing branch: a single higher-difficulty block off genesis whose
+        // coinbase is inflated. It has more work, so fork choice would adopt it —
+        // but the UTXO replay must reject it.
+        let mut s1 = candidate_block(&TEST_PARAMS, Some(&genesis), 1_700_000_061, "miner-b", vec![], 0);
+        s1.transactions[0] = Transaction::coinbase(1, reward_at_height(&TEST_PARAMS, 1).saturating_mul(5), "attacker");
+        s1.header.leading_zero_bits = 16;
+        s1.header.merkle_root = merkle_root(&s1.transactions);
+        let h2 = mine_header(s1.header.clone(), 10_000_000).unwrap();
+        let evil = Block::new(h2, s1.transactions);
+
+        let result = state.submit_block(&TEST_PARAMS, evil.clone(), 1_700_000_061);
+        assert!(matches!(result, Err(StateError::Utxo(_))), "invalid heavier branch must be rejected, got {result:?}");
+        // Old canonical chain and UTXO tip are untouched.
+        assert_eq!(state.tip().unwrap().hash(), good.hash());
+        assert_eq!(state.height(), Some(1));
+        assert_eq!(state.read_meta_utxo_tip(), good_utxo_tip);
+    }
 }
