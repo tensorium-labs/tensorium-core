@@ -412,11 +412,58 @@ impl ChainState {
         chain
     }
 
+    /// Replay `apply_block` over `chain` (genesis-first order) into a fresh set.
+    fn replay_utxo(&self, params: &ConsensusParams, chain: &[Block]) -> Result<UtxoSet, StateError> {
+        let mut set = UtxoSet::new();
+        for block in chain {
+            set.apply_block(params, block)?;
+        }
+        Ok(set)
+    }
+
+    /// Delete every existing CF_UTXO entry, then insert all entries of `set`,
+    /// and stamp META_UTXO_TIP — all in `batch`.
+    fn rewrite_utxo_into_batch(&self, batch: &mut WriteBatch, set: &UtxoSet, utxo_tip: &Hash256) {
+        let utxo_cf = self.db.cf_handle(CF_UTXO).expect("utxo CF");
+        let meta_cf = self.db.cf_handle(CF_META).expect("meta CF");
+        let existing: Vec<Box<[u8]>> = self
+            .db
+            .iterator_cf(utxo_cf, rocksdb::IteratorMode::Start)
+            .filter_map(|r| r.ok().map(|(k, _)| k))
+            .collect();
+        for k in existing {
+            batch.delete_cf(utxo_cf, k);
+        }
+        for (op, entry) in &set.entries {
+            batch.put_cf(utxo_cf, encode_outpoint(op), encode_utxo_entry(entry));
+        }
+        batch.put_cf(meta_cf, META_UTXO_TIP, &utxo_tip.0);
+    }
+
     /// Expose raw DB handle — used by migration only.
     pub(crate) fn db_handle(&self) -> &DB { &self.db }
 
     /// Public wrapper for reload_caches — used by migration.
     pub(crate) fn reload_caches_pub(&mut self) { self.reload_caches(); }
+
+    /// Ensure the persistent UTXO set reflects the current canonical tip.
+    /// Cheap (one meta read) when already in sync; rebuilds from the canonical
+    /// chain when META_UTXO_TIP is absent or stale (first upgrade / crash heal).
+    pub fn ensure_utxo_synced(&mut self, params: &ConsensusParams) -> Result<(), StateError> {
+        let tip = match self.tip_cache.as_ref() {
+            Some(b) => b.hash(),
+            None => return Ok(()), // empty chain — nothing to build
+        };
+        if self.read_meta_utxo_tip() == Some(tip) {
+            return Ok(());
+        }
+        let chain: Vec<Block> = self.canonical_blocks_iter().collect();
+        let set = self.replay_utxo(params, &chain)?;
+        let mut batch = WriteBatch::default();
+        self.rewrite_utxo_into_batch(&mut batch, &set, &tip);
+        self.write_batch(batch);
+        Ok(())
+    }
 }
 
 // -----------------------------------------------------------------------------
@@ -798,6 +845,35 @@ mod tests {
         state.utxo_put_direct(&op, &entry);
         assert_eq!(state.utxo_get(&op), Some(entry));
         assert_eq!(state.utxo_get(&OutPoint { txid: Hash256([9u8; 32]), output_index: 0 }), None);
+    }
+
+    #[test]
+    fn ensure_utxo_synced_builds_set_from_canonical_chain() {
+        use crate::chain::TEST_PARAMS;
+        let mut state = ChainState::new();
+        state.init_genesis(&TEST_PARAMS, 1_700_000_000, 1_000_000).unwrap();
+        state.mine_next_block(&TEST_PARAMS, 1_700_000_060, "miner", 1_000_000).unwrap();
+        state.mine_next_block(&TEST_PARAMS, 1_700_000_120, "miner", 1_000_000).unwrap();
+
+        // mine_next_block does not maintain CF_UTXO, so it starts empty/out of sync.
+        assert!(state.read_meta_utxo_tip().is_none());
+
+        state.ensure_utxo_synced(&TEST_PARAMS).unwrap();
+
+        // After sync, META_UTXO_TIP matches the tip and the persisted set equals
+        // a from-scratch replay of the canonical chain.
+        assert_eq!(state.read_meta_utxo_tip(), Some(state.tip_hash()));
+        let chain: Vec<Block> = state.canonical_blocks_iter().collect();
+        let mut expected = UtxoSet::new();
+        for b in &chain {
+            expected.apply_block(&TEST_PARAMS, b).unwrap();
+        }
+        for (op, entry) in &expected.entries {
+            assert_eq!(state.utxo_get(op).as_ref(), Some(entry));
+        }
+        // And a second call is a cheap no-op (still synced).
+        state.ensure_utxo_synced(&TEST_PARAMS).unwrap();
+        assert_eq!(state.read_meta_utxo_tip(), Some(state.tip_hash()));
     }
 
     #[test]
