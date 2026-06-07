@@ -477,15 +477,20 @@ fn save_mempool(path: &Path, mempool: &Mempool) -> Result<(), String> {
     fs::write(path, raw).map_err(|err| format!("failed to write {}: {err}", path.display()))
 }
 
-/// Build a full UTXO set by replaying all blocks in `state`.
-fn build_utxo_set(state: &ChainState, params: &ConsensusParams) -> Result<UtxoSet, String> {
-    let mut utxos = UtxoSet::new();
-    for block in state.canonical_blocks_iter() {
-        utxos
-            .apply_block(params, &block)
-            .map_err(|err| format!("UTXO apply failed: {err}"))?;
+/// Seed a minimal `UtxoSet` with exactly the outpoints `tx` spends, read from
+/// the persistent CF_UTXO. Behaviour-identical to validating `tx` against the
+/// full UTXO set because `validate_transaction` only reads the inputs it spends
+/// — a referenced outpoint absent from CF_UTXO is left absent here too, so
+/// validation still yields `MissingInput`. Replaces a full-chain replay for
+/// mempool acceptance.
+fn seed_utxos_for_tx(state: &ChainState, tx: &Transaction) -> UtxoSet {
+    let mut set = UtxoSet::new();
+    for input in &tx.inputs {
+        if let Some(entry) = state.utxo_lookup(&input.previous_output) {
+            set.entries.insert(input.previous_output, entry);
+        }
     }
-    Ok(utxos)
+    set
 }
 
 // ---------------------------------------------------------------------------
@@ -1136,8 +1141,11 @@ fn accept_peer_tx(
     tx: Transaction,
     params: &ConsensusParams,
 ) -> Result<(), String> {
-    let state = load_state(state_path)?;
-    let utxos = build_utxo_set(&state, params)?;
+    let mut state = load_state(state_path)?;
+    state
+        .ensure_utxo_synced(params)
+        .map_err(|e| e.to_string())?;
+    let utxos = seed_utxos_for_tx(&state, &tx);
     let tip_height = state.height().unwrap_or(0);
     let mut mempool = load_mempool(mempool_path);
     mempool
@@ -1701,8 +1709,11 @@ fn handle_rpc_stream(
                 }
             };
             let txid = tx.id;
-            let state = rpc_state(stream, state_path)?;
-            let utxos = build_utxo_set(&state, params)?;
+            let mut state = rpc_state(stream, state_path)?;
+            state
+                .ensure_utxo_synced(params)
+                .map_err(|e| e.to_string())?;
+            let utxos = seed_utxos_for_tx(&state, &tx);
             let tip_height = state.height().unwrap_or(0);
 
             let mut mempool = load_mempool(mempool_path);
@@ -1839,13 +1850,14 @@ fn handle_rpc_stream(
                     ),
                 }
             };
-            let state = rpc_state(stream, state_path)?;
-            let utxos = build_utxo_set(&state, params)?;
+            let mut state = rpc_state(stream, state_path)?;
+            state
+                .ensure_utxo_synced(params)
+                .map_err(|e| e.to_string())?;
             let tip_height = state.height().unwrap_or(0);
-            let entries: Vec<serde_json::Value> = utxos
-                .entries
+            let entries: Vec<serde_json::Value> = state
+                .utxos_for_script(&script)
                 .iter()
-                .filter(|(_, entry)| entry.output.script_pubkey == script)
                 .map(|(outpoint, entry)| {
                     let mature = !entry.coinbase
                         || tip_height
@@ -2154,6 +2166,60 @@ mod tests {
         let reopened = load_state(&state_path).unwrap();
         assert_eq!(reopened.height(), Some(0));
         assert!(state_path.with_extension("db").exists());
+    }
+
+    #[test]
+    fn seed_utxos_for_tx_includes_only_referenced_existing_outpoints() {
+        use tensorium_core::chain::TEST_PARAMS;
+        use tensorium_core::{OutPoint, Transaction, TxInput, TxOutput};
+
+        let mut state = ChainState::new();
+        state.init_genesis(&TEST_PARAMS, 1_700_000_000, 1_000_000).unwrap();
+        state.ensure_utxo_synced(&TEST_PARAMS).unwrap();
+
+        // A real, existing outpoint: the genesis coinbase output 0.
+        let genesis = state.get_block_by_height(0).unwrap();
+        let existing = OutPoint {
+            txid: genesis.transactions[0].id,
+            output_index: 0,
+        };
+        assert!(
+            state.utxo_lookup(&existing).is_some(),
+            "setup: genesis coinbase output must be in CF_UTXO"
+        );
+
+        // A bogus outpoint that does not exist in the set.
+        let missing = OutPoint {
+            txid: Hash256([9u8; 32]),
+            output_index: 0,
+        };
+        assert!(state.utxo_lookup(&missing).is_none());
+
+        let tx = Transaction::payment(
+            vec![
+                TxInput {
+                    previous_output: existing,
+                    signature_script: Vec::new(),
+                },
+                TxInput {
+                    previous_output: missing,
+                    signature_script: Vec::new(),
+                },
+            ],
+            vec![TxOutput {
+                value_atoms: 1,
+                script_pubkey: Vec::new(),
+            }],
+        );
+
+        let seed = seed_utxos_for_tx(&state, &tx);
+        assert_eq!(
+            seed.entries.len(),
+            1,
+            "only the existing referenced outpoint is seeded"
+        );
+        assert!(seed.entries.contains_key(&existing));
+        assert!(!seed.entries.contains_key(&missing));
     }
 
     // --- sync_blocks: fork-below-tip healing ---

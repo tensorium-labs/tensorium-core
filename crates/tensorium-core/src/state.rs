@@ -11,7 +11,8 @@ use crate::{
     hash::Hash256,
     pow::mine_header,
     storage::{
-        decode_block, decode_utxo_entry, encode_block, encode_height, encode_outpoint, encode_utxo_entry,
+        decode_block, decode_outpoint, decode_utxo_entry, encode_block, encode_height,
+        encode_outpoint, encode_utxo_entry,
         CF_BLOCKS, CF_CANONICAL, CF_META, CF_UTXO, META_HEIGHT, META_TIP, META_UTXO_TIP,
     },
     utxo::{UtxoEntry, UtxoError, UtxoSet},
@@ -198,11 +199,38 @@ impl ChainState {
     }
 
     /// Test/helper: write a single UTXO entry directly (no batch).
+    #[cfg(test)]
     fn utxo_put_direct(&self, outpoint: &OutPoint, entry: &UtxoEntry) {
         let cf = self.db.cf_handle(CF_UTXO).expect("utxo CF");
         self.db
             .put_cf(cf, encode_outpoint(outpoint), encode_utxo_entry(entry))
             .expect("DB put");
+    }
+
+    /// Scan the persistent UTXO set, returning every entry whose output
+    /// `script_pubkey` equals `script`. Replaces a full-chain replay for
+    /// address/script queries (e.g. `/getutxos`). O(set size), not O(chain).
+    pub fn utxos_for_script(&self, script: &[u8]) -> Vec<(OutPoint, UtxoEntry)> {
+        let cf = self.db.cf_handle(CF_UTXO).expect("utxo CF");
+        self.db
+            .iterator_cf(cf, rocksdb::IteratorMode::Start)
+            .filter_map(|r| {
+                let (k, v) = r.expect("utxo iterator read");
+                let entry = decode_utxo_entry(&v);
+                if entry.output.script_pubkey == script {
+                    Some((decode_outpoint(&k), entry))
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
+
+    /// Look up a single outpoint in the persistent UTXO set.
+    /// Public so the node can seed a minimal `UtxoSet` for mempool acceptance
+    /// without replaying the whole chain.
+    pub fn utxo_lookup(&self, outpoint: &OutPoint) -> Option<UtxoEntry> {
+        self.utxo_get(outpoint)
     }
 
     fn read_meta_utxo_tip(&self) -> Option<Hash256> {
@@ -1097,6 +1125,66 @@ mod tests {
         assert_eq!(state.tip().unwrap().hash(), good.hash());
         assert_eq!(state.height(), Some(1));
         assert_eq!(state.read_meta_utxo_tip(), good_utxo_tip);
+    }
+
+    #[test]
+    fn utxos_for_script_returns_only_matching_entries() {
+        use crate::chain::TEST_PARAMS;
+        let mut state = ChainState::new();
+        state.init_genesis(&TEST_PARAMS, 1_700_000_000, 1_000_000).unwrap();
+        state.ensure_utxo_synced(&TEST_PARAMS).unwrap();
+
+        let mut ts = 1_700_000_060;
+        for _ in 0..4 {
+            let cand = state.candidate_block(&TEST_PARAMS, ts, "miner").unwrap();
+            let header = mine_header(cand.header.clone(), 1_000_000).unwrap();
+            state.submit_block(&TEST_PARAMS, Block::new(header, cand.transactions), ts).unwrap();
+            ts += 60;
+        }
+
+        // Expected = a from-scratch replay of the canonical chain.
+        let chain: Vec<Block> = state.canonical_blocks_iter().collect();
+        let mut expected = UtxoSet::new();
+        for b in &chain {
+            expected.apply_block(&TEST_PARAMS, b).unwrap();
+        }
+
+        // Pick a script that actually has entries.
+        let script = expected
+            .entries
+            .values()
+            .next()
+            .expect("at least one utxo")
+            .output
+            .script_pubkey
+            .clone();
+        let expected_for_script: std::collections::HashMap<OutPoint, UtxoEntry> = expected
+            .entries
+            .iter()
+            .filter(|(_, e)| e.output.script_pubkey == script)
+            .map(|(op, e)| (*op, e.clone()))
+            .collect();
+        assert!(!expected_for_script.is_empty(), "test needs a non-empty script set");
+
+        let got = state.utxos_for_script(&script);
+        assert_eq!(
+            got.len(),
+            expected_for_script.len(),
+            "utxos_for_script returned wrong count"
+        );
+        for (op, entry) in &got {
+            assert_eq!(
+                expected_for_script.get(op),
+                Some(entry),
+                "mismatched/extra utxo {op:?}"
+            );
+        }
+
+        // A script with no entries returns empty.
+        assert!(
+            state.utxos_for_script(b"no-such-script").is_empty(),
+            "unknown script must yield no entries"
+        );
     }
 
     #[test]
