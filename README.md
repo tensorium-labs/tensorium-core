@@ -11,7 +11,7 @@ A Proof-of-Work blockchain built in Rust — live mainnet and CUDA mining.
 [![Website](https://img.shields.io/badge/Website-tensoriumlabs.com-black)](https://tensoriumlabs.com)
 [![Docs](https://img.shields.io/badge/Docs-docs.tensoriumlabs.com-7c3aed)](https://docs.tensoriumlabs.com)
 [![Explorer](https://img.shields.io/badge/Explorer-Live-green)](https://explorer.tensoriumlabs.com)
-[![Release](https://img.shields.io/badge/Release-v0.3.4--mainnet-orange)](https://github.com/tensorium-labs/tensorium-core/releases/tag/v0.3.4-mainnet)
+[![Release](https://img.shields.io/badge/Release-v0.3.6--mainnet-orange)](https://github.com/tensorium-labs/tensorium-core/releases/tag/v0.3.6-mainnet)
 
 ## Install (Linux x86_64)
 
