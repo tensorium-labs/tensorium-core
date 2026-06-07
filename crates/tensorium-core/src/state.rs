@@ -325,11 +325,22 @@ impl ChainState {
         if new_work > old_work {
             let new_canonical = self.build_canonical_chain(block_hash);
             let height = new_canonical.last().map(|b| b.header.height).unwrap_or(0);
+            let old_height = self.height_cache.unwrap_or(0);
             let mut batch = WriteBatch::default();
             let canonical_cf = self.db.cf_handle(CF_CANONICAL).expect("canonical CF");
             let meta_cf      = self.db.cf_handle(CF_META).expect("meta CF");
             for b in &new_canonical {
                 batch.put_cf(canonical_cf, &encode_height(b.header.height), &b.hash().0);
+            }
+            // A reorg can replace a taller chain with a shorter one that has
+            // more cumulative work (retargeting makes this possible). The old
+            // chain's canonical entries at heights beyond the new tip would
+            // otherwise survive as orphaned tail entries — canonical_blocks_iter
+            // has no upper bound, so it would yield [new chain][stale old tail],
+            // a sequence whose transactions don't connect (apply_block fails
+            // with "spends an output that does not exist"). Prune them here.
+            for h in (height + 1)..=old_height {
+                batch.delete_cf(canonical_cf, &encode_height(h));
             }
             batch.put_cf(meta_cf, META_TIP,    &block_hash.0);
             batch.put_cf(meta_cf, META_HEIGHT, &encode_height(height));
@@ -635,6 +646,97 @@ mod tests {
         assert_eq!(state.get_block_by_height(1).unwrap().hash(), side_block.hash());
         assert_eq!(state.get_block_by_height(2).unwrap().hash(), side_extension.hash());
         assert!(state.get_block_by_hash(canonical_block.hash()).is_some());
+    }
+
+    /// Regression test for the "UTXO apply failed: transaction spends an
+    /// output that does not exist" payout bug observed on mainnet.
+    ///
+    /// Root cause: when a reorg replaces a TALLER chain with a SHORTER one
+    /// that has more cumulative work (possible because of difficulty
+    /// retargeting), `submit_block` overwrote canonical entries for
+    /// `0..=new_height` but left the old chain's entries at
+    /// `new_height+1..=old_height` in place. `canonical_blocks_iter()` has no
+    /// upper bound, so it would then yield the new chain followed by the old
+    /// chain's orphaned tail — a non-contiguous sequence whose blocks don't
+    /// chain together, causing `build_utxo_set`'s replay to fail.
+    #[test]
+    fn submit_block_prunes_stale_canonical_entries_on_reorg_to_shorter_chain() {
+        let mut state = ChainState::new();
+        state
+            .init_genesis(&TEST_PARAMS, 1_700_000_000, 1_000_000)
+            .unwrap();
+        let genesis = state.get_block_by_height(0).unwrap();
+
+        // Chain A: five low-difficulty blocks (height 5) extending genesis —
+        // becomes canonical first since it's the only chain.
+        let mut parent = genesis.clone();
+        let mut chain_a = Vec::new();
+        for i in 0..5u64 {
+            let c = candidate_block(
+                &TEST_PARAMS,
+                Some(&parent),
+                1_700_000_060 + i,
+                "miner-a",
+                vec![],
+                0,
+            );
+            let h = mine_header(c.header.clone(), 1_000_000).unwrap();
+            let block = Block::new(h, c.transactions);
+            state
+                .submit_block(&TEST_PARAMS, block.clone(), 1_700_000_060 + i)
+                .unwrap();
+            parent = block.clone();
+            chain_a.push(block);
+        }
+        assert_eq!(state.height(), Some(5));
+        assert_eq!(state.tip().unwrap().hash(), chain_a[4].hash());
+
+        // Chain B: a single block directly off genesis, mined at much higher
+        // difficulty. Its cumulative work (genesis@8 + 1 block@16 = 256 +
+        // 65536 = 65792) exceeds chain A's (genesis@8 + 5 blocks@8 = 1536),
+        // even though it is far shorter — exactly the scenario that produced
+        // the 936→901 reorg observed on the Vultr node.
+        let mut c_b1 = candidate_block(
+            &TEST_PARAMS,
+            Some(&genesis),
+            1_700_000_500,
+            "miner-b",
+            vec![],
+            0,
+        );
+        c_b1.header.leading_zero_bits = 16;
+        let h_b1 = mine_header(c_b1.header.clone(), 10_000_000).unwrap();
+        let b1 = Block::new(h_b1, c_b1.transactions);
+
+        state
+            .submit_block(&TEST_PARAMS, b1.clone(), 1_700_000_500)
+            .unwrap();
+
+        // The shorter-but-heavier chain must win the reorg.
+        assert_eq!(
+            state.height(),
+            Some(1),
+            "shorter chain with more cumulative work must become canonical"
+        );
+        assert_eq!(state.tip().unwrap().hash(), b1.hash());
+
+        // Canonical iteration must yield exactly the new chain — not the old
+        // chain's orphaned tail at heights 2..=5.
+        let canon: Vec<Block> = state.canonical_blocks_iter().collect();
+        assert_eq!(
+            canon.iter().map(|b| b.hash()).collect::<Vec<_>>(),
+            vec![genesis.hash(), b1.hash()],
+            "stale canonical entries from the replaced chain must be pruned"
+        );
+
+        // Heights beyond the new tip must not resolve to stale entries.
+        assert!(state.get_block_by_height(2).is_none());
+        assert!(state.get_block_by_height(5).is_none());
+
+        // The old chain's blocks remain stored (so a future reorg back to a
+        // heavier extension of chain A is still possible) — they're just no
+        // longer indexed as canonical.
+        assert!(state.get_block_by_hash(chain_a[4].hash()).is_some());
     }
 
     #[test]
