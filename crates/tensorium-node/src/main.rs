@@ -1630,9 +1630,30 @@ fn handle_rpc_stream(
             if miner.is_empty() {
                 return write_json_response(stream, 404, &RpcError::new("missing miner address"));
             }
-            let state = rpc_state(stream, state_path)?;
+            let mut state = rpc_state(stream, state_path)?;
+            state
+                .ensure_utxo_synced(params)
+                .map_err(|e| e.to_string())?;
             let mempool = load_mempool(&mempool_path);
-            let (extra_txs, total_fees) = mempool.select_for_block();
+            let (candidate_txs, _) = mempool.select_for_block();
+            // Revalidate each selected tx against the live UTXO set: a tx whose
+            // inputs were already spent on-chain (e.g. the losing side of a
+            // double-spend, or a reorg) must not enter the template, or the mined
+            // block would be rejected by accept-time UTXO validation. Recompute
+            // fees from the surviving txs.
+            let tip_height = state.height().unwrap_or(0);
+            let mut extra_txs = Vec::new();
+            let mut total_fees: u64 = 0;
+            for tx in candidate_txs {
+                let seed = seed_utxos_for_tx(&state, &tx);
+                match seed.validate_transaction(&tx, tip_height, params) {
+                    Ok(fee) => {
+                        total_fees = total_fees.saturating_add(fee);
+                        extra_txs.push(tx);
+                    }
+                    Err(_) => { /* stale/invalid — skip it for this template */ }
+                }
+            }
             let block = state
                 .candidate_block_with_mempool(params, now_seconds(), miner, extra_txs, total_fees)
                 .map_err(|err| err.to_string())?;

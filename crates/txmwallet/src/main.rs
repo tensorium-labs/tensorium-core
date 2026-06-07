@@ -1,7 +1,5 @@
 use std::{
     env, fs,
-    io::{Read, Write},
-    net::TcpStream,
     path::{Path, PathBuf},
 };
 
@@ -754,48 +752,73 @@ fn print_help() {
 // Minimal HTTP client for sendrawtransaction
 // ---------------------------------------------------------------------------
 
-fn rpc_post(rpc: &str, path: &str, body: &str) -> Result<String, String> {
-    let request = format!(
-        "POST {path} HTTP/1.1\r\nhost: {rpc}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
-        body.len()
-    );
-    let mut stream =
-        TcpStream::connect(rpc).map_err(|err| format!("failed to connect to {rpc}: {err}"))?;
-    stream
-        .write_all(request.as_bytes())
-        .map_err(|err| format!("failed to send request: {err}"))?;
-
-    let mut response = String::new();
-    stream
-        .read_to_string(&mut response)
-        .map_err(|err| format!("failed to read response: {err}"))?;
-
-    let (head, response_body) = response
-        .split_once("\r\n\r\n")
-        .ok_or_else(|| "invalid HTTP response".to_owned())?;
-    if !head.starts_with("HTTP/1.1 200") {
-        return Err(format!("RPC error: {response_body}"));
+/// Normalize an RPC endpoint into a full URL.
+/// Accepts a full `http://`/`https://` URL (used verbatim, TLS handled for https),
+/// or a bare `host:port` (legacy form, assumed plain HTTP). Trailing slashes are
+/// trimmed so callers can append a path beginning with `/`.
+fn normalize_rpc_url(rpc: &str) -> String {
+    let t = rpc.trim().trim_end_matches('/');
+    if t.starts_with("http://") || t.starts_with("https://") {
+        t.to_owned()
+    } else {
+        format!("http://{t}")
     }
-    Ok(response_body.to_owned())
+}
+
+fn rpc_post(rpc: &str, path: &str, body: &str) -> Result<String, String> {
+    let url = format!("{}{}", normalize_rpc_url(rpc), path);
+    match ureq::post(&url)
+        .set("content-type", "application/json")
+        .send_string(body)
+    {
+        Ok(resp) => resp
+            .into_string()
+            .map_err(|e| format!("failed to read response: {e}")),
+        Err(ureq::Error::Status(code, resp)) => {
+            let detail = resp.into_string().unwrap_or_default();
+            Err(format!("RPC error {code}: {detail}"))
+        }
+        Err(e) => Err(format!("failed to connect to {url}: {e}")),
+    }
 }
 
 fn rpc_get(rpc: &str, path: &str) -> Result<String, String> {
-    let request = format!("GET {path} HTTP/1.1\r\nhost: {rpc}\r\nconnection: close\r\n\r\n");
-    let mut stream = TcpStream::connect(rpc).map_err(|err| format!("RPC connect {rpc}: {err}"))?;
-    stream
-        .write_all(request.as_bytes())
-        .map_err(|e| format!("RPC write: {e}"))?;
-    let mut response = String::new();
-    stream
-        .read_to_string(&mut response)
-        .map_err(|e| format!("RPC read: {e}"))?;
-    let (head, body) = response
-        .split_once("\r\n\r\n")
-        .ok_or("invalid HTTP response")?;
-    if !head.starts_with("HTTP/1.1 200") {
-        return Err(format!("RPC error: {body}"));
+    let url = format!("{}{}", normalize_rpc_url(rpc), path);
+    match ureq::get(&url).call() {
+        Ok(resp) => resp.into_string().map_err(|e| format!("RPC read: {e}")),
+        Err(ureq::Error::Status(code, resp)) => {
+            let detail = resp.into_string().unwrap_or_default();
+            Err(format!("RPC error {code}: {detail}"))
+        }
+        Err(e) => Err(format!("RPC connect {url}: {e}")),
     }
-    Ok(body.to_owned())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::normalize_rpc_url;
+
+    #[test]
+    fn normalize_bare_host_port_gets_http_scheme() {
+        assert_eq!(normalize_rpc_url("127.0.0.1:33332"), "http://127.0.0.1:33332");
+        assert_eq!(
+            normalize_rpc_url("mc-rpc.tensoriumlabs.com:80"),
+            "http://mc-rpc.tensoriumlabs.com:80"
+        );
+    }
+
+    #[test]
+    fn normalize_keeps_explicit_scheme_and_trims_trailing_slash() {
+        assert_eq!(
+            normalize_rpc_url("https://mc-rpc.tensoriumlabs.com"),
+            "https://mc-rpc.tensoriumlabs.com"
+        );
+        assert_eq!(
+            normalize_rpc_url("https://mc-rpc.tensoriumlabs.com/"),
+            "https://mc-rpc.tensoriumlabs.com"
+        );
+        assert_eq!(normalize_rpc_url("http://host:8080"), "http://host:8080");
+    }
 }
 
 /// Build a signed payment transaction using UTXOs fetched from the node RPC.

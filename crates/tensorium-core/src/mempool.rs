@@ -21,6 +21,12 @@ pub const MIN_RELAY_FEE_ATOMS: u64 = 10_000; // 0.0001 TXM
 /// Suggested priority fee for faster inclusion when the mempool is congested.
 pub const PRIORITY_FEE_ATOMS: u64 = 100_000; // 0.001 TXM
 
+/// Maximum number of transactions held in the mempool. Bounds memory and the
+/// size of the persisted JSON. When full, a new transaction is only accepted if
+/// it pays a strictly higher fee than the current lowest-fee entry, which is
+/// then evicted (fee-priority replacement).
+pub const MAX_MEMPOOL_TXS: usize = 5_000;
+
 // ---------------------------------------------------------------------------
 // MempoolEntry — stores a tx alongside its pre-calculated fee
 // ---------------------------------------------------------------------------
@@ -46,6 +52,8 @@ pub enum MempoolError {
     PendingConflict,
     #[error("transaction fee {fee} atoms is below minimum relay fee {min} atoms")]
     FeeTooLow { fee: u64, min: u64 },
+    #[error("mempool is full ({max} txs); fee {fee} does not exceed the lowest-fee entry")]
+    MempoolFull { fee: u64, max: usize },
     #[error(transparent)]
     InvalidTransaction(#[from] UtxoError),
 }
@@ -90,6 +98,26 @@ impl Mempool {
                 fee,
                 min: MIN_RELAY_FEE_ATOMS,
             });
+        }
+        // Size cap: when full, only admit a tx that outbids the current
+        // lowest-fee entry, evicting it. Otherwise reject (anti-DoS).
+        if self.pending.len() >= MAX_MEMPOOL_TXS {
+            let lowest = self
+                .pending
+                .iter()
+                .min_by_key(|(_, e)| e.fee_atoms)
+                .map(|(k, e)| (k.clone(), e.fee_atoms));
+            match lowest {
+                Some((low_key, low_fee)) if fee > low_fee => {
+                    self.pending.remove(&low_key);
+                }
+                _ => {
+                    return Err(MempoolError::MempoolFull {
+                        fee,
+                        max: MAX_MEMPOOL_TXS,
+                    })
+                }
+            }
         }
         self.pending.insert(key, MempoolEntry { tx, fee_atoms: fee });
         Ok(())
@@ -142,11 +170,30 @@ impl Mempool {
         (selected, total_fees)
     }
 
-    /// Remove every transaction whose txid appears in `block`.
+    /// Remove transactions made obsolete by `block`: those whose txid appears in
+    /// the block (confirmed), and those that spend an outpoint already spent by a
+    /// confirmed transaction (the losing side of a double-spend). Without the
+    /// latter, a stale conflicting tx would linger and keep being selected into
+    /// block templates, producing blocks that accept-time UTXO validation rejects.
     pub fn remove_confirmed(&mut self, block: &Block) {
+        let mut confirmed_ids: HashSet<String> = HashSet::new();
+        let mut spent: HashSet<OutPoint> = HashSet::new();
         for tx in &block.transactions {
-            self.pending.remove(&tx.id.to_hex());
+            confirmed_ids.insert(tx.id.to_hex());
+            for input in &tx.inputs {
+                spent.insert(input.previous_output);
+            }
         }
+        self.pending.retain(|txid, entry| {
+            if confirmed_ids.contains(txid) {
+                return false;
+            }
+            !entry
+                .tx
+                .inputs
+                .iter()
+                .any(|input| spent.contains(&input.previous_output))
+        });
     }
 
     pub fn len(&self) -> usize {
@@ -440,6 +487,92 @@ mod tests {
             Err(MempoolError::PendingConflict)
         );
         assert_eq!(mp.len(), 1);
+    }
+
+    #[test]
+    fn remove_confirmed_evicts_conflicting_pending_tx() {
+        // A stale mempool tx that spends the same outpoint as a *different*
+        // confirmed tx must be evicted (it can never confirm and would otherwise
+        // poison block templates under accept-time UTXO validation).
+        let keypair = WalletKeypair::generate();
+        let (utxos, op) = funded_utxos(&keypair, 2_000_000);
+        let stale = payment_tx(&keypair, op, 2_000_000 - MIN_RELAY_FEE_ATOMS);
+        let confirmed = payment_tx(&keypair, op, 2_000_000 - MIN_RELAY_FEE_ATOMS - 1);
+        assert_ne!(stale.id, confirmed.id, "txs must differ but spend the same outpoint");
+
+        let mut mp = Mempool::new();
+        mp.add(&utxos, &TEST_PARAMS, stale, 200).unwrap();
+        assert_eq!(mp.len(), 1);
+
+        let block = Block::new(
+            BlockHeader {
+                version: 1,
+                chain_id: TESTNET.chain_id.to_owned(),
+                height: 1,
+                previous_hash: Hash256::ZERO,
+                merkle_root: Hash256::ZERO,
+                timestamp_seconds: 0,
+                leading_zero_bits: 0,
+                nonce: 0,
+            },
+            vec![Transaction::coinbase(1, 0, "miner"), confirmed],
+        );
+        mp.remove_confirmed(&block);
+        assert_eq!(
+            mp.len(),
+            0,
+            "stale tx spending the same outpoint as the confirmed tx must be evicted"
+        );
+    }
+
+    #[test]
+    fn add_rejects_when_full_and_fee_not_higher() {
+        let keypair = WalletKeypair::generate();
+        let (utxos, op) = funded_utxos(&keypair, 1_000_000);
+        let tx = payment_tx(&keypair, op, 1_000_000 - MIN_RELAY_FEE_ATOMS); // fee = MIN_RELAY
+
+        let mut mp = Mempool::new();
+        for i in 0..MAX_MEMPOOL_TXS {
+            mp.pending.insert(
+                format!("d{i}"),
+                MempoolEntry {
+                    tx: Transaction::coinbase(i as u64, 0, "x"),
+                    fee_atoms: 1_000_000, // every existing entry outbids the newcomer
+                },
+            );
+        }
+        assert_eq!(mp.len(), MAX_MEMPOOL_TXS);
+        assert_eq!(
+            mp.add(&utxos, &TEST_PARAMS, tx, 0),
+            Err(MempoolError::MempoolFull {
+                fee: MIN_RELAY_FEE_ATOMS,
+                max: MAX_MEMPOOL_TXS
+            })
+        );
+        assert_eq!(mp.len(), MAX_MEMPOOL_TXS, "rejected tx must not grow the pool");
+    }
+
+    #[test]
+    fn add_evicts_lowest_fee_when_full_and_new_fee_higher() {
+        let keypair = WalletKeypair::generate();
+        let (utxos, op) = funded_utxos(&keypair, 1_000_000);
+        let tx = payment_tx(&keypair, op, 1_000_000 - PRIORITY_FEE_ATOMS); // fee = PRIORITY (high)
+        let new_id = tx.id.to_hex();
+
+        let mut mp = Mempool::new();
+        for i in 0..MAX_MEMPOOL_TXS {
+            mp.pending.insert(
+                format!("d{i}"),
+                MempoolEntry {
+                    tx: Transaction::coinbase(i as u64, 0, "x"),
+                    fee_atoms: 1_000, // all lower than the newcomer
+                },
+            );
+        }
+        assert_eq!(mp.len(), MAX_MEMPOOL_TXS);
+        mp.add(&utxos, &TEST_PARAMS, tx, 0).unwrap();
+        assert_eq!(mp.len(), MAX_MEMPOOL_TXS, "size stays capped after eviction");
+        assert!(mp.pending.contains_key(&new_id), "higher-fee tx must be admitted");
     }
 
     #[test]
