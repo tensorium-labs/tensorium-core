@@ -99,6 +99,125 @@ static int extract_byte_array(const char *json, const char *name,
     return parse_byte_array(p, out, n);
 }
 
+static const char *skip_ws_colon(const char *p) {
+    while (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n' || *p == ':') p++;
+    return p;
+}
+
+static const char *find_json_key(const char *json, const char *key) {
+    char search[128];
+    snprintf(search, sizeof(search), "\"%s\"", key);
+    return strstr(json, search);
+}
+
+static int json_object_span(const char *start, const char **end_out) {
+    if (!start || *start != '{') return 0;
+    int depth = 0;
+    int in_str = 0;
+    int escaped = 0;
+    const char *p = start;
+    while (*p) {
+        char c = *p;
+        if (in_str) {
+            if (escaped) escaped = 0;
+            else if (c == '\\') escaped = 1;
+            else if (c == '"') in_str = 0;
+        } else {
+            if (c == '"') in_str = 1;
+            else if (c == '{') depth++;
+            else if (c == '}') {
+                depth--;
+                if (depth == 0) {
+                    *end_out = p + 1;
+                    return 1;
+                }
+            }
+        }
+        p++;
+    }
+    return 0;
+}
+
+static int extract_template_object(const char *json, char *out, int out_len) {
+    const char *tmpl_key = find_json_key(json, "template");
+    if (!tmpl_key) return 0;
+    const char *start = skip_ws_colon(tmpl_key + strlen("\"template\""));
+    if (*start != '{') return 0;
+
+    const char *end = NULL;
+    if (!json_object_span(start, &end)) return 0;
+
+    int len = (int)(end - start);
+    if (len <= 0 || len >= out_len) return 0;
+    memcpy(out, start, len);
+    out[len] = '\0';
+    return 1;
+}
+
+static int replace_header_nonce(const char *block_json, uint64_t nonce,
+                                char *out, int out_len) {
+    const char *header_key = find_json_key(block_json, "header");
+    if (!header_key) return 0;
+    const char *header_start = skip_ws_colon(header_key + strlen("\"header\""));
+    if (*header_start != '{') return 0;
+
+    const char *header_end = NULL;
+    if (!json_object_span(header_start, &header_end)) return 0;
+
+    char header_buf[8192];
+    int header_len = (int)(header_end - header_start);
+    if (header_len <= 0 || header_len >= (int)sizeof(header_buf)) return 0;
+    memcpy(header_buf, header_start, header_len);
+    header_buf[header_len] = '\0';
+
+    const char *nonce_key = find_json_key(header_buf, "nonce");
+    if (!nonce_key) return 0;
+    const char *value_start = skip_ws_colon(nonce_key + strlen("\"nonce\""));
+    const char *value_end = value_start;
+    if (*value_end == '-') value_end++;
+    while (*value_end >= '0' && *value_end <= '9') value_end++;
+
+    int prefix = (int)(header_start - block_json) + (int)(value_start - header_buf);
+    int written = snprintf(out, out_len, "%.*s%llu%s",
+                           prefix, block_json,
+                           (unsigned long long)nonce,
+                           value_end);
+    return written > 0 && written < out_len;
+}
+
+static int http_post_json(const char *host, const char *port, const char *path,
+                          const char *body, char *buf, int buf_len) {
+    int s = tcp_connect(host, port);
+    if (s < 0) return 0;
+
+    char head[512];
+    int hlen = snprintf(head, sizeof(head),
+        "POST %s HTTP/1.1\r\nHost: %s:%s\r\nContent-Type: application/json\r\n"
+        "Content-Length: %zu\r\nConnection: close\r\n\r\n",
+        path, host, port, strlen(body));
+    if (send(s, head, hlen, 0) < 0 || send(s, body, strlen(body), 0) < 0) {
+        close(s);
+        return 0;
+    }
+
+    int total = 0, n;
+    char tmp[4096];
+    while ((n = recv(s, tmp, sizeof(tmp), 0)) > 0) {
+        if (total + n < buf_len) {
+            memcpy(buf + total, tmp, n);
+            total += n;
+        }
+    }
+    close(s);
+    buf[total] = '\0';
+
+    char *body_start = strstr(buf, "\r\n\r\n");
+    if (!body_start) return 0;
+    body_start += 4;
+    memmove(buf, body_start, strlen(body_start) + 1);
+    return 1;
+}
+
 // ── Template fetch ─────────────────────────────────────────────────────────────
 
 /* Global buf so stack doesn't overflow (template_json is 1 MB) */
@@ -138,34 +257,8 @@ static int fetch_template(const char *host, const char *port,
     /* Extract and cache raw template JSON for submitblock.
        The response has: {...,"template":{...},...}
        We need the value of "template" — the full Block JSON. */
-    const char *tmpl_key = strstr(s_rpc_buf, "\"template\"");
     s_template_json[0] = '\0';
-    if (tmpl_key) {
-        const char *p = tmpl_key + strlen("\"template\"");
-        while (*p == ' ' || *p == ':') p++;
-        if (*p == '{') {
-            /* Copy the full object by counting braces */
-            int depth = 0;
-            const char *start = p;
-            const char *q = p;
-            int in_str = 0;
-            while (*q) {
-                if (!in_str) {
-                    if (*q == '{') depth++;
-                    else if (*q == '}') { depth--; if (depth == 0) { q++; break; } }
-                    else if (*q == '"') in_str = 1;
-                } else {
-                    if (*q == '"' && *(q-1) != '\\') in_str = 0;
-                }
-                q++;
-            }
-            int len = (int)(q - start);
-            if (len > 0 && len < RPC_BUF - 1) {
-                memcpy(s_template_json, start, len);
-                s_template_json[len] = '\0';
-            }
-        }
-    }
+    extract_template_object(s_rpc_buf, s_template_json, sizeof(s_template_json));
 
     return 1;
 }
@@ -182,39 +275,17 @@ static int submit_block(const char *host, const char *port,
         return 0;
     }
 
-    char *nonce_pos = strstr(s_template_json, "\"nonce\"");
-    if (!nonce_pos) {
-        fprintf(stderr, "[solo] nonce field not found in template\n");
+    static char submit_json[RPC_BUF];
+    if (!replace_header_nonce(s_template_json, nonce, submit_json, sizeof(submit_json))) {
+        fprintf(stderr, "[solo] failed to update nonce in template\n");
         return 0;
     }
 
-    FILE *f = fopen("/tmp/txm_submit.json", "w");
-    if (!f) return 0;
-
-    /* Write everything up to "nonce" */
-    int prefix = (int)(nonce_pos - s_template_json);
-    fwrite(s_template_json, 1, prefix, f);
-
-    /* Write new nonce */
-    fprintf(f, "\"nonce\": %llu", (unsigned long long)nonce);
-
-    /* Skip the old nonce value and write the rest */
-    const char *after = nonce_pos + strlen("\"nonce\"");
-    while (*after == ' ' || *after == ':') after++;
-    while (*after && (*after == '-' || (*after >= '0' && *after <= '9'))) after++;
-    fputs(after, f);
-    fclose(f);
-
-    char cmd[512];
-    snprintf(cmd, sizeof(cmd),
-        "curl -s -X POST http://%s:%s/submitblock "
-        "-H \"Content-Type: application/json\" -d @/tmp/txm_submit.json",
-        host, port);
-    FILE *p = popen(cmd, "r");
-    if (!p) return 0;
-    char resp[512] = {0};
-    fread(resp, 1, sizeof(resp) - 1, p);
-    pclose(p);
+    char resp[1024] = {0};
+    if (!http_post_json(host, port, "/submitblock", submit_json, resp, sizeof(resp))) {
+        fprintf(stderr, "[solo] submitblock HTTP request failed\n");
+        return 0;
+    }
     printf("[solo] submitblock response: %.80s\n", resp);
     fflush(stdout);
     return strstr(resp, "\"accepted\"") ? 1 : 0;
