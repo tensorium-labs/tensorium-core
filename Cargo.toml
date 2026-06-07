@@ -5,6 +5,7 @@ members = [
     "crates/txmwallet",
     "crates/txmminer",
     "crates/tensorium-pool",
+    "crates/txm-rpc-adapter",
 ]
 resolver = "2"
 
