@@ -21,13 +21,13 @@ pools** and is *not* touched in this round.
 | Item | Value |
 |---|---|
 | **Asset sold** | TXM (from ecosystem allocation) |
-| **OTC price** | **$0.01 / TXM** |
-| **Round size** | up to **300,000 TXM** (= **$3,000** target, paid in ETH) |
+| **OTC price** | **$0.50 / TXM** |
+| **Available** | up to **300,000 TXM** (paid in ETH on Optimism) |
 | **Payment** | ETH on **Optimism** |
-| **Listing price** | **$0.015 / TXM** on Uniswap (Optimism, wTXM/ETH) after the round |
-| **Early-backer upside** | buy at $0.01, market opens at $0.015 → **+50% vs listing** |
+| **Listing price** | **$0.70 / TXM** on Uniswap (Optimism, wTXM/ETH) after the round |
+| **Early-backer upside** | buy at $0.50, market opens at $0.70 → **+40% vs listing** |
 | **Vesting** | **20% on delivery**, **80% linear over 6 monthly tranches**, locked on-chain via CLTV |
-| **Ecosystem impact** | 300K (OTC) + 200K (pool seed) = **500K of 2M ecosystem (25%)**; 1.5M remains |
+| **Source** | ecosystem allocation; the liquidity allocation stays reserved for Arbitrum & Base |
 
 ### Vesting schedule (per buyer, proportional)
 
@@ -48,8 +48,8 @@ spend, and only after each tranche's block height:
 > ~43,200 blocks ≈ 1 month). Real unlock timing varies with network hashrate;
 > the height is the binding commitment, the date is an estimate.
 
-**Example — a buyer of the full 300,000 TXM ($3,000):**
-60,000 TXM liquid on delivery, then ~40,000 TXM unlocking each month for 6 months.
+**Example — a $1,000 buy at $0.50 = 2,000 TXM:**
+400 TXM liquid on delivery, then ~266 TXM unlocking each month for 6 months.
 
 ## How to participate
 
@@ -70,10 +70,13 @@ spend, and only after each tranche's block height:
 
 ## Anti-dump math
 
-A buyer holds at most **20% liquid** at delivery. For the full round that's
-60K TXM (~$900 at listing) against a **$3,000 ETH** pool depth — the pool can
-absorb it without cratering. The remaining 80% is height-locked and releases
-slowly, so no one can flood the pool they just helped seed.
+A buyer holds at most **20% liquid** at delivery; the other **80% is height-locked
+via CLTV** and releases monthly over 6 months. No one can flood the pool they just
+helped seed — the vesting is enforced on-chain, not by trust.
+
+> **Liquidity disclosure:** the pool is thin and the listing price ($0.70) reflects
+> a small initial pool. Price is volatile and a large sell can move it sharply.
+> This is an experimental L1 — participate accordingly.
 
 ---
 
