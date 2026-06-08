@@ -21,6 +21,7 @@ use tensorium_core::{
         p2sh_multisig_script_sig, p2sh_script_from_redeem,
     },
     assets::{encode_op, op_return_script, AssetOp},
+    settlement::{build_settlement_tx, verify_settlement, SettlementTerms, CARRIER_ATOMS},
     ChainState, UtxoSet, WalletKeypair,
 };
 
@@ -66,6 +67,25 @@ struct MultisigSig {
 struct MultisigSigFile {
     unsigned_txid: String,
     sigs: Vec<MultisigSig>,
+}
+
+/// Seller's listing handoff (seller → buyer).
+#[derive(Debug, Serialize, Deserialize)]
+struct AssetOrder {
+    asset_id_hex: String,
+    amount: u64,
+    price_atoms: u64,
+    seller_addr: String,
+    seller_txid_hex: String,
+    seller_vout: u32,
+    seller_value: u64,
+}
+
+/// Built + buyer-signed settlement handoff (buyer → seller).
+#[derive(Debug, Serialize, Deserialize)]
+struct SettlementFile {
+    tx: Transaction,
+    terms: SettlementTerms,
 }
 
 fn main() {
@@ -306,6 +326,42 @@ fn run() -> Result<(), String> {
             println!("txid={}", tx.id);
             println!("written={}", tx_path.display());
             println!("next: txmwallet broadcast");
+        }
+        "asset-sell" => {
+            // usage: txmwallet asset-sell <asset_id_hex> <amount> <price_atoms>
+            let asset_id_hex = args
+                .get(2)
+                .ok_or("usage: txmwallet asset-sell <asset_id_hex> <amount> <price_atoms>")?
+                .to_string();
+            if hex::decode(&asset_id_hex).map(|b| b.len()).unwrap_or(0) != 32 {
+                return Err("asset_id must be 32 bytes (64 hex chars)".to_owned());
+            }
+            let amount: u64 = args.get(3).ok_or("missing amount")?.parse().map_err(|_| "amount must be a positive integer")?;
+            let price_atoms: u64 = args.get(4).ok_or("missing price_atoms")?.parse().map_err(|_| "price_atoms must be a positive integer")?;
+
+            let wallet = load_wallet(&wallet_path)?;
+            let rpc = env::var("TENSORIUM_RPC").unwrap_or_else(|_| DEFAULT_RPC.to_owned());
+            let utxos = fetch_mature_utxos(&rpc, &wallet.address)?;
+            // Pick the smallest mature UTXO as inputs[0] (just needs to prove source).
+            let (op, value) = utxos
+                .into_iter()
+                .min_by_key(|(_, v)| *v)
+                .ok_or("no mature UTXO to anchor the sale (fund the wallet first)")?;
+
+            let order = AssetOrder {
+                asset_id_hex,
+                amount,
+                price_atoms,
+                seller_addr: wallet.address.clone(),
+                seller_txid_hex: op.txid.to_hex(),
+                seller_vout: op.output_index,
+                seller_value: value,
+            };
+            let path = PathBuf::from("asset-order.json");
+            fs::write(&path, serde_json::to_string_pretty(&order).map_err(|e| format!("serialize: {e}"))?)
+                .map_err(|e| format!("write {}: {e}", path.display()))?;
+            println!("order_written={}", path.display());
+            println!("send asset-order.json to the buyer; they run: txmwallet asset-buy asset-order.json");
         }
         "unlock-check" => {
             let wallet = load_wallet(&wallet_path)?;
@@ -1118,6 +1174,45 @@ mod tests {
         );
         assert_eq!(normalize_rpc_url("http://host:8080"), "http://host:8080");
     }
+}
+
+/// Fetch mature UTXOs for an address via the node RPC as `(OutPoint, value)`.
+fn fetch_mature_utxos(
+    rpc: &str,
+    address: &str,
+) -> Result<Vec<(tensorium_core::block::OutPoint, u64)>, String> {
+    use tensorium_core::block::OutPoint;
+    use tensorium_core::hash::Hash256;
+
+    #[derive(serde::Deserialize)]
+    struct RpcUtxo {
+        txid_bytes: Vec<u8>,
+        output_index: u32,
+        value_atoms: u64,
+        mature: bool,
+    }
+    #[derive(serde::Deserialize)]
+    struct RpcUtxoResp {
+        utxos: Vec<RpcUtxo>,
+    }
+
+    let body = rpc_get(rpc, &format!("/getutxos/{address}"))?;
+    let resp: RpcUtxoResp =
+        serde_json::from_str(&body).map_err(|e| format!("UTXO parse error: {e}"))?;
+    let mut out = Vec::new();
+    for u in resp.utxos {
+        if !u.mature {
+            continue;
+        }
+        let hash = Hash256(
+            u.txid_bytes
+                .as_slice()
+                .try_into()
+                .map_err(|_| "invalid txid length from RPC".to_owned())?,
+        );
+        out.push((OutPoint { txid: hash, output_index: u.output_index }, u.value_atoms));
+    }
+    Ok(out)
 }
 
 /// Build the outputs for an asset tx: `[<dest P2PKH (transfer only)>, <TXMA
