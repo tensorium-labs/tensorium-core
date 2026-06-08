@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Tensorium Marketplace — Native On-Chain Assets (TXM20 + NFT)</title>
+<meta name="description" content="The native Tensorium asset marketplace. Issue TXM20 tokens and NFTs as an on-chain OP_RETURN overlay, browse balances and ownership reconstructed by an open indexer, and trade them trustlessly with atomic co-signed settlement.">
+<link rel="stylesheet" href="assets/core.css?v=3">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 3l11 6.4v13L16 29 5 22.4v-13z' fill='none' stroke='%23E05C0B' stroke-width='1.5'/%3E%3Ccircle cx='16' cy='16' r='3' fill='%23E05C0B'/%3E%3C/svg%3E">
+<style>
+/* ── Marketplace-specific (built on core.css design tokens) ─────────────── */
+.mk-hero { padding-top: clamp(44px,6vw,76px); padding-bottom: clamp(36px,5vw,60px); }
+.mk-hero .eyebrow { margin-bottom: 18px; }
+.mk-hero h1 { margin: 0 0 18px; max-width: 16ch; }
+.mk-hero p.lead { color: var(--chrome-2); font-size: 1.04rem; max-width: 56ch; margin: 0 0 26px; }
+.mk-ctas { display: flex; flex-wrap: wrap; gap: 10px; }
+
+.stat-cards { display: grid; grid-template-columns: repeat(4,1fr); gap: 14px; margin-top: 40px; }
+.stat-cards .card { padding: 20px 22px; }
+.stat-cards .k { font-family: var(--font-mono); font-size: .68rem; letter-spacing: .14em; text-transform: uppercase; color: var(--chrome-3); margin-bottom: 8px; }
+.stat-cards .v { font-family: var(--font-mono); font-size: 1.5rem; font-weight: 700; color: var(--chrome-0); line-height: 1; }
+.stat-cards .v small { font-size: .8rem; color: var(--chrome-2); font-weight: 500; }
+
+.asset-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 16px; margin-top: 26px; }
+.asset-card { padding: 22px; display: flex; flex-direction: column; gap: 10px; }
+.asset-card .tick { font-family: var(--font-mono); font-weight: 700; font-size: 1.05rem; color: var(--chrome-0); }
+.asset-card .id { font-family: var(--font-mono); font-size: .7rem; color: var(--chrome-3); word-break: break-all; }
+.asset-card .row { display: flex; justify-content: space-between; font-size: .85rem; color: var(--chrome-2); }
+.empty { text-align: center; padding: 54px 20px; color: var(--chrome-2); border: 1px dashed var(--line-2); border-radius: var(--radius); margin-top: 26px; }
+.empty b { color: var(--chrome-0); display: block; font-size: 1.05rem; margin-bottom: 6px; }
+
+.lookup { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 26px; }
+.lookup .card { padding: 22px; }
+.lookup label { font-family: var(--font-mono); font-size: .7rem; letter-spacing: .1em; text-transform: uppercase; color: var(--chrome-3); display: block; margin-bottom: 10px; }
+.lookup-row { display: flex; gap: 8px; }
+.lookup input { flex: 1; font-family: var(--font-mono); font-size: .82rem; padding: 10px 12px; border: 1px solid var(--line-2); border-radius: var(--radius-sm); background: var(--surface-2); color: var(--chrome-0); }
+.lookup input:focus { outline: none; border-color: var(--orange); }
+.lookup-out { margin-top: 14px; font-family: var(--font-mono); font-size: .8rem; color: var(--chrome-1); white-space: pre-wrap; word-break: break-all; min-height: 1.2em; }
+
+.steps { counter-reset: s; list-style: none; padding: 0; margin: 26px 0 0; display: grid; gap: 0; }
+.steps li { display: grid; grid-template-columns: 34px 1fr; gap: 16px; padding: 16px 0; border-bottom: 1px solid var(--line); align-items: start; }
+.steps li:last-child { border-bottom: none; }
+.steps li::before { counter-increment: s; content: counter(s); font-family: var(--font-mono); font-size: .78rem; font-weight: 700; color: var(--orange); border: 1px solid rgba(224,92,11,.25); border-radius: 8px; width: 30px; height: 30px; display: grid; place-items: center; background: var(--orange-dim); }
+.steps h4 { margin: 4px 0 8px; font-size: .98rem; }
+.steps p { margin: 0 0 8px; color: var(--chrome-2); font-size: .9rem; }
+.steps code, .cmd { font-family: var(--font-mono); font-size: .78rem; background: var(--chrome-0); color: #F5F0E8; padding: 10px 14px; border-radius: var(--radius-sm); display: block; overflow-x: auto; white-space: pre; }
+.steps code.inline { display: inline; padding: 2px 6px; background: var(--orange-dim); color: var(--cyan-deep); }
+
+.feat-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 16px; margin-top: 26px; }
+.feat { padding: 26px 24px; }
+.feat .ic { width: 42px; height: 42px; border-radius: 10px; display: grid; place-items: center; border: 1px solid var(--line); background: var(--orange-dim); color: var(--orange); margin-bottom: 16px; font-size: 20px; }
+.feat.b .ic { background: var(--blue-dim); color: var(--blue); }
+.feat h3 { margin: 0 0 9px; font-size: 1.02rem; }
+.feat p { margin: 0; font-size: .9rem; color: var(--chrome-2); }
+
+.sec-head { max-width: 60ch; margin-bottom: 6px; }
+.sec-head .eyebrow { margin-bottom: 12px; }
+.sec-head p { color: var(--chrome-2); margin: 8px 0 0; }
+
+footer.mk { border-top: 1px solid var(--line); margin-top: 64px; padding: 36px 0; }
+footer.mk .wrap { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 16px; align-items: center; }
+footer.mk .links a { color: var(--chrome-2); font-size: .85rem; margin-right: 18px; }
+footer.mk .links a:hover { color: var(--orange); }
+footer.mk .copy { font-family: var(--font-mono); font-size: .72rem; color: var(--chrome-3); }
+
+@media (max-width: 880px){
+  .stat-cards { grid-template-columns: repeat(2,1fr); }
+  .asset-grid, .feat-grid { grid-template-columns: 1fr; }
+  .lookup { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+<nav class="nav">
+  <div class="nav-inner">
+    <a class="brand" href="https://tensoriumlabs.com">
+      <svg width="30" height="30" viewBox="0 0 32 32" fill="none" aria-hidden="true">
+        <path d="M16 3l11 6.4v13L16 29 5 22.4v-13z" stroke="#E05C0B" stroke-width="1.6"/>
+        <path d="M16 3v13M16 16l11-6.6M16 16L5 9.4" stroke="rgba(224,92,11,.35)" stroke-width="1"/>
+        <circle cx="16" cy="16" r="3.2" fill="#E05C0B"/>
+      </svg>
+      <span class="brand-name">Tensorium<span class="sub">·</span></span>
+    </a>
+    <div class="nav-links">
+      <a href="https://tensoriumlabs.com">Overview</a>
+      <a href="https://docs.tensoriumlabs.com">Docs</a>
+      <a href="https://explorer.tensoriumlabs.com">Explorer</a>
+      <a href="https://pooltxm.tensoriumlabs.com">Pool</a>
+      <a href="https://marketplace.tensoriumlabs.com" class="active">Marketplace</a>
+    </div>
+    <div class="nav-right">
+      <span class="badge badge-live" id="syncBadge"><span class="dot"></span>Indexer …</span>
+      <a class="btn btn-primary btn-sm" href="#create">Create an asset</a>
+    </div>
+  </div>
+</nav>
+
+<!-- HERO -->
+<header class="mk-hero">
+  <div class="wrap">
+    <div class="eyebrow">Native asset layer · TXM20 + NFT</div>
+    <h1>The on-chain marketplace for Tensorium assets</h1>
+    <p class="lead">Issue fungible TXM20 tokens and NFTs as a native <code class="inline" style="font-family:var(--font-mono)">OP_RETURN</code> overlay on the Tensorium L1 — no smart contracts, no hard fork. Balances and ownership are reconstructed deterministically by an open indexer, and trades settle <strong>trustlessly</strong> in a single co-signed transaction.</p>
+    <div class="mk-ctas">
+      <a class="btn btn-primary" href="#assets">Browse assets</a>
+      <a class="btn btn-ghost" href="#create">Create &amp; trade</a>
+    </div>
+    <div class="stat-cards" id="stats">
+      <div class="card"><div class="k">Indexed height</div><div class="v" id="stHeight">—</div></div>
+      <div class="card"><div class="k">Indexer sync</div><div class="v" id="stSync">—</div></div>
+      <div class="card"><div class="k">Assets issued</div><div class="v" id="stAssets">—</div></div>
+      <div class="card"><div class="k">Protocol</div><div class="v">TXMA <small>v1</small></div></div>
+    </div>
+  </div>
+</header>
+
+<!-- ASSETS -->
+<section class="section" id="assets">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="eyebrow">On-chain registry</div>
+      <h2>Assets</h2>
+      <p>Every token and NFT below is a pure function of the canonical chain — reconstructable by anyone running the open indexer.</p>
+    </div>
+    <div id="assetList" class="asset-grid"></div>
+    <div id="assetEmpty" class="empty" hidden>
+      <b>No assets issued yet</b>
+      Be the first — issue a TXM20 or mint an NFT with <code class="inline" style="font-family:var(--font-mono)">txmwallet</code>. It will appear here the moment it confirms.
+    </div>
+  </div>
+</section>
+
+<!-- LOOKUP -->
+<section class="section" id="lookup">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="eyebrow">Explore</div>
+      <h2>Look up a balance or an asset</h2>
+    </div>
+    <div class="lookup">
+      <div class="card">
+        <label for="addrIn">Address balance</label>
+        <div class="lookup-row">
+          <input id="addrIn" placeholder="txm1…" spellcheck="false">
+          <button class="btn btn-primary btn-sm" onclick="lookupAddr()">Query</button>
+        </div>
+        <div class="lookup-out" id="addrOut"></div>
+      </div>
+      <div class="card">
+        <label for="assetIn">Asset by id</label>
+        <div class="lookup-row">
+          <input id="assetIn" placeholder="64-hex asset_id" spellcheck="false">
+          <button class="btn btn-primary btn-sm" onclick="lookupAsset()">Query</button>
+        </div>
+        <div class="lookup-out" id="assetOut"></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- CREATE & TRADE -->
+<section class="section" id="create">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="eyebrow">Self-custody · CLI</div>
+      <h2>Create &amp; trade</h2>
+      <p>All custody and movement stay on-chain and in your own keys. The marketplace never holds funds or assets.</p>
+    </div>
+    <ol class="steps">
+      <li><div></div><div>
+        <h4>Issue a fungible token (TXM20)</h4>
+        <p>Mint a fixed supply credited entirely to your address.</p>
+        <code class="cmd">txmwallet asset-issue GOLD 8 21000000 "Gold Token"
+txmwallet broadcast</code>
+      </div></li>
+      <li><div></div><div>
+        <h4>Mint an NFT</h4>
+        <p>Bind off-chain media by hash, with an immutable creator royalty.</p>
+        <code class="cmd">txmwallet asset-mint 500 &lt;royalty_addr&gt; &lt;content_sha256&gt; ipfs://Qm…
+txmwallet broadcast</code>
+      </div></li>
+      <li><div></div><div>
+        <h4>Sell — list it</h4>
+        <p>Produces <code class="inline">asset-order.json</code> to hand to a buyer.</p>
+        <code class="cmd">txmwallet asset-sell &lt;asset_id&gt; 100 5000000</code>
+      </div></li>
+      <li><div></div><div>
+        <h4>Buy — build &amp; verify</h4>
+        <p>The buyer builds the settlement, verifies the fee + royalty, and signs their side → <code class="inline">asset-settlement.json</code>.</p>
+        <code class="cmd">txmwallet asset-buy asset-order.json</code>
+      </div></li>
+      <li><div></div><div>
+        <h4>Settle — atomic</h4>
+        <p>The seller verifies and signs, broadcasting one transaction that moves the asset, pays the seller, the 2.5% platform fee, and the royalty — all or nothing.</p>
+        <code class="cmd">txmwallet asset-accept asset-settlement.json</code>
+      </div></li>
+    </ol>
+  </div>
+</section>
+
+<!-- HOW IT WORKS -->
+<section class="section" id="how">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="eyebrow">Architecture</div>
+      <h2>Trustless by construction</h2>
+    </div>
+    <div class="feat-grid">
+      <div class="feat"><div class="ic">⛓</div><h3>On-chain overlay</h3><p>Asset operations ride inside ordinary transactions as <code class="inline" style="font-family:var(--font-mono)">TXMA</code> <code class="inline" style="font-family:var(--font-mono)">OP_RETURN</code> metadata. No consensus change — the node treats them as unspendable data.</p></div>
+      <div class="feat b"><div class="ic">∑</div><h3>Deterministic indexer</h3><p>Balances and ownership are a pure replay of canonical blocks. Anyone can run the open indexer and reproduce identical state — there is no off-chain source of truth.</p></div>
+      <div class="feat"><div class="ic">⇄</div><h3>Atomic settlement</h3><p>A sale is one co-signed transaction: the asset moves, the seller is paid, the fee and royalty are collected, or nothing happens. Both sides verify before signing.</p></div>
+    </div>
+  </div>
+</section>
+
+<footer class="mk">
+  <div class="wrap">
+    <div class="links">
+      <a href="https://tensoriumlabs.com">Tensorium</a>
+      <a href="https://docs.tensoriumlabs.com">Docs</a>
+      <a href="https://explorer.tensoriumlabs.com">Explorer</a>
+      <a href="https://github.com/tensorium-labs/tensorium-core">GitHub</a>
+    </div>
+    <div class="copy">Tensorium Marketplace · native TXM20 + NFT · indexer-served</div>
+  </div>
+</footer>
+
+<script>
+const API = '/api';
+const $ = id => document.getElementById(id);
+const short = h => h ? h.slice(0,10) + '…' + h.slice(-6) : '';
+
+async function jget(path){
+  const r = await fetch(API + path, { headers: { 'accept':'application/json' } });
+  if(!r.ok) throw new Error('HTTP ' + r.status);
+  return r.json();
+}
+
+async function loadStats(){
+  try{
+    const s = await jget('/status');
+    $('stHeight').textContent = (s.last_scanned_height ?? '—').toLocaleString();
+    const synced = s.scanned_any === true;
+    $('stSync').innerHTML = synced ? 'Live <small>· in sync</small>' : 'Syncing…';
+    $('stAssets').textContent = (s.assets ?? 0).toLocaleString();
+    const b = $('syncBadge');
+    b.innerHTML = '<span class="dot"></span>' + (synced ? 'Indexer live' : 'Indexer syncing');
+  }catch(e){
+    $('syncBadge').innerHTML = '<span class="dot"></span>Indexer offline';
+    $('stSync').textContent = 'offline';
+  }
+}
+
+async function loadAssets(){
+  try{
+    const d = await jget('/assets');
+    const list = d.assets || [];
+    const el = $('assetList');
+    if(!list.length){ $('assetEmpty').hidden = false; return; }
+    el.innerHTML = list.map(a => `
+      <div class="card asset-card">
+        <div class="tick">${(a.ticker||'NFT')} <span class="tag">${a.kind==='nft'?'NFT':'TXM20'}</span></div>
+        <div class="id">${a.asset_id}</div>
+        <div class="row"><span>Supply</span><span>${(a.supply??0).toLocaleString()}</span></div>
+        <div class="row"><span>Royalty</span><span>${((a.royalty_bps||0)/100).toFixed(2)}%</span></div>
+        <div class="row"><span>Minted @</span><span>#${a.mint_height??'—'}</span></div>
+      </div>`).join('');
+  }catch(e){ $('assetEmpty').hidden = false; }
+}
+
+async function lookupAddr(){
+  const a = $('addrIn').value.trim(); const out = $('addrOut');
+  if(!a){ out.textContent=''; return; }
+  out.textContent = 'querying…';
+  try{
+    const d = await jget('/balance/' + encodeURIComponent(a));
+    const fts = (d.fungible||[]).map(f => `  ${short(f.asset_id)}  ×${f.amount}`).join('\n') || '  (none)';
+    const nfts = (d.nfts||[]).map(n => '  ' + short(n)).join('\n') || '  (none)';
+    out.textContent = `Fungible:\n${fts}\n\nNFTs:\n${nfts}`;
+  }catch(e){ out.textContent = 'not found / no assets'; }
+}
+
+async function lookupAsset(){
+  const id = $('assetIn').value.trim(); const out = $('assetOut');
+  if(!id){ out.textContent=''; return; }
+  out.textContent = 'querying…';
+  try{
+    const a = await jget('/asset/' + encodeURIComponent(id));
+    out.textContent = `${a.ticker||'NFT'} (${a.kind})\nsupply: ${a.supply}\nissuer: ${short(a.issuer)}\nroyalty: ${((a.royalty_bps||0)/100).toFixed(2)}% → ${short(a.royalty_addr)||'—'}\nminted @ #${a.mint_height}`;
+  }catch(e){ out.textContent = 'asset not found'; }
+}
+
+loadStats(); loadAssets();
+setInterval(loadStats, 15000);
+</script>
+</body>
+</html>
