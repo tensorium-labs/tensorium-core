@@ -126,4 +126,49 @@ mod tests {
         assert_eq!(bytes[5], OP_ISSUE);
         assert_eq!(decode_op(&bytes).unwrap(), op);
     }
+
+    #[test]
+    fn nft_mint_roundtrip_with_royalty() {
+        let op = AssetOp::NftMint(NftMintData {
+            collection_id: [0u8; 32],
+            royalty_bps: 500, // 5%
+            royalty_addr: "txm1royaltyaddrexample00000000000000000".into(),
+            uri: "ipfs://Qm123".into(),
+            content_hash: [7u8; 32],
+        });
+        let bytes = encode_op(&op);
+        assert_eq!(bytes[5], OP_NFT_MINT);
+        assert_eq!(decode_op(&bytes).unwrap(), op);
+    }
+
+    #[test]
+    fn transfer_roundtrip() {
+        let op = AssetOp::Transfer(TransferData {
+            asset_id: [9u8; 32],
+            amount: 1234,
+            dest_output_index: 2,
+        });
+        assert_eq!(decode_op(&encode_op(&op)).unwrap(), op);
+    }
+
+    #[test]
+    fn decode_rejects_bad_inputs() {
+        assert_eq!(decode_op(b"XXXX\x01\x01"), Err(AssetError::BadMagic));
+        assert_eq!(decode_op(b"TXMA\x09\x01"), Err(AssetError::BadVersion));
+        assert_eq!(decode_op(b"TXMA\x01\x99"), Err(AssetError::UnknownOpcode));
+        assert_eq!(decode_op(b"TXMA\x01"), Err(AssetError::Truncated));
+        // royalty > 10000 rejected
+        let mut bad = vec![];
+        bad.extend_from_slice(MAGIC);
+        bad.push(VERSION);
+        bad.push(OP_NFT_MINT);
+        bad.extend_from_slice(&[0u8; 32]);          // collection
+        bad.extend_from_slice(&10_001u16.to_be_bytes()); // royalty_bps
+        bad.push(0);                                 // royalty_addr len 0
+        bad.push(0);                                 // uri len 0
+        bad.extend_from_slice(&[0u8; 32]);          // content_hash
+        assert_eq!(decode_op(&bad), Err(AssetError::BadRoyalty));
+        // oversize
+        assert_eq!(decode_op(&vec![0u8; MAX_PAYLOAD + 1]), Err(AssetError::TooLarge));
+    }
 }
