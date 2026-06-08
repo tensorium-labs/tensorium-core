@@ -1035,6 +1035,9 @@ fn print_help() {
     println!("  vesting-lock <recipient_addr> <total_atoms> [rpc] [tranches] [interval] [liquid_bps]");
     println!("                                                         lock tokens for a buyer: liquid %% now + CLTV tranches (default 20%% + 6×monthly)");
     println!("  vesting-claim <spk_hex> <dest_addr> [rpc]              buyer spends a matured CLTV vesting tranche");
+    println!("  asset-issue <ticker> <decimals> <supply> <name...>    create a TXM20 fungible token");
+    println!("  asset-mint <royalty_bps> <royalty_addr> <content_hash_hex> <uri...>  mint a standalone NFT");
+    println!("  asset-transfer <asset_id_hex> <amount> <to_address>   transfer a TXM20/NFT to an address");
     println!();
     println!("env:");
     println!("  TENSORIUM_WALLET             wallet file, default {DEFAULT_WALLET_PATH}");
