@@ -28,6 +28,10 @@ const DEFAULT_WALLET_PATH: &str = "tensorium-wallet.json";
 const DEFAULT_STATE_PATH: &str = "tensorium-mainnet-state.json";
 const DEFAULT_SIGNED_TX_PATH: &str = "tensorium-signed-tx.json";
 const DEFAULT_RPC: &str = "127.0.0.1:33332";
+/// Atoms placed on the recipient's P2PKH output in an asset transfer. The asset
+/// itself rides in the OP_RETURN; this carrier just makes the destination
+/// address resolvable + spendable. 1000 atoms = 0.00001 TXM.
+const ASSET_CARRIER_ATOMS: u64 = 1_000;
 const ARGON2_MEMORY_KIB: u32 = 19 * 1024;
 const ARGON2_ITERATIONS: u32 = 3;
 const ARGON2_PARALLELISM: u32 = 1;
@@ -249,6 +253,56 @@ fn run() -> Result<(), String> {
             fs::write(&tx_path, raw)
                 .map_err(|e| format!("write {}: {e}", tx_path.display()))?;
             println!("nft_asset_id={}", tx.id);
+            println!("txid={}", tx.id);
+            println!("written={}", tx_path.display());
+            println!("next: txmwallet broadcast");
+        }
+        "asset-transfer" => {
+            // usage: txmwallet asset-transfer <asset_id_hex> <amount> <to_address>
+            let asset_id_hex = args
+                .get(2)
+                .ok_or("usage: txmwallet asset-transfer <asset_id_hex> <amount> <to_address>")?;
+            let id_bytes = hex::decode(asset_id_hex)
+                .map_err(|_| "asset_id_hex must be hex".to_owned())?;
+            let asset_id: [u8; 32] = id_bytes
+                .as_slice()
+                .try_into()
+                .map_err(|_| "asset_id must be 32 bytes (64 hex chars)".to_owned())?;
+            let amount: u64 = args
+                .get(3)
+                .ok_or("missing amount")?
+                .parse()
+                .map_err(|_| "amount must be a positive integer")?;
+            let to_address = args.get(4).ok_or("missing to_address")?;
+
+            let op = AssetOp::Transfer(tensorium_core::assets::TransferData {
+                asset_id,
+                amount,
+                dest_output_index: 0, // recipient is placed at output 0
+            });
+
+            let passphrase = passphrase_from_env()?;
+            let wallet = load_wallet(&wallet_path)?;
+            let keypair = wallet.decrypt(&passphrase)?;
+            let rpc = env::var("TENSORIUM_RPC").unwrap_or_else(|_| DEFAULT_RPC.to_owned());
+            let fee_atoms = tensorium_core::mempool::MIN_RELAY_FEE_ATOMS;
+            let tx = build_asset_tx_via_rpc(
+                &wallet,
+                &keypair,
+                &rpc,
+                &op,
+                Some((to_address, ASSET_CARRIER_ATOMS)),
+                fee_atoms,
+            )?;
+
+            let tx_path = PathBuf::from(DEFAULT_SIGNED_TX_PATH);
+            let raw = serde_json::to_string_pretty(&tx)
+                .map_err(|e| format!("serialize signed tx: {e}"))?;
+            fs::write(&tx_path, raw)
+                .map_err(|e| format!("write {}: {e}", tx_path.display()))?;
+            println!("asset_id={asset_id_hex}");
+            println!("amount={amount}");
+            println!("to={to_address}");
             println!("txid={}", tx.id);
             println!("written={}", tx_path.display());
             println!("next: txmwallet broadcast");
