@@ -102,9 +102,44 @@ pub fn decode_op(buf: &[u8]) -> Result<AssetOp, AssetError> {
     }
 }
 
-// Scaffold stub — replaced in Task 4.
-pub fn extract_asset_op(_tx: &crate::block::Transaction) -> Option<AssetOp> {
-    unimplemented!()
+use crate::block::Transaction;
+use crate::script::OP_RETURN;
+
+/// Read the data bytes pushed after an `OP_RETURN`. Supports a direct
+/// push (0x01..=0x4b) or `OP_PUSHDATA1` (0x4c). Returns None if the output
+/// is not an OP_RETURN data carrier.
+fn op_return_data(spk: &[u8]) -> Option<&[u8]> {
+    if spk.first() != Some(&OP_RETURN) {
+        return None;
+    }
+    let mut i = 1;
+    let len = match spk.get(i)? {
+        n @ 0x01..=0x4b => {
+            i += 1;
+            *n as usize
+        }
+        0x4c => {
+            i += 1;
+            *spk.get(i).map(|x| {
+                i += 1;
+                x
+            })? as usize
+        }
+        _ => return None,
+    };
+    spk.get(i..i + len)
+}
+
+/// Find the first valid `TXMA` asset op in a transaction's outputs.
+pub fn extract_asset_op(tx: &Transaction) -> Option<AssetOp> {
+    for out in &tx.outputs {
+        if let Some(data) = op_return_data(&out.script_pubkey) {
+            if let Ok(op) = decode_op(data) {
+                return Some(op);
+            }
+        }
+    }
+    None
 }
 
 #[cfg(test)]
@@ -170,5 +205,37 @@ mod tests {
         assert_eq!(decode_op(&bad), Err(AssetError::BadRoyalty));
         // oversize
         assert_eq!(decode_op(&vec![0u8; MAX_PAYLOAD + 1]), Err(AssetError::TooLarge));
+    }
+
+    use crate::block::{Transaction, TxOutput};
+    use crate::script::OP_RETURN;
+
+    fn op_return_output(data: &[u8]) -> TxOutput {
+        // OP_RETURN <pushdata1 len> <data>
+        let mut spk = vec![OP_RETURN, 0x4c, data.len() as u8];
+        spk.extend_from_slice(data);
+        TxOutput { value_atoms: 0, script_pubkey: spk }
+    }
+
+    #[test]
+    fn extract_finds_first_txma_op_return() {
+        let op = AssetOp::Transfer(TransferData { asset_id: [3u8; 32], amount: 5, dest_output_index: 0 });
+        let tx = Transaction::payment(
+            vec![],
+            vec![
+                TxOutput { value_atoms: 100, script_pubkey: vec![0x76, 0xa9] }, // non-OP_RETURN
+                op_return_output(&encode_op(&op)),
+            ],
+        );
+        assert_eq!(extract_asset_op(&tx), Some(op));
+    }
+
+    #[test]
+    fn extract_ignores_non_txma_op_return() {
+        let tx = Transaction::payment(
+            vec![],
+            vec![op_return_output(b"hello not an asset")],
+        );
+        assert_eq!(extract_asset_op(&tx), None);
     }
 }
