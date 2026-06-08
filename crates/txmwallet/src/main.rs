@@ -363,6 +363,121 @@ fn run() -> Result<(), String> {
             println!("order_written={}", path.display());
             println!("send asset-order.json to the buyer; they run: txmwallet asset-buy asset-order.json");
         }
+        "asset-buy" => {
+            // usage: txmwallet asset-buy <asset-order.json>
+            let order_path = args.get(2).map(PathBuf::from).unwrap_or_else(|| PathBuf::from("asset-order.json"));
+            let order: AssetOrder = serde_json::from_str(
+                &fs::read_to_string(&order_path).map_err(|e| format!("read {}: {e}", order_path.display()))?,
+            )
+            .map_err(|e| format!("parse order: {e}"))?;
+
+            let passphrase = passphrase_from_env()?;
+            let wallet = load_wallet(&wallet_path)?;
+            let keypair = wallet.decrypt(&passphrase)?;
+            let rpc = env::var("TENSORIUM_RPC").unwrap_or_else(|_| DEFAULT_RPC.to_owned());
+            let indexer = env::var("TENSORIUM_INDEXER").unwrap_or_else(|_| "127.0.0.1:23340".to_owned());
+
+            // Fetch royalty terms from the indexer (deterministic, tamper-proof).
+            #[derive(serde::Deserialize)]
+            struct AssetInfoResp {
+                royalty_bps: u16,
+                royalty_addr: String,
+            }
+            let info_body = rpc_get(&indexer, &format!("/asset/{}", order.asset_id_hex))
+                .map_err(|e| format!("indexer /asset lookup failed: {e}"))?;
+            let info: AssetInfoResp =
+                serde_json::from_str(&info_body).map_err(|e| format!("parse asset info: {e}"))?;
+
+            let asset_id: [u8; 32] = hex::decode(&order.asset_id_hex)
+                .map_err(|_| "bad asset_id hex".to_owned())?
+                .as_slice()
+                .try_into()
+                .map_err(|_| "asset_id must be 32 bytes".to_owned())?;
+
+            let terms = SettlementTerms {
+                asset_id,
+                amount: order.amount,
+                price_atoms: order.price_atoms,
+                royalty_bps: info.royalty_bps,
+                royalty_addr: info.royalty_addr,
+                seller_addr: order.seller_addr.clone(),
+                buyer_addr: wallet.address.clone(),
+                miner_fee_atoms: tensorium_core::mempool::MIN_RELAY_FEE_ATOMS,
+            };
+
+            // Fund the buyer side.
+            let need = order.price_atoms + CARRIER_ATOMS + terms.miner_fee_atoms;
+            let mut buyer_inputs = Vec::new();
+            let mut total = 0u64;
+            for (op, v) in fetch_mature_utxos(&rpc, &wallet.address)? {
+                buyer_inputs.push((op, v));
+                total += v;
+                if total >= need {
+                    break;
+                }
+            }
+            if total < need {
+                return Err(format!("insufficient buyer funds: have {total}, need {need}"));
+            }
+
+            let seller_txid = tensorium_core::hash::Hash256(
+                hex::decode(&order.seller_txid_hex)
+                    .map_err(|_| "bad seller txid hex".to_owned())?
+                    .as_slice()
+                    .try_into()
+                    .map_err(|_| "seller txid must be 32 bytes".to_owned())?,
+            );
+            let seller_input = (
+                tensorium_core::block::OutPoint { txid: seller_txid, output_index: order.seller_vout },
+                order.seller_value,
+            );
+
+            let mut tx = build_settlement_tx(&terms, seller_input, &buyer_inputs)?;
+            let mismatches = verify_settlement(&tx, &terms);
+            if !mismatches.is_empty() {
+                return Err(format!("self-built settlement failed verify: {mismatches:?}"));
+            }
+            // Sign only the buyer inputs (indices 1..).
+            for i in 1..tx.inputs.len() {
+                keypair.sign_input(&mut tx, i).map_err(|e| e.to_string())?;
+            }
+
+            let out = SettlementFile { tx, terms };
+            let path = PathBuf::from("asset-settlement.json");
+            fs::write(&path, serde_json::to_string_pretty(&out).map_err(|e| format!("serialize: {e}"))?)
+                .map_err(|e| format!("write {}: {e}", path.display()))?;
+            println!("settlement_written={}", path.display());
+            println!("send asset-settlement.json back to the seller; they run: txmwallet asset-accept asset-settlement.json");
+        }
+        "asset-accept" => {
+            // usage: txmwallet asset-accept <asset-settlement.json>
+            let path = args.get(2).map(PathBuf::from).unwrap_or_else(|| PathBuf::from("asset-settlement.json"));
+            let mut file: SettlementFile = serde_json::from_str(
+                &fs::read_to_string(&path).map_err(|e| format!("read {}: {e}", path.display()))?,
+            )
+            .map_err(|e| format!("parse settlement: {e}"))?;
+
+            // Seller's trust anchor: verify before signing.
+            let mismatches = verify_settlement(&file.tx, &file.terms);
+            if !mismatches.is_empty() {
+                return Err(format!("settlement failed verify, refusing to sign: {mismatches:?}"));
+            }
+
+            let passphrase = passphrase_from_env()?;
+            let wallet = load_wallet(&wallet_path)?;
+            let keypair = wallet.decrypt(&passphrase)?;
+            if file.terms.seller_addr != wallet.address {
+                return Err("this wallet is not the seller for this settlement".to_owned());
+            }
+            // Seller signs input[0] only.
+            keypair.sign_input(&mut file.tx, 0).map_err(|e| e.to_string())?;
+
+            let rpc = env::var("TENSORIUM_RPC").unwrap_or_else(|_| DEFAULT_RPC.to_owned());
+            let raw = serde_json::to_string(&file.tx).map_err(|e| format!("serialize tx: {e}"))?;
+            let resp = rpc_post(&rpc, "/sendrawtransaction", &raw)?;
+            println!("settlement_txid={}", file.tx.id);
+            println!("node_response={resp}");
+        }
         "unlock-check" => {
             let wallet = load_wallet(&wallet_path)?;
             let passphrase = passphrase_from_env()?;
@@ -1094,6 +1209,9 @@ fn print_help() {
     println!("  asset-issue <ticker> <decimals> <supply> <name...>    create a TXM20 fungible token");
     println!("  asset-mint <royalty_bps> <royalty_addr> <content_hash_hex> <uri...>  mint a standalone NFT");
     println!("  asset-transfer <asset_id_hex> <amount> <to_address>   transfer a TXM20/NFT to an address");
+    println!("  asset-sell <asset_id_hex> <amount> <price_atoms>      list an asset for sale → asset-order.json");
+    println!("  asset-buy <asset-order.json>                          build+sign the buyer side → asset-settlement.json");
+    println!("  asset-accept <asset-settlement.json>                  verify+sign the seller side and broadcast");
     println!();
     println!("env:");
     println!("  TENSORIUM_WALLET             wallet file, default {DEFAULT_WALLET_PATH}");
