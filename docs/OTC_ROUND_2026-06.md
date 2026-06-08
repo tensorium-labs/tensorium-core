@@ -1,38 +1,36 @@
-# Tensorium OTC Round — June 2026
+# Tensorium OTC — Seed &amp; Private Rounds
 
-A small, transparent OTC round to bootstrap **wTXM/ETH liquidity** on Optimism.
-Everything here is on-chain and verifiable.
+Two transparent, on-chain OTC rounds to onboard early backers and bootstrap
+**wTXM/ETH liquidity** on Optimism. Everything here is verifiable on-chain.
 
 > **Not investment advice.** TXM is an experimental L1. Liquidity is thin and
 > price is volatile. Only participate with funds you can afford to lose.
 
 ---
 
-## Why this round
+## Structure
 
-We have plenty of TXM but need the **counter-asset (ETH)** to deepen the
-Uniswap pool. Rather than wait, we're selling a small slice of the **ecosystem
-allocation** to early backers, and using the proceeds to seed the pool. The
-separate **liquidity allocation is reserved for future Arbitrum and Base
-pools** and is *not* touched in this round.
+**Total allocation: 600,000 TXM** (from the ecosystem allocation). Two rounds run
+**sequentially** — the **Seed round opens first**, and once its 300,000 TXM is
+filled, the **Private round opens automatically** at the higher price. The
+liquidity allocation reserved for future Arbitrum &amp; Base pools is *not* touched.
 
-## Terms
+| Round | Allocation | Price | Unlock at TGE | Vesting |
+|---|---|---|---|---|
+| **Seed** | 300,000 TXM | **$0.05 / TXM** | 20% | 80% monthly over 6 months |
+| **Private** | 300,000 TXM | **$0.12 / TXM** | 20% | 80% monthly over 6 months |
 
-| Item | Value |
-|---|---|
-| **Asset sold** | TXM (from ecosystem allocation) |
-| **OTC price** | **$0.50 / TXM** |
-| **Available** | up to **300,000 TXM** (paid in ETH on Optimism) |
-| **Payment** | ETH on **Optimism** |
-| **Listing price** | **$0.70 / TXM** on Uniswap (Optimism, wTXM/ETH) after the round |
-| **Early-backer upside** | buy at $0.50, market opens at $0.70 → **+40% vs listing** |
-| **Vesting** | **20% on delivery**, **80% linear over 6 monthly tranches**, locked on-chain via CLTV |
-| **Source** | ecosystem allocation; the liquidity allocation stays reserved for Arbitrum & Base |
+**Estimated listing price:** **$0.20 – $0.30 / TXM** on Uniswap (Optimism,
+wTXM/ETH) after the rounds — early backers buy well below listing.
+
+- **Payment:** ETH on **Optimism**.
+- **Round transition:** automatic and on-chain — the live status (current round,
+  price, sold / remaining) is shown on `otc.tensoriumlabs.com`. No manual switch.
+- **Vesting** is identical for both rounds: **20% liquid on delivery**, the
+  remaining **80% in 6 monthly tranches**, each locked on-chain via **CLTV** so
+  only the buyer can spend it, and only after its block height.
 
 ### Vesting schedule (per buyer, proportional)
-
-Tokens are delivered into **on-chain CLTV time-locks** that only the buyer can
-spend, and only after each tranche's block height:
 
 | Tranche | Share | Unlocks at |
 |---|---|---|
@@ -44,41 +42,46 @@ spend, and only after each tranche's block height:
 | Month 5 | 13.33% | + ~216,000 blocks |
 | Month 6 | 13.34% | + ~259,200 blocks |
 
-> Locks are enforced by **block height** (the chain's target is 60 s/block, so
-> ~43,200 blocks ≈ 1 month). Real unlock timing varies with network hashrate;
-> the height is the binding commitment, the date is an estimate.
+> Locks are enforced by **block height** (target 60 s/block, so ~43,200 blocks ≈
+> 1 month). Real unlock timing varies with network hashrate; the height is the
+> binding commitment, the date is an estimate.
 
-**Example — a $1,000 buy at $0.50 = 2,000 TXM:**
-400 TXM liquid on delivery, then ~266 TXM unlocking each month for 6 months.
+**Example — a $1,000 buy in the Seed round at $0.05 = 20,000 TXM:**
+4,000 TXM liquid on delivery, then ~2,666 TXM unlocking each month for 6 months.
 
-## How to participate
+## How to participate (self-service — no DM needed)
 
-1. Contact the team (Discord) and agree on your amount.
-2. Send ETH (Optimism) to the published round address (see Discord / the OTC page).
-   *Trustless option:* settle via an **HTLC atomic swap** (TXM ⇄ ETH) so neither
-   side has to trust the other — ask for the swap guide.
-3. The team builds your CLTV vesting locks on-chain and shares the txids.
-   You can verify every lock with `txmwallet` or the explorer before and after.
+1. Open **`otc.tensoriumlabs.com`** and **register** your TXM address against the
+   Optimism address you'll send from.
+2. **Send ETH (Optimism)** from that registered address to the published OTC
+   receive address.
+3. Your **CLTV vesting locks are built on-chain automatically** at the current
+   round's price, and the txids are recorded — verify every lock with
+   `txmwallet` or the explorer. Claim matured tranches in the **Tensorium Wallet**
+   extension (Vesting tab).
+
+*Trustless option:* settle via an **HTLC atomic swap** (TXM ⇄ ETH) so neither
+side has to trust the other — ask for the swap guide.
 
 ## Transparency commitments
 
-- Every vesting lock is **on-chain and published** (txids in Discord).
+- Every vesting lock is **on-chain and published** (txids verifiable).
 - The ETH raised is paired into the Uniswap pool; the **LP position is public**.
-- Treasury/ecosystem movements for this round are disclosed.
-- **No team dumping**: the only TXM entering the new pool from us is the
-  declared 200K seed; OTC buyers are vested.
+- Treasury/ecosystem movements for these rounds are disclosed.
+- **No team dumping**: OTC buyers are vested (20% liquid, 80% height-locked).
 
 ## Anti-dump math
 
 A buyer holds at most **20% liquid** at delivery; the other **80% is height-locked
-via CLTV** and releases monthly over 6 months. No one can flood the pool they just
-helped seed — the vesting is enforced on-chain, not by trust.
+via CLTV** and releases monthly over 6 months — enforced on-chain, not by trust.
+No one can flood the pool they just helped seed.
 
-> **Liquidity disclosure:** the pool is thin and the listing price ($0.70) reflects
-> a small initial pool. Price is volatile and a large sell can move it sharply.
-> This is an experimental L1 — participate accordingly.
+> **Liquidity disclosure:** the pool is thin and the listing range ($0.20–0.30)
+> reflects a small initial pool. Price is volatile and a large sell can move it
+> sharply. This is an experimental L1 — participate accordingly.
 
 ---
 
-*Addresses, the exact lock heights, and the LP position link are published on
-`otc.tensoriumlabs.com` and in Discord `#announcements` when the round opens.*
+*Live round status (active round, price, sold / remaining), the OTC receive
+address, and the LP position link are published on `otc.tensoriumlabs.com` and in
+Discord `#announcements`.*
