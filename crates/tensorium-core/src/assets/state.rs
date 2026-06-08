@@ -76,6 +76,29 @@ impl AssetState {
                 *self.ft_balances.entry((source.to_string(), txid)).or_insert(0) += d.supply;
                 ApplyResult::Applied
             }
+            AssetOp::NftMint(d) => {
+                if self.assets.contains_key(&txid) {
+                    return ApplyResult::Ignored("asset_id exists");
+                }
+                if d.royalty_bps > 10_000 {
+                    return ApplyResult::Ignored("royalty too high");
+                }
+                self.assets.insert(txid, AssetInfo {
+                    kind: AssetKind::NonFungible,
+                    ticker: String::new(),
+                    name: String::new(),
+                    decimals: 0,
+                    supply: 1,
+                    issuer: source.to_string(),
+                    royalty_bps: d.royalty_bps,
+                    royalty_addr: d.royalty_addr.clone(),
+                    uri: d.uri.clone(),
+                    content_hash: d.content_hash,
+                    mint_height: height,
+                });
+                self.nft_owner.insert(txid, source.to_string());
+                ApplyResult::Applied
+            }
             AssetOp::Transfer(d) => {
                 let Some(info) = self.assets.get(&d.asset_id) else {
                     return ApplyResult::Ignored("unknown asset");
@@ -108,7 +131,6 @@ impl AssetState {
                     }
                 }
             }
-            _ => ApplyResult::Ignored("not implemented yet"),
         }
     }
 }
@@ -163,5 +185,39 @@ mod tests {
             st.apply([4u8; 32], 4, "txm1alice", Some("txm1bob"), &transfer([8u8; 32], 1)),
             ApplyResult::Ignored(_)
         ));
+    }
+
+    use crate::assets::NftMintData;
+
+    fn mint(royalty_bps: u16) -> AssetOp {
+        AssetOp::NftMint(NftMintData {
+            collection_id: [0u8; 32],
+            royalty_bps,
+            royalty_addr: "txm1creator".into(),
+            uri: "ipfs://Qm".into(),
+            content_hash: [1u8; 32],
+        })
+    }
+
+    #[test]
+    fn nft_mint_then_transfer_by_owner_only() {
+        let mut st = AssetState::default();
+        let nft = [5u8; 32];
+        assert_eq!(st.apply(nft, 1, "txm1alice", None, &mint(500)), ApplyResult::Applied);
+        assert_eq!(st.nft_owner.get(&nft).unwrap(), "txm1alice");
+        assert_eq!(st.assets.get(&nft).unwrap().royalty_bps, 500);
+        assert_eq!(st.assets.get(&nft).unwrap().royalty_addr, "txm1creator");
+        // non-owner cannot transfer
+        assert!(matches!(
+            st.apply([6u8; 32], 2, "txm1mallory", Some("txm1bob"), &transfer(nft, 1)),
+            ApplyResult::Ignored(_)
+        ));
+        assert_eq!(st.nft_owner.get(&nft).unwrap(), "txm1alice");
+        // owner transfers
+        assert_eq!(
+            st.apply([7u8; 32], 3, "txm1alice", Some("txm1bob"), &transfer(nft, 1)),
+            ApplyResult::Applied
+        );
+        assert_eq!(st.nft_owner.get(&nft).unwrap(), "txm1bob");
     }
 }
