@@ -166,6 +166,48 @@ fn run() -> Result<(), String> {
             println!("fee_atoms={fee_atoms}");
             println!("written={}", tx_path.display());
         }
+        "asset-issue" => {
+            let ticker = args.get(2).ok_or(
+                "usage: txmwallet asset-issue <ticker> <decimals> <supply> <name...>",
+            )?;
+            let decimals: u8 = args
+                .get(3)
+                .ok_or("missing decimals")?
+                .parse()
+                .map_err(|_| "decimals must be 0-18")?;
+            let supply: u64 = args
+                .get(4)
+                .ok_or("missing supply")?
+                .parse()
+                .map_err(|_| "supply must be a positive integer")?;
+            let name = args.get(5..).map(|s| s.join(" ")).unwrap_or_default();
+
+            let op = AssetOp::Issue(tensorium_core::assets::IssueData {
+                ticker: ticker.to_string(),
+                decimals,
+                supply,
+                name,
+                flags: 0,
+            });
+
+            let passphrase = passphrase_from_env()?;
+            let wallet = load_wallet(&wallet_path)?;
+            let keypair = wallet.decrypt(&passphrase)?;
+            let rpc = env::var("TENSORIUM_RPC").unwrap_or_else(|_| DEFAULT_RPC.to_owned());
+            let fee_atoms = tensorium_core::mempool::MIN_RELAY_FEE_ATOMS;
+            let tx = build_asset_tx_via_rpc(&wallet, &keypair, &rpc, &op, None, fee_atoms)?;
+
+            let tx_path = PathBuf::from(DEFAULT_SIGNED_TX_PATH);
+            let raw = serde_json::to_string_pretty(&tx)
+                .map_err(|e| format!("serialize signed tx: {e}"))?;
+            fs::write(&tx_path, raw)
+                .map_err(|e| format!("write {}: {e}", tx_path.display()))?;
+            // asset_id = this tx's id.
+            println!("asset_id={}", tx.id);
+            println!("txid={}", tx.id);
+            println!("written={}", tx_path.display());
+            println!("next: txmwallet broadcast");
+        }
         "unlock-check" => {
             let wallet = load_wallet(&wallet_path)?;
             let passphrase = passphrase_from_env()?;
@@ -1016,6 +1058,71 @@ fn build_asset_outputs(
         });
     }
     Ok(outputs)
+}
+
+/// Fund an asset tx from the wallet's own mature UTXOs (so `inputs[0]` is the
+/// owner), attach the asset op, sign, and return the signed tx. `dest` is the
+/// transfer recipient + carrier atoms (None for issue/mint).
+fn build_asset_tx_via_rpc(
+    wallet: &WalletFile,
+    keypair: &WalletKeypair,
+    rpc: &str,
+    op: &AssetOp,
+    dest: Option<(&str, u64)>,
+    fee_atoms: u64,
+) -> Result<Transaction, String> {
+    use tensorium_core::block::OutPoint;
+    use tensorium_core::hash::Hash256;
+
+    let needed = dest.map(|(_, a)| a).unwrap_or(0).saturating_add(fee_atoms);
+
+    #[derive(serde::Deserialize)]
+    struct RpcUtxo {
+        txid_bytes: Vec<u8>,
+        output_index: u32,
+        value_atoms: u64,
+        mature: bool,
+    }
+    #[derive(serde::Deserialize)]
+    struct RpcUtxoResp {
+        utxos: Vec<RpcUtxo>,
+    }
+
+    let body = rpc_get(rpc, &format!("/getutxos/{}", wallet.address))?;
+    let resp: RpcUtxoResp =
+        serde_json::from_str(&body).map_err(|e| format!("UTXO parse error: {e}"))?;
+
+    let mut inputs: Vec<TxInput> = Vec::new();
+    let mut total_in = 0u64;
+    for u in resp.utxos {
+        if !u.mature {
+            continue;
+        }
+        let hash = Hash256(
+            u.txid_bytes
+                .as_slice()
+                .try_into()
+                .map_err(|_| "invalid txid length from RPC".to_owned())?,
+        );
+        inputs.push(TxInput {
+            previous_output: OutPoint { txid: hash, output_index: u.output_index },
+            signature_script: Vec::new(),
+        });
+        total_in = total_in.saturating_add(u.value_atoms);
+        if total_in >= needed {
+            break;
+        }
+    }
+    if total_in < needed {
+        return Err(format!(
+            "insufficient mature balance via RPC: have {total_in}, need {needed}"
+        ));
+    }
+
+    let outputs = build_asset_outputs(op, dest, &wallet.address, total_in, fee_atoms)?;
+    let mut tx = Transaction::payment(inputs, outputs);
+    keypair.sign_transaction(&mut tx).map_err(|e| e.to_string())?;
+    Ok(tx)
 }
 
 /// Build a signed payment transaction using UTXOs fetched from the node RPC.
