@@ -60,3 +60,6 @@ pub const OP_NFT_MINT: u8 = 0x02;
 pub const OP_TRANSFER: u8 = 0x03;
 /// Must fit a single OP_RETURN data push.
 pub const MAX_PAYLOAD: usize = 520;
+
+#[cfg(test)]
+mod tests_e2e;
