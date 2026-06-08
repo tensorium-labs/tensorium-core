@@ -5,7 +5,7 @@
 pub mod codec;
 pub mod state;
 
-pub use codec::{decode_op, encode_op, extract_asset_op};
+pub use codec::{decode_op, encode_op, extract_asset_op, op_return_script};
 pub use state::{ApplyResult, AssetInfo, AssetKind, AssetState};
 
 /// One asset operation, decoded from a `TXMA` OP_RETURN payload.

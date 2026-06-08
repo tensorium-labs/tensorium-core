@@ -105,9 +105,29 @@ pub fn decode_op(buf: &[u8]) -> Result<AssetOp, AssetError> {
 use crate::block::Transaction;
 use crate::script::OP_RETURN;
 
-/// Read the data bytes pushed after an `OP_RETURN`. Supports a direct
-/// push (0x01..=0x4b) or `OP_PUSHDATA1` (0x4c). Returns None if the output
-/// is not an OP_RETURN data carrier.
+/// Build an `OP_RETURN` data-carrier `script_pubkey` for `data`, choosing the
+/// smallest push opcode: direct (≤0x4b), `OP_PUSHDATA1` (≤0xff), else
+/// `OP_PUSHDATA2` (little-endian 2-byte length; covers the 520-byte cap).
+pub fn op_return_script(data: &[u8]) -> Vec<u8> {
+    let mut spk = vec![OP_RETURN];
+    let n = data.len();
+    if n <= 0x4b {
+        spk.push(n as u8);
+    } else if n <= 0xff {
+        spk.push(0x4c);
+        spk.push(n as u8);
+    } else {
+        spk.push(0x4d);
+        spk.push((n & 0xff) as u8);
+        spk.push(((n >> 8) & 0xff) as u8);
+    }
+    spk.extend_from_slice(data);
+    spk
+}
+
+/// Read the data bytes pushed after an `OP_RETURN`. Supports a direct push
+/// (0x01..=0x4b), `OP_PUSHDATA1` (0x4c), or `OP_PUSHDATA2` (0x4d, 2-byte LE len).
+/// Returns None if the output is not an OP_RETURN data carrier.
 fn op_return_data(spk: &[u8]) -> Option<&[u8]> {
     if spk.first() != Some(&OP_RETURN) {
         return None;
@@ -120,10 +140,17 @@ fn op_return_data(spk: &[u8]) -> Option<&[u8]> {
         }
         0x4c => {
             i += 1;
-            *spk.get(i).map(|x| {
-                i += 1;
-                x
-            })? as usize
+            let l = *spk.get(i)? as usize;
+            i += 1;
+            l
+        }
+        0x4d => {
+            i += 1;
+            let lo = *spk.get(i)? as usize;
+            i += 1;
+            let hi = *spk.get(i)? as usize;
+            i += 1;
+            lo | (hi << 8)
         }
         _ => return None,
     };
@@ -237,5 +264,34 @@ mod tests {
             vec![op_return_output(b"hello not an asset")],
         );
         assert_eq!(extract_asset_op(&tx), None);
+    }
+
+    #[test]
+    fn op_return_script_roundtrips_all_push_sizes() {
+        // Direct push (<=0x4b), OP_PUSHDATA1 (<=0xff), OP_PUSHDATA2 (>0xff).
+        for len in [10usize, 100, 300] {
+            let data = vec![0xABu8; len];
+            let spk = op_return_script(&data);
+            assert_eq!(op_return_data(&spk), Some(data.as_slice()));
+        }
+    }
+
+    #[test]
+    fn large_nft_op_extracts_via_pushdata2() {
+        // uri at the 200-byte cap → total payload ~285 B (> 255), forces PUSHDATA2.
+        let op = AssetOp::NftMint(NftMintData {
+            collection_id: [0u8; 32],
+            royalty_bps: 100,
+            royalty_addr: "txm1creator".into(),
+            uri: "Q".repeat(200),
+            content_hash: [1u8; 32],
+        });
+        let spk = op_return_script(&encode_op(&op));
+        assert!(spk[1] == 0x4d, "expected OP_PUSHDATA2 for >255B payload");
+        let tx = Transaction::payment(
+            vec![],
+            vec![TxOutput { value_atoms: 0, script_pubkey: spk }],
+        );
+        assert_eq!(extract_asset_op(&tx), Some(op));
     }
 }
