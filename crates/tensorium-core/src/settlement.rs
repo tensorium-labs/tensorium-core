@@ -86,9 +86,55 @@ pub fn build_settlement_tx(
     Ok(Transaction::payment(inputs, outputs))
 }
 
-/// (stub — implemented in Task 4)
-pub fn verify_settlement(_tx: &Transaction, _terms: &SettlementTerms) -> Vec<String> {
-    unimplemented!()
+/// Trust anchor: assert the trust-critical invariants derivable from `terms`
+/// alone. Returns the list of mismatches (empty = valid). Input-value-independent.
+pub fn verify_settlement(tx: &Transaction, terms: &SettlementTerms) -> Vec<String> {
+    use crate::assets::extract_asset_op;
+    let mut bad = Vec::new();
+    let (platform_fee, royalty) =
+        fee_split(terms.price_atoms, terms.royalty_bps, &terms.seller_addr, &terms.royalty_addr);
+
+    // out[0]: buyer carrier (asset destination).
+    match tx.outputs.first() {
+        Some(o)
+            if o.value_atoms == CARRIER_ATOMS
+                && extract_address(&o.script_pubkey).as_deref() == Some(terms.buyer_addr.as_str()) => {}
+        _ => bad.push("out[0] is not the buyer carrier".to_owned()),
+    }
+
+    // The first TXMA op must be the expected transfer.
+    match extract_asset_op(tx) {
+        Some(AssetOp::Transfer(d))
+            if d.asset_id == terms.asset_id && d.amount == terms.amount && d.dest_output_index == 0 => {}
+        _ => bad.push("transfer op mismatch".to_owned()),
+    }
+
+    // Platform fee output, exact.
+    if platform_fee > 0 && !has_output_exact(tx, PLATFORM_FEE_ADDRESS, platform_fee) {
+        bad.push("platform fee output missing/incorrect".to_owned());
+    }
+    // Royalty output, exact (when applicable).
+    if royalty > 0 && !has_output_exact(tx, &terms.royalty_addr, royalty) {
+        bad.push("royalty output missing/incorrect".to_owned());
+    }
+    // Seller receives at least net proceeds (surplus = their refunded input).
+    let min_proceeds = terms.price_atoms.saturating_sub(platform_fee + royalty);
+    if !has_output_at_least(tx, &terms.seller_addr, min_proceeds) {
+        bad.push("seller proceeds below net".to_owned());
+    }
+    bad
+}
+
+fn has_output_exact(tx: &Transaction, addr: &str, value: u64) -> bool {
+    tx.outputs
+        .iter()
+        .any(|o| o.value_atoms == value && extract_address(&o.script_pubkey).as_deref() == Some(addr))
+}
+
+fn has_output_at_least(tx: &Transaction, addr: &str, min: u64) -> bool {
+    tx.outputs
+        .iter()
+        .any(|o| o.value_atoms >= min && extract_address(&o.script_pubkey).as_deref() == Some(addr))
 }
 
 #[cfg(test)]
@@ -187,5 +233,65 @@ mod tests {
             &[(OutPoint { txid: crate::hash::Hash256([2u8; 32]), output_index: 0 }, 500_000)],
         )
         .is_err());
+    }
+
+    fn built() -> (Transaction, SettlementTerms) {
+        let seller = WalletKeypair::generate().address.as_str().to_string();
+        let buyer = WalletKeypair::generate().address.as_str().to_string();
+        let creator = WalletKeypair::generate().address.as_str().to_string();
+        let t = terms(1_000_000, 500, &seller, &buyer, &creator);
+        let tx = build_settlement_tx(
+            &t,
+            (OutPoint { txid: crate::hash::Hash256([1u8; 32]), output_index: 0 }, 3_000),
+            &[(OutPoint { txid: crate::hash::Hash256([2u8; 32]), output_index: 0 }, 1_100_000)],
+        )
+        .unwrap();
+        (tx, t)
+    }
+
+    #[test]
+    fn verify_accepts_a_well_formed_settlement() {
+        let (tx, t) = built();
+        assert!(verify_settlement(&tx, &t).is_empty());
+    }
+
+    #[test]
+    fn verify_rejects_reduced_platform_fee() {
+        let (mut tx, t) = built();
+        tx.outputs[3].value_atoms -= 1; // skim the platform fee
+        assert!(!verify_settlement(&tx, &t).is_empty());
+    }
+
+    #[test]
+    fn verify_rejects_wrong_buyer_destination() {
+        let (mut tx, t) = built();
+        let attacker = WalletKeypair::generate().address.as_str().to_string();
+        tx.outputs[0].script_pubkey = p2pkh_from_address(&attacker).unwrap();
+        assert!(!verify_settlement(&tx, &t).is_empty());
+    }
+
+    #[test]
+    fn verify_rejects_removed_royalty() {
+        let (mut tx, t) = built();
+        tx.outputs.remove(4); // drop the royalty output
+        assert!(!verify_settlement(&tx, &t).is_empty());
+    }
+
+    #[test]
+    fn verify_rejects_underpaid_seller() {
+        let (mut tx, t) = built();
+        tx.outputs[2].value_atoms = 1; // seller proceeds far below net
+        assert!(!verify_settlement(&tx, &t).is_empty());
+    }
+
+    #[test]
+    fn verify_rejects_wrong_asset_or_amount() {
+        let (tx, t) = built();
+        let mut wrong_amount = t.clone();
+        wrong_amount.amount = 999;
+        assert!(!verify_settlement(&tx, &wrong_amount).is_empty());
+        let mut wrong_asset = t.clone();
+        wrong_asset.asset_id = [0u8; 32];
+        assert!(!verify_settlement(&tx, &wrong_asset).is_empty());
     }
 }
