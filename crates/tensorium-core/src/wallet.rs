@@ -38,6 +38,8 @@ pub enum WalletError {
     InvalidPublicKey,
     #[error("invalid signature")]
     InvalidSignature,
+    #[error("input index out of range")]
+    InputIndexOutOfRange,
 }
 
 impl WalletKeypair {
@@ -90,6 +92,29 @@ impl WalletKeypair {
         Ok(())
     }
 
+    /// Sign the whole-tx `signature_hash()` and stamp the P2PKH scriptSig onto
+    /// ONLY input `index` (the others are left untouched). Used for co-signed
+    /// multi-party transactions where each party signs only its own input.
+    pub fn sign_input(&self, tx: &mut Transaction, index: usize) -> Result<(), WalletError> {
+        if index >= tx.inputs.len() {
+            return Err(WalletError::InputIndexOutOfRange);
+        }
+        let private_key_bytes =
+            hex::decode(&self.private_key_hex).map_err(|_| WalletError::InvalidPrivateKey)?;
+        let secret_key = SecretKey::from_slice(&private_key_bytes)
+            .map_err(|_| WalletError::InvalidPrivateKey)?;
+        let signing_key = SigningKey::from(secret_key);
+        let signature_hash = tx.signature_hash();
+        let signature: Signature = signing_key.sign(&signature_hash.0);
+        let der_bytes = signature.to_der().as_bytes().to_vec();
+        let pubkey_bytes = hex::decode(&self.public_key_hex)
+            .map_err(|_| WalletError::InvalidPrivateKey)?;
+        let script_sig = crate::script::standard::p2pkh_script_sig(&der_bytes, &pubkey_bytes);
+        tx.inputs[index].signature_script = script_sig;
+        tx.refresh_id();
+        Ok(())
+    }
+
     /// Sign a raw hash with this wallet's private key.
     /// Returns the DER-encoded signature bytes.
     /// Used for multisig signing where the full P2PKH scriptSig is not needed.
@@ -128,6 +153,31 @@ mod tests {
         assert!(keypair.address.as_str().starts_with("txm1"));
         assert_eq!(keypair.private_key_hex.len(), 64);
         assert_eq!(keypair.public_key_hex.len(), 66);
+    }
+
+    #[test]
+    fn sign_input_stamps_only_target_index() {
+        use crate::block::{OutPoint, Transaction, TxInput, TxOutput};
+        let seller = WalletKeypair::generate();
+        let buyer = WalletKeypair::generate();
+        let mut tx = Transaction::payment(
+            vec![
+                TxInput { previous_output: OutPoint { txid: crate::hash::Hash256([1u8; 32]), output_index: 0 }, signature_script: vec![] },
+                TxInput { previous_output: OutPoint { txid: crate::hash::Hash256([2u8; 32]), output_index: 0 }, signature_script: vec![] },
+            ],
+            vec![TxOutput { value_atoms: 10, script_pubkey: vec![0x6a] }],
+        );
+        let hash_before = tx.signature_hash();
+        seller.sign_input(&mut tx, 0).unwrap();
+        // Only input 0 is stamped.
+        assert!(!tx.inputs[0].signature_script.is_empty());
+        assert!(tx.inputs[1].signature_script.is_empty());
+        // The signed hash is unchanged (scripts are excluded from signature_hash).
+        assert_eq!(tx.signature_hash(), hash_before);
+        buyer.sign_input(&mut tx, 1).unwrap();
+        assert!(!tx.inputs[1].signature_script.is_empty());
+        // Out-of-range index errors.
+        assert!(seller.sign_input(&mut tx, 9).is_err());
     }
 
     #[test]
