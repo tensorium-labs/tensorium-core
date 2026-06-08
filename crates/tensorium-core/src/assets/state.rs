@@ -29,7 +29,7 @@ pub enum ApplyResult {
 }
 
 /// Deterministic asset state: reconstructable purely from the canonical chain.
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct AssetState {
     pub assets: HashMap<[u8; 32], AssetInfo>,
     pub ft_balances: HashMap<(String, [u8; 32]), u64>,

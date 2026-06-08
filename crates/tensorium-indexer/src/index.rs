@@ -16,6 +16,18 @@ pub struct HistoryEntry {
     pub amount: u64,
 }
 
+/// A rolled-back-to snapshot of the indexer's deterministic state (everything
+/// except the checkpoint itself), used to recover from a chain reorg without
+/// rescanning from genesis.
+#[derive(Clone, Default)]
+pub struct CheckpointSnap {
+    pub state: AssetState,
+    pub outpoints: HashMap<String, String>,
+    pub history: HashMap<String, Vec<HistoryEntry>>,
+    pub last_height: u64,
+    pub last_hash: String,
+}
+
 /// In-memory indexer state. Deterministically reconstructable from the chain.
 #[derive(Default)]
 pub struct Indexer {
@@ -27,11 +39,38 @@ pub struct Indexer {
     pub last_height: u64,
     pub last_hash: String,
     pub scanned_any: bool,
+    /// Periodic buried snapshot `(height, block_hash_hex, state)` for cheap reorg
+    /// rollback. Not persisted — rebuilt as scanning proceeds.
+    pub checkpoint: Option<(u64, String, CheckpointSnap)>,
 }
 
 /// Key for the outpoint index.
 pub fn outpoint_key(txid: &Hash256, vout: u32) -> String {
     format!("{}:{}", txid.to_hex(), vout)
+}
+
+impl Indexer {
+    /// Clone the deterministic state (without the checkpoint) for a checkpoint.
+    pub fn snapshot(&self) -> CheckpointSnap {
+        CheckpointSnap {
+            state: self.state.clone(),
+            outpoints: self.outpoints.clone(),
+            history: self.history.clone(),
+            last_height: self.last_height,
+            last_hash: self.last_hash.clone(),
+        }
+    }
+
+    /// Restore the deterministic state from a checkpoint snapshot (keeps the
+    /// existing `checkpoint` field so it can be reused for the next reorg).
+    pub fn restore(&mut self, snap: CheckpointSnap) {
+        self.state = snap.state;
+        self.outpoints = snap.outpoints;
+        self.history = snap.history;
+        self.last_height = snap.last_height;
+        self.last_hash = snap.last_hash;
+        self.scanned_any = true;
+    }
 }
 
 impl Indexer {
