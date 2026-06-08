@@ -294,4 +294,40 @@ mod tests {
         wrong_asset.asset_id = [0u8; 32];
         assert!(!verify_settlement(&tx, &wrong_asset).is_empty());
     }
+
+    #[test]
+    fn two_party_cosign_produces_a_valid_settlement() {
+        use crate::assets::{extract_asset_op, AssetOp};
+        let seller_kp = WalletKeypair::generate();
+        let buyer_kp = WalletKeypair::generate();
+        let seller = seller_kp.address.as_str().to_string();
+        let buyer = buyer_kp.address.as_str().to_string();
+        let t = terms(1_000_000, 0, &seller, &buyer, &seller); // no royalty
+
+        let mut tx = build_settlement_tx(
+            &t,
+            (OutPoint { txid: crate::hash::Hash256([1u8; 32]), output_index: 0 }, 2_000),
+            &[(OutPoint { txid: crate::hash::Hash256([2u8; 32]), output_index: 0 }, 1_100_000)],
+        )
+        .unwrap();
+
+        // Verify clean, then both parties sign their own input.
+        assert!(verify_settlement(&tx, &t).is_empty());
+        buyer_kp.sign_input(&mut tx, 1).unwrap();
+        seller_kp.sign_input(&mut tx, 0).unwrap();
+
+        assert!(!tx.inputs[0].signature_script.is_empty());
+        assert!(!tx.inputs[1].signature_script.is_empty());
+        // The asset still transfers to the buyer.
+        match extract_asset_op(&tx) {
+            Some(AssetOp::Transfer(d)) => {
+                assert_eq!(d.asset_id, t.asset_id);
+                assert_eq!(
+                    extract_address(&tx.outputs[d.dest_output_index as usize].script_pubkey).as_deref(),
+                    Some(buyer.as_str())
+                );
+            }
+            _ => panic!("expected transfer"),
+        }
+    }
 }
