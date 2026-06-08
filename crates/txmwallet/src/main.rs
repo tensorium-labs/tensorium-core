@@ -20,6 +20,7 @@ use tensorium_core::{
         p2pkh_from_address, p2pkh_from_pubkey, p2pkh_script_sig, p2sh_address_from_redeem,
         p2sh_multisig_script_sig, p2sh_script_from_redeem,
     },
+    assets::{encode_op, op_return_script, AssetOp},
     ChainState, UtxoSet, WalletKeypair,
 };
 
@@ -975,6 +976,48 @@ mod tests {
     }
 }
 
+/// Build the outputs for an asset tx: `[<dest P2PKH (transfer only)>, <TXMA
+/// OP_RETURN>, <change to owner>]`. For a transfer, `dest` is `(recipient,
+/// carrier_atoms)` and the op's `dest_output_index` must be 0 (this places the
+/// recipient at output 0). Pure — no I/O.
+fn build_asset_outputs(
+    op: &AssetOp,
+    dest: Option<(&str, u64)>,
+    change_addr: &str,
+    total_in: u64,
+    fee_atoms: u64,
+) -> Result<Vec<TxOutput>, String> {
+    let dest_atoms = dest.map(|(_, a)| a).unwrap_or(0);
+    let spent = dest_atoms.saturating_add(fee_atoms);
+    if total_in < spent {
+        return Err(format!(
+            "insufficient mature balance: have {total_in}, need {spent} (carrier {dest_atoms} + fee {fee_atoms})"
+        ));
+    }
+
+    let mut outputs = Vec::new();
+    if let Some((addr, atoms)) = dest {
+        outputs.push(TxOutput {
+            value_atoms: atoms,
+            script_pubkey: p2pkh_from_address(addr)
+                .map_err(|_| format!("invalid recipient address: {addr}"))?,
+        });
+    }
+    outputs.push(TxOutput {
+        value_atoms: 0,
+        script_pubkey: op_return_script(&encode_op(op)),
+    });
+    let change = total_in - dest_atoms - fee_atoms;
+    if change > 0 {
+        outputs.push(TxOutput {
+            value_atoms: change,
+            script_pubkey: p2pkh_from_address(change_addr)
+                .map_err(|_| "invalid wallet address".to_owned())?,
+        });
+    }
+    Ok(outputs)
+}
+
 /// Build a signed payment transaction using UTXOs fetched from the node RPC.
 /// This avoids opening the RocksDB state file directly, which would conflict
 /// with the node's exclusive lock on the database.
@@ -1325,4 +1368,63 @@ fn derive_key(
         .hash_password_into(passphrase.as_bytes(), salt, &mut key)
         .map_err(|err| format!("Argon2 key derivation failed: {err}"))?;
     Ok(key)
+}
+
+#[cfg(test)]
+mod asset_tests {
+    use super::*;
+    use tensorium_core::assets::{extract_asset_op, IssueData, TransferData};
+    use tensorium_core::script::standard::extract_address;
+    use tensorium_core::WalletKeypair;
+
+    fn addr() -> String {
+        WalletKeypair::generate().address.as_str().to_string()
+    }
+
+    #[test]
+    fn issue_outputs_carry_op_return_and_change() {
+        let owner = addr();
+        let op = AssetOp::Issue(IssueData {
+            ticker: "GOLD".into(), decimals: 8, supply: 1000, name: "Gold".into(), flags: 0,
+        });
+        // total_in 50_000, fee 10_000, no dest → [OP_RETURN, change 40_000].
+        let outs = build_asset_outputs(&op, None, &owner, 50_000, 10_000).unwrap();
+        assert_eq!(outs.len(), 2);
+        // The carrier decodes back to the op.
+        let tx = Transaction::payment(vec![], outs.clone());
+        assert_eq!(extract_asset_op(&tx), Some(op));
+        // Change goes back to the owner.
+        assert_eq!(outs[1].value_atoms, 40_000);
+        assert_eq!(extract_address(&outs[1].script_pubkey).as_deref(), Some(owner.as_str()));
+    }
+
+    #[test]
+    fn transfer_outputs_put_dest_at_index_zero() {
+        let owner = addr();
+        let bob = addr();
+        let op = AssetOp::Transfer(TransferData {
+            asset_id: [4u8; 32], amount: 250, dest_output_index: 0,
+        });
+        // dest carrier 1_000 atoms, fee 10_000, total_in 30_000.
+        let outs = build_asset_outputs(&op, Some((&bob, 1_000)), &owner, 30_000, 10_000).unwrap();
+        assert_eq!(outs.len(), 3);
+        // Output 0 = dest (matches dest_output_index 0).
+        assert_eq!(extract_address(&outs[0].script_pubkey).as_deref(), Some(bob.as_str()));
+        assert_eq!(outs[0].value_atoms, 1_000);
+        // Output 1 = TXMA carrier.
+        let tx = Transaction::payment(vec![], outs.clone());
+        assert_eq!(extract_asset_op(&tx), Some(op));
+        // Output 2 = change = 30_000 - 1_000 - 10_000.
+        assert_eq!(outs[2].value_atoms, 19_000);
+        assert_eq!(extract_address(&outs[2].script_pubkey).as_deref(), Some(owner.as_str()));
+    }
+
+    #[test]
+    fn rejects_insufficient_input() {
+        let owner = addr();
+        let op = AssetOp::Issue(IssueData {
+            ticker: "X".into(), decimals: 0, supply: 1, name: "X".into(), flags: 0,
+        });
+        assert!(build_asset_outputs(&op, None, &owner, 5_000, 10_000).is_err());
+    }
 }
