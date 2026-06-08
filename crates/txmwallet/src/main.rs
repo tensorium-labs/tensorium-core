@@ -208,6 +208,51 @@ fn run() -> Result<(), String> {
             println!("written={}", tx_path.display());
             println!("next: txmwallet broadcast");
         }
+        "asset-mint" => {
+            // usage: txmwallet asset-mint <royalty_bps> <royalty_addr> <content_hash_hex> <uri...>
+            let royalty_bps: u16 = args
+                .get(2)
+                .ok_or("usage: txmwallet asset-mint <royalty_bps> <royalty_addr> <content_hash_hex> <uri...>")?
+                .parse()
+                .map_err(|_| "royalty_bps must be 0-10000")?;
+            if royalty_bps > 10_000 {
+                return Err("royalty_bps must be 0-10000".to_owned());
+            }
+            let royalty_addr = args.get(3).ok_or("missing royalty_addr")?.to_string();
+            let content_hash_hex = args.get(4).ok_or("missing content_hash_hex")?;
+            let hash_bytes = hex::decode(content_hash_hex)
+                .map_err(|_| "content_hash_hex must be hex".to_owned())?;
+            let content_hash: [u8; 32] = hash_bytes
+                .as_slice()
+                .try_into()
+                .map_err(|_| "content_hash must be 32 bytes (64 hex chars)".to_owned())?;
+            let uri = args.get(5..).map(|s| s.join(" ")).unwrap_or_default();
+
+            let op = AssetOp::NftMint(tensorium_core::assets::NftMintData {
+                collection_id: [0u8; 32], // standalone NFT (MVP)
+                royalty_bps,
+                royalty_addr,
+                uri,
+                content_hash,
+            });
+
+            let passphrase = passphrase_from_env()?;
+            let wallet = load_wallet(&wallet_path)?;
+            let keypair = wallet.decrypt(&passphrase)?;
+            let rpc = env::var("TENSORIUM_RPC").unwrap_or_else(|_| DEFAULT_RPC.to_owned());
+            let fee_atoms = tensorium_core::mempool::MIN_RELAY_FEE_ATOMS;
+            let tx = build_asset_tx_via_rpc(&wallet, &keypair, &rpc, &op, None, fee_atoms)?;
+
+            let tx_path = PathBuf::from(DEFAULT_SIGNED_TX_PATH);
+            let raw = serde_json::to_string_pretty(&tx)
+                .map_err(|e| format!("serialize signed tx: {e}"))?;
+            fs::write(&tx_path, raw)
+                .map_err(|e| format!("write {}: {e}", tx_path.display()))?;
+            println!("nft_asset_id={}", tx.id);
+            println!("txid={}", tx.id);
+            println!("written={}", tx_path.display());
+            println!("next: txmwallet broadcast");
+        }
         "unlock-check" => {
             let wallet = load_wallet(&wallet_path)?;
             let passphrase = passphrase_from_env()?;
