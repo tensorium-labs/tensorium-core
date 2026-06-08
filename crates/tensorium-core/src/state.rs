@@ -62,6 +62,15 @@ pub struct ChainState {
     _tmpdir:      Option<TempDir>,
     tip_cache:    Option<Block>,
     height_cache: Option<u64>,
+    /// Blocks disconnected from the canonical chain by the most recent
+    /// `submit_block` reorg (empty when the last accepted block simply
+    /// extended the tip, or didn't change it at all). Non-coinbase
+    /// transactions inside these blocks no longer have a home on the
+    /// winning chain and should be re-queued into the mempool — see
+    /// `take_reorg_requeue_candidates`. Without this, a transaction that
+    /// happens to land in a block that later loses a natural fork vanishes
+    /// silently instead of returning to the sender's mempool.
+    last_disconnected: Vec<Block>,
 }
 
 impl ChainState {
@@ -69,7 +78,7 @@ impl ChainState {
     pub fn new() -> Self {
         let dir = TempDir::new().expect("tempdir");
         let db  = open_rocksdb(dir.path());
-        ChainState { db, _tmpdir: Some(dir), tip_cache: None, height_cache: None }
+        ChainState { db, _tmpdir: Some(dir), tip_cache: None, height_cache: None, last_disconnected: Vec::new() }
     }
 
     /// Open (or create) a persistent RocksDB at `path`.
@@ -81,7 +90,7 @@ impl ChainState {
             path.to_path_buf()
         };
         let db = open_rocksdb(&db_path);
-        let mut s = ChainState { db, _tmpdir: None, tip_cache: None, height_cache: None };
+        let mut s = ChainState { db, _tmpdir: None, tip_cache: None, height_cache: None, last_disconnected: Vec::new() };
         s.reload_caches();
         Ok(s)
     }
@@ -95,9 +104,28 @@ impl ChainState {
             path.to_path_buf()
         };
         let db = try_open_rocksdb(&db_path)?;
-        let mut s = ChainState { db, _tmpdir: None, tip_cache: None, height_cache: None };
+        let mut s = ChainState { db, _tmpdir: None, tip_cache: None, height_cache: None, last_disconnected: Vec::new() };
         s.reload_caches();
         Ok(s)
+    }
+
+    /// Drains the non-coinbase transactions from blocks that the most recent
+    /// `submit_block` reorg knocked off the canonical chain. Coinbase
+    /// transactions are excluded — their reward is simply forfeited when a
+    /// block is orphaned (normal PoW behaviour, nothing to requeue).
+    ///
+    /// Callers should try to re-admit each returned transaction into the
+    /// mempool against the *new* canonical UTXO set: some may now conflict
+    /// with a transaction that made it into the winning chain (e.g. the same
+    /// transaction was independently mined into both branches, or its inputs
+    /// were spent by a competing transaction) and should be dropped silently
+    /// in that case — `Mempool::add` already reports those as errors.
+    pub fn take_reorg_requeue_candidates(&mut self) -> Vec<Transaction> {
+        std::mem::take(&mut self.last_disconnected)
+            .into_iter()
+            .flat_map(|b| b.transactions.into_iter())
+            .filter(|tx| !tx.is_coinbase())
+            .collect()
     }
 
     fn reload_caches(&mut self) {
@@ -381,6 +409,11 @@ impl ChainState {
         let new_work     = self.chain_work(block_hash);
         let old_work     = self.chain_work(old_tip_hash);
 
+        // Reset reorg bookkeeping for this call — only the reorg branch below
+        // repopulates it, so a fast-path extension or a stored-but-losing side
+        // block both correctly report "nothing to requeue".
+        self.last_disconnected = Vec::new();
+
         if new_work > old_work {
             if parent_hash == old_tip_hash {
                 // Fast path: the block extends the current canonical tip. The
@@ -407,6 +440,16 @@ impl ChainState {
                 let set = self.replay_utxo(params, &new_canonical)?;
                 let height = new_canonical.last().map(|b| b.header.height).unwrap_or(0);
                 let old_height = self.height_cache.unwrap_or(0);
+
+                // Diff against the chain we're replacing: every block on the
+                // old chain past the fork point is being disconnected, and its
+                // (non-coinbase) transactions need to find their way back into
+                // the mempool — see `take_reorg_requeue_candidates`.
+                let old_canonical = self.build_canonical_chain(old_tip_hash);
+                let fork_index = old_canonical.iter().zip(new_canonical.iter())
+                    .take_while(|(a, b)| a.hash() == b.hash())
+                    .count();
+                self.last_disconnected = old_canonical[fork_index..].to_vec();
                 let canonical_cf = self.db.cf_handle(CF_CANONICAL).expect("canonical CF");
                 let meta_cf = self.db.cf_handle(CF_META).expect("meta CF");
                 let mut batch = WriteBatch::default();
@@ -1125,6 +1168,110 @@ mod tests {
         assert_eq!(state.tip().unwrap().hash(), good.hash());
         assert_eq!(state.height(), Some(1));
         assert_eq!(state.read_meta_utxo_tip(), good_utxo_tip);
+    }
+
+    /// Regression test for the "300k transfer vanished" mainnet incident
+    /// (2026-06-08): a transaction confirmed only on a branch that later lost
+    /// a natural fork disappeared completely — neither on-chain nor back in
+    /// the mempool — even though its sender's balance correctly reverted.
+    ///
+    /// `submit_block` must record the transactions of any block it disconnects
+    /// during a reorg so the node layer can requeue them into the mempool
+    /// (see `take_reorg_requeue_candidates` and `requeue_reorged_transactions`
+    /// in `tensorium-node`).
+    #[test]
+    fn reorg_requeues_orphaned_transactions_for_remempool() {
+        use crate::block::{OutPoint, TxInput, TxOutput};
+        use crate::chain::TEST_PARAMS;
+        use crate::script::standard::p2pkh_from_address;
+        use crate::wallet::WalletKeypair;
+
+        let sender = WalletKeypair::generate();
+        let receiver = WalletKeypair::generate();
+        let mut state = ChainState::new();
+        state.init_genesis(&TEST_PARAMS, 1_700_000_000, 1_000_000).unwrap();
+        state.ensure_utxo_synced(&TEST_PARAMS).unwrap();
+
+        // Height 1: coinbase to `sender`, then mature it by extending the chain.
+        let mut c1 = candidate_block(&TEST_PARAMS, Some(&state.tip().unwrap().clone()), 1_700_000_060, "x", vec![], 0);
+        let cb1 = Transaction::coinbase(1, crate::emission::reward_at_height(&TEST_PARAMS, 1), sender.address.as_str());
+        c1.transactions[0] = cb1.clone();
+        c1.header.merkle_root = merkle_root(&c1.transactions);
+        let h1 = mine_header(c1.header.clone(), 10_000_000).unwrap();
+        state.submit_block(&TEST_PARAMS, Block::new(h1, c1.transactions), 1_700_000_060).unwrap();
+
+        let mut ts = 1_700_000_120;
+        for _ in 0..TEST_PARAMS.coinbase_maturity_blocks {
+            let cand = state.candidate_block(&TEST_PARAMS, ts, "x").unwrap();
+            let hh = mine_header(cand.header.clone(), 10_000_000).unwrap();
+            state.submit_block(&TEST_PARAMS, Block::new(hh, cand.transactions), ts).unwrap();
+            ts += 60;
+        }
+
+        // Fork point: the common ancestor both competing branches extend.
+        let fork_parent = state.tip().unwrap().clone();
+        let fork_height = fork_parent.header.height;
+
+        // The transaction that's about to get caught in the crossfire: spends
+        // the now-mature coinbase, sending part of it to `receiver`.
+        let outpoint = OutPoint { txid: cb1.id, output_index: 0 };
+        let mut payment = Transaction::payment(
+            vec![TxInput { previous_output: outpoint, signature_script: Vec::new() }],
+            vec![TxOutput { value_atoms: 1_000_000, script_pubkey: p2pkh_from_address(receiver.address.as_str()).unwrap() }],
+        );
+        sender.sign_transaction(&mut payment).unwrap();
+        let payment_txid = payment.id.to_hex();
+
+        let block_at = |height: u64, parent_hash: Hash256, miner: &str, extra: Vec<Transaction>, ts: u64| {
+            let coinbase = Transaction::coinbase(height, crate::emission::reward_at_height(&TEST_PARAMS, height), miner);
+            let mut txs = vec![coinbase];
+            txs.extend(extra);
+            let header = BlockHeader {
+                version: 1,
+                chain_id: TEST_PARAMS.chain_id.to_owned(),
+                height,
+                previous_hash: parent_hash,
+                merkle_root: merkle_root(&txs),
+                timestamp_seconds: ts,
+                leading_zero_bits: TEST_PARAMS.initial_leading_zero_bits,
+                nonce: 0,
+            };
+            let mined = mine_header(header, 10_000_000).unwrap();
+            Block::new(mined, txs)
+        };
+
+        // Branch A: includes `payment` and becomes canonical first.
+        ts += 60;
+        let block_a = block_at(fork_height + 1, fork_parent.hash(), "miner-a", vec![payment.clone()], ts);
+        state.submit_block(&TEST_PARAMS, block_a.clone(), ts).unwrap();
+        assert_eq!(state.tip().unwrap().hash(), block_a.hash(), "branch A becomes canonical first");
+        // Fast-path extension — nothing to requeue.
+        assert!(state.take_reorg_requeue_candidates().is_empty());
+
+        // Branch B: a competing block at the same height, WITHOUT `payment` —
+        // equal work, so A stays canonical for now...
+        ts += 60;
+        let block_b1 = block_at(fork_height + 1, fork_parent.hash(), "miner-b", vec![], ts);
+        state.submit_block(&TEST_PARAMS, block_b1.clone(), ts).unwrap();
+        assert_eq!(state.tip().unwrap().hash(), block_a.hash(), "equal-work side block must not yet reorg");
+        assert!(state.take_reorg_requeue_candidates().is_empty());
+
+        // ...until B is extended one block further, giving it strictly more
+        // cumulative work and triggering a reorg that orphans `block_a`.
+        ts += 60;
+        let block_b2 = block_at(fork_height + 2, block_b1.hash(), "miner-b", vec![], ts);
+        state.submit_block(&TEST_PARAMS, block_b2.clone(), ts).unwrap();
+        assert_eq!(state.tip().unwrap().hash(), block_b2.hash(), "heavier branch B wins the reorg");
+
+        // `payment` was confirmed only on the now-orphaned `block_a` — it must
+        // come back as a requeue candidate so the node can re-admit it to the
+        // mempool instead of letting it vanish.
+        let requeued = state.take_reorg_requeue_candidates();
+        assert_eq!(requeued.len(), 1, "exactly the orphaned payment should be requeued, got {requeued:?}");
+        assert_eq!(requeued[0].id.to_hex(), payment_txid, "the orphaned payment transaction must be returned for requeue");
+
+        // One-shot: draining again returns nothing until the next reorg.
+        assert!(state.take_reorg_requeue_candidates().is_empty());
     }
 
     #[test]

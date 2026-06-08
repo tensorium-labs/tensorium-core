@@ -142,7 +142,7 @@ fn run() -> Result<(), String> {
                 .ok_or_else(|| {
                     "usage: tensorium-node sync <peer>  (or set TENSORIUM_PEERS; disable built-in seeds with TENSORIUM_NO_DEFAULT_SEEDS=1)".to_owned()
                 })?;
-            sync_from_peer(peer, &state_path, &MAINNET_CANDIDATE)?;
+            sync_from_peer(peer, &state_path, &mempool_path_from_env(), &MAINNET_CANDIDATE)?;
         }
         "peers" => print_manual_peers(),
         "banlist" => print_banlist(),
@@ -255,7 +255,7 @@ fn run() -> Result<(), String> {
                         .ok_or_else(|| {
                             "usage: tensorium-node mainnet-candidate sync <peer>  (or set TENSORIUM_MC_PEERS; disable seeds with TENSORIUM_NO_DEFAULT_SEEDS=1)".to_owned()
                         })?;
-                    sync_from_peer(peer, &mc_state_path_from_env(), &MAINNET_CANDIDATE)?;
+                    sync_from_peer(peer, &mc_state_path_from_env(), &mc_mempool_path_from_env(), &MAINNET_CANDIDATE)?;
                 }
                 "status" => {
                     let mc_state = mc_state_path_from_env();
@@ -491,6 +491,46 @@ fn seed_utxos_for_tx(state: &ChainState, tx: &Transaction) -> UtxoSet {
         }
     }
     set
+}
+
+/// After `submit_block` performs a reorg, the transactions confirmed only on
+/// the now-disconnected branch have nowhere to live — without this they
+/// vanish silently (neither on-chain nor in the mempool), even though their
+/// sender's balance correctly reverts. This walks `state.last_disconnected`
+/// (drained by `take_reorg_requeue_candidates`) and tries to re-admit each
+/// transaction into the mempool against the *new* canonical UTXO set.
+///
+/// Best-effort: a transaction is silently dropped if it no longer validates
+/// (e.g. its inputs were spent by a competing transaction that made it onto
+/// the winning chain, or it was independently mined into both branches and is
+/// `AlreadyKnown`/already confirmed) — `Mempool::add` already distinguishes
+/// these from real problems, and re-broadcasting a dead transaction would
+/// just waste peers' bandwidth.
+fn requeue_reorged_transactions(
+    state: &mut ChainState,
+    mempool: &mut Mempool,
+    params: &ConsensusParams,
+) -> usize {
+    let candidates = state.take_reorg_requeue_candidates();
+    if candidates.is_empty() {
+        return 0;
+    }
+    let tip_height = state.height().unwrap_or(0);
+    let mut requeued = 0;
+    for tx in candidates {
+        let txid = tx.id.to_hex();
+        let utxos = seed_utxos_for_tx(state, &tx);
+        match mempool.add(&utxos, params, tx, tip_height) {
+            Ok(()) => {
+                requeued += 1;
+                println!("[reorg] requeued orphaned tx txid={txid} back into mempool");
+            }
+            Err(err) => {
+                println!("[reorg] dropped orphaned tx txid={txid}: {err} (no longer valid on the winning chain)");
+            }
+        }
+    }
+    requeued
 }
 
 // ---------------------------------------------------------------------------
@@ -1130,6 +1170,7 @@ fn accept_peer_block(
 
     let mut mempool = load_mempool(mempool_path);
     mempool.remove_confirmed(&block);
+    requeue_reorged_transactions(&mut state, &mut mempool, params);
     let _ = save_mempool(mempool_path, &mempool);
 
     Ok((block_height, block_hash))
@@ -1429,6 +1470,7 @@ fn sync_blocks(
 fn sync_from_peer(
     peer: &str,
     state_path: &Path,
+    mempool_path: &Path,
     params: &ConsensusParams,
 ) -> Result<(), String> {
     let mut state = load_state(state_path)?;
@@ -1466,6 +1508,16 @@ fn sync_from_peer(
             _ => Err("unexpected message during sync (expected Blocks)".to_owned()),
         }
     })?;
+
+    // The "fork-below-tip" healing path in `sync_blocks` reorgs onto the
+    // peer's chain when it has more work — exactly the scenario that can
+    // orphan our own recently-broadcast transactions. Requeue them so they
+    // aren't silently lost (mirrors `accept_peer_block` / `/submitblock`).
+    let mut mempool = load_mempool(mempool_path);
+    let requeued = requeue_reorged_transactions(&mut state, &mut mempool, params);
+    if requeued > 0 {
+        let _ = save_mempool(mempool_path, &mempool);
+    }
 
     println!(
         "sync complete: tip={} synced={synced} blocks from {peer}",
@@ -1699,9 +1751,12 @@ fn handle_rpc_stream(
             let height = accepted.header.height;
             let hash = accepted.hash();
 
-            // Remove confirmed transactions from mempool.
+            // Remove confirmed transactions from mempool, and requeue any
+            // that this submission orphaned via a reorg (see `submit_block`'s
+            // `last_disconnected` bookkeeping).
             let mut mempool = load_mempool(&mempool_path);
             mempool.remove_confirmed(&accepted);
+            requeue_reorged_transactions(&mut state, &mut mempool, params);
             let _ = save_mempool(&mempool_path, &mempool);
 
             broadcast_block_to_peers(&accepted, &state, params);
