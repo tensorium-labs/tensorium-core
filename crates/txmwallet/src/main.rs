@@ -111,6 +111,33 @@ fn run() -> Result<(), String> {
             save_wallet(&wallet_path, &wallet)?;
             print_wallet_summary(&wallet);
         }
+        "rekey" => {
+            // Re-encrypt the SAME key/address with a new passphrase (rotation).
+            // Old passphrase: TENSORIUM_WALLET_PASSPHRASE. New: TENSORIUM_WALLET_NEW_PASSPHRASE.
+            let old_pass = passphrase_from_env()?;
+            let new_pass = env::var("TENSORIUM_WALLET_NEW_PASSPHRASE")
+                .map_err(|_| "set TENSORIUM_WALLET_NEW_PASSPHRASE to the new passphrase".to_owned())?;
+            if new_pass.len() < 8 {
+                return Err("new passphrase must be at least 8 characters".to_owned());
+            }
+            if new_pass == old_pass {
+                return Err("new passphrase is the same as the current one".to_owned());
+            }
+            let wallet = load_wallet(&wallet_path)?;
+            let keypair = wallet.decrypt(&old_pass)?; // verifies the current passphrase
+            let addr = keypair.address.as_str().to_string();
+            let ts = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0);
+            let bak = format!("{}.bak-{ts}", wallet_path.display());
+            fs::copy(&wallet_path, &bak).map_err(|e| format!("backup failed: {e}"))?;
+            let new_wallet = WalletFile::encrypt(keypair, &new_pass)?;
+            save_wallet(&wallet_path, &new_wallet)?;
+            println!("rekey ok");
+            println!("address={addr}");
+            println!("backup={bak}");
+        }
         "getnewaddress" => {
             let wallet = load_wallet(&wallet_path)?;
             println!("{}", wallet.address);
@@ -1179,6 +1206,7 @@ fn print_help() {
     println!();
     println!("commands:");
     println!("  create                                        create a local wallet file");
+    println!("  rekey                                          re-encrypt wallet with a new passphrase (env TENSORIUM_WALLET_NEW_PASSPHRASE)");
     println!("  getnewaddress                                 print wallet address");
     println!(
         "  balance                                       scan local chain state for wallet balance"
