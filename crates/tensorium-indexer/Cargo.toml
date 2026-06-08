@@ -1,0 +1,17 @@
+[package]
+name = "tensorium-indexer"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "TXM asset overlay indexer — scans blocks, reconstructs TXM20/NFT balances, serves a REST API"
+
+[[bin]]
+name = "txm-asset-indexer"
+path = "src/main.rs"
+
+[dependencies]
+tensorium-core = { path = "../tensorium-core" }
+serde = { workspace = true }
+serde_json = { workspace = true }
