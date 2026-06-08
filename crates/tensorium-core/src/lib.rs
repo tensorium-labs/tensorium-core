@@ -1,3 +1,4 @@
+pub mod assets;
 pub mod block;
 pub mod chain;
 pub mod storage;
@@ -12,6 +13,7 @@ pub mod utxo;
 pub mod validation;
 pub mod wallet;
 
+pub use assets::{AssetOp, AssetState, IssueData, NftMintData, TransferData};
 pub use block::{Block, BlockHeader, OutPoint, Transaction, TxInput, TxOutput};
 pub use chain::{ChainNetwork, ConsensusParams, MAINNET_CANDIDATE, TESTNET};
 pub use hash::Hash256;
