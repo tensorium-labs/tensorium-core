@@ -76,6 +76,38 @@ impl AssetState {
                 *self.ft_balances.entry((source.to_string(), txid)).or_insert(0) += d.supply;
                 ApplyResult::Applied
             }
+            AssetOp::Transfer(d) => {
+                let Some(info) = self.assets.get(&d.asset_id) else {
+                    return ApplyResult::Ignored("unknown asset");
+                };
+                let Some(dest) = dest_addr else {
+                    return ApplyResult::Ignored("bad dest output");
+                };
+                match info.kind {
+                    AssetKind::Fungible => {
+                        if d.amount == 0 {
+                            return ApplyResult::Ignored("zero amount");
+                        }
+                        let bal = self.ft_balance(source, &d.asset_id);
+                        if bal < d.amount {
+                            return ApplyResult::Ignored("insufficient balance");
+                        }
+                        *self.ft_balances.get_mut(&(source.to_string(), d.asset_id)).unwrap() -= d.amount;
+                        *self.ft_balances.entry((dest.to_string(), d.asset_id)).or_insert(0) += d.amount;
+                        ApplyResult::Applied
+                    }
+                    AssetKind::NonFungible => {
+                        if d.amount != 1 {
+                            return ApplyResult::Ignored("nft amount must be 1");
+                        }
+                        if self.nft_owner.get(&d.asset_id).map(|s| s.as_str()) != Some(source) {
+                            return ApplyResult::Ignored("not nft owner");
+                        }
+                        self.nft_owner.insert(d.asset_id, dest.to_string());
+                        ApplyResult::Applied
+                    }
+                }
+            }
             _ => ApplyResult::Ignored("not implemented yet"),
         }
     }
@@ -100,5 +132,36 @@ mod tests {
         // duplicate asset_id ignored
         assert!(matches!(st.apply(txid, 11, "txm1bob", None, &issue("DUP", 5)), ApplyResult::Ignored(_)));
         assert_eq!(st.ft_balance("txm1alice", &txid), 1000);
+    }
+
+    use crate::assets::TransferData;
+
+    fn transfer(asset_id: [u8; 32], amount: u64) -> AssetOp {
+        AssetOp::Transfer(TransferData { asset_id, amount, dest_output_index: 0 })
+    }
+
+    #[test]
+    fn transfer_ft_debits_source_credits_dest() {
+        let mut st = AssetState::default();
+        let txid = [1u8; 32];
+        st.apply(txid, 1, "txm1alice", None, &issue("GOLD", 1000));
+        // move 300 alice -> bob
+        assert_eq!(
+            st.apply([2u8; 32], 2, "txm1alice", Some("txm1bob"), &transfer(txid, 300)),
+            ApplyResult::Applied
+        );
+        assert_eq!(st.ft_balance("txm1alice", &txid), 700);
+        assert_eq!(st.ft_balance("txm1bob", &txid), 300);
+        // over-balance ignored, state unchanged
+        assert!(matches!(
+            st.apply([3u8; 32], 3, "txm1alice", Some("txm1bob"), &transfer(txid, 99999)),
+            ApplyResult::Ignored(_)
+        ));
+        assert_eq!(st.ft_balance("txm1alice", &txid), 700);
+        // unknown asset ignored
+        assert!(matches!(
+            st.apply([4u8; 32], 4, "txm1alice", Some("txm1bob"), &transfer([8u8; 32], 1)),
+            ApplyResult::Ignored(_)
+        ));
     }
 }
