@@ -120,6 +120,7 @@ Measured results (fill in via `--benchmark` on real hardware):
 
 | GPU | Dataset gen | Sustained hashrate |
 |-----|-------------|--------------------|
+| RTX 5090 (measured 2026-06-10) | 0.14 s | 220.31 MH/s |
 | RTX 3090 | TBD (run `--benchmark`) | TBD (run `--benchmark`) |
 | RTX 4090 | TBD (run `--benchmark`) | TBD (run `--benchmark`) |
 | H100 | TBD (run `--benchmark`) | TBD (run `--benchmark`) |
