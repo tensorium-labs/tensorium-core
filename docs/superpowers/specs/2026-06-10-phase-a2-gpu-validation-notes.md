@@ -71,3 +71,11 @@ implications: the launch-time genesis re-mine takes ~5.5 expected GPU-hours
 on one RTX 5090 (rent more/bigger GPUs to shorten), and early-chain block
 times will be well above 60 s until network hashrate grows or retargeting
 (−1 bit per 60-block window, floor 34) walks the difficulty down.
+
+## Pre-launch checklist addition (Phase A3, 2026-06-10)
+
+Pool↔GPU live test — bundle with the genesis re-mine rental: devnet node +
+`tensorium-pool` + `tensorium-miner --mode pool`; verify the miner receives
+`epoch_seed` in `mining.notify`, shares are accepted at the vardiff target
+rate, a found block is submitted and accepted by the node, and the PPLNS
+split is recorded in the ledger.
