@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tensorium_core::{
     block::{merkle_root as compute_merkle_root, BlockHeader, Transaction},
-    chain::{ConsensusParams, MAINNET_CANDIDATE},
+    chain::{ConsensusParams, MAINNET},
     emission::reward_at_height,
     pow::header_meets_work,
     script::standard::{extract_address, p2pkh_from_address},
@@ -35,14 +35,16 @@ const DEFAULT_MC_MEMPOOL_PATH: &str = "tensorium-mc-mempool.json";
 const DEFAULT_MC_BAN_PATH: &str = "tensorium-mc-banlist.json";
 const DEFAULT_MC_RPC_BIND: &str = "127.0.0.1:33332";
 const DEFAULT_MC_P2P_BIND: &str = "0.0.0.0:33333";
-/// Genesis timestamp for the mainnet-candidate chain (2026-06-01 00:00:00 UTC).
+/// Genesis timestamp for the MAINNET chain (TensorHash v1 relaunch, zero premine).
 /// All nodes MUST use this exact value to share the same genesis block.
-const MC_GENESIS_TIMESTAMP: u64 = 1_780_272_000;
-/// Genesis nonce for the mainnet-candidate chain (tokenomics v2, 2026-06-02).
-/// Pre-mint: 8M TXM (founder 1M + liquidity 3M + bridge 2M + ecosystem 2M)
-/// Mining: 25M TXM over 10 eras, initial reward 11.9027... TXM/block
-/// Nonce will be updated after re-mine with new tokenomics.
-const MC_GENESIS_NONCE: u64 = 798_243_452_272;
+/// TODO(launch): placeholder — set to the actual mainnet genesis timestamp before launch.
+const MAINNET_GENESIS_TIMESTAMP: u64 = 1_780_272_000;
+/// Genesis nonce for the MAINNET chain (TensorHash v1, zero premine, 33M mining allocation).
+/// TODO(launch): placeholder — TensorHash v1 invalidates any nonce found under the old
+/// SHA256d algorithm. Re-mine at 42-bit difficulty (CPU brute-force across many cores,
+/// or the Phase A2 GPU miner) before launch. `init_genesis_nonce` rejects an invalid
+/// nonce with `StateError::MiningFailed`, so this placeholder fails loudly and safely.
+const MAINNET_GENESIS_NONCE: u64 = 0;
 const P2P_PROTOCOL_VERSION: u32 = 1;
 /// Maximum blocks returned per GetBlocks response.
 const SYNC_BATCH_SIZE: usize = 50;
@@ -98,24 +100,24 @@ fn run() -> Result<(), String> {
 
     match command {
         "init" => {
-            let state = init_mainnet_candidate_state(&state_path, MC_GENESIS_NONCE)?;
-            print_status(&state, &MAINNET_CANDIDATE);
+            let state = init_mainnet_candidate_state(&state_path, MAINNET_GENESIS_NONCE)?;
+            print_status(&state, &MAINNET);
         }
         "status" => {
             let state = load_state(&state_path)?;
-            print_status(&state, &MAINNET_CANDIDATE);
+            print_status(&state, &MAINNET);
         }
         "mine-once" => {
             let mut state = load_state(&state_path)?;
             let miner = args.get(2).map(String::as_str).unwrap_or("local-dev-miner");
             state
-                .mine_next_block(&MAINNET_CANDIDATE, now_seconds(), miner, DEFAULT_NONCE_LIMIT)
+                .mine_next_block(&MAINNET, now_seconds(), miner, DEFAULT_NONCE_LIMIT)
                 .map_err(|err| err.to_string())?;
-            print_status(&state, &MAINNET_CANDIDATE);
+            print_status(&state, &MAINNET);
         }
         "rpc" => {
             let bind = args.get(2).map(String::as_str).unwrap_or(DEFAULT_RPC_BIND);
-            serve_rpc(bind, state_path, mempool_path_from_env(), &MAINNET_CANDIDATE)?;
+            serve_rpc(bind, state_path, mempool_path_from_env(), &MAINNET)?;
         }
         "p2p-listen" => {
             let bind = args.get(2).map(String::as_str).unwrap_or(DEFAULT_P2P_BIND);
@@ -124,14 +126,14 @@ fn run() -> Result<(), String> {
                 state_path,
                 mempool_path_from_env(),
                 ban_path_from_env(),
-                &MAINNET_CANDIDATE,
+                &MAINNET,
             )?;
         }
         "p2p-connect" => {
             let peer = args
                 .get(2)
                 .ok_or_else(|| "usage: tensorium-node p2p-connect <host:port>".to_owned())?;
-            connect_peer(peer, &state_path, &MAINNET_CANDIDATE)?;
+            connect_peer(peer, &state_path, &MAINNET)?;
         }
         "sync" => {
             let peers = configured_peers();
@@ -142,7 +144,7 @@ fn run() -> Result<(), String> {
                 .ok_or_else(|| {
                     "usage: tensorium-node sync <peer>  (or set TENSORIUM_PEERS; disable built-in seeds with TENSORIUM_NO_DEFAULT_SEEDS=1)".to_owned()
                 })?;
-            sync_from_peer(peer, &state_path, &mempool_path_from_env(), &MAINNET_CANDIDATE)?;
+            sync_from_peer(peer, &state_path, &mempool_path_from_env(), &MAINNET)?;
         }
         "peers" => print_manual_peers(),
         "banlist" => print_banlist(),
@@ -159,12 +161,12 @@ fn run() -> Result<(), String> {
                     // Use hardcoded genesis nonce, or override with explicit argument.
                     let nonce: u64 = match args.get(3) {
                         Some(s) => s.parse().map_err(|_| format!("invalid nonce: {s}"))?,
-                        None => MC_GENESIS_NONCE,
+                        None => MAINNET_GENESIS_NONCE,
                     };
                     let mc_state = mc_state_path_from_env();
                     let state = init_mainnet_candidate_state(&mc_state, nonce)?;
                     println!("mainnet-candidate genesis initialized");
-                    print_status(&state, &MAINNET_CANDIDATE);
+                    print_status(&state, &MAINNET);
                 }
                 "mine-genesis" => {
                     let threads = args
@@ -177,16 +179,16 @@ fn run() -> Result<(), String> {
                         });
                     println!(
                         "Mining mainnet-candidate genesis: diff={} bits, threads={}, timestamp={}",
-                        MAINNET_CANDIDATE.initial_leading_zero_bits,
+                        MAINNET.initial_leading_zero_bits,
                         threads,
-                        MC_GENESIS_TIMESTAMP
+                        MAINNET_GENESIS_TIMESTAMP
                     );
                     println!("This may take hours — use tensorium-miner for GPU acceleration.");
                     let nonce = mine_genesis_multithreaded(threads)?;
                     let mc_state = mc_state_path_from_env();
                     let state = init_mainnet_candidate_state(&mc_state, nonce)?;
                     println!("GENESIS NONCE: {nonce}  (hardcode this in node binary for v1 release)");
-                    print_status(&state, &MAINNET_CANDIDATE);
+                    print_status(&state, &MAINNET);
                 }
                 "rpc" => {
                     let bind = args
@@ -197,7 +199,7 @@ fn run() -> Result<(), String> {
                         bind,
                         mc_state_path_from_env(),
                         mc_mempool_path_from_env(),
-                        &MAINNET_CANDIDATE,
+                        &MAINNET,
                     )?;
                 }
                 "p2p-listen" => {
@@ -210,7 +212,7 @@ fn run() -> Result<(), String> {
                         mc_state_path_from_env(),
                         mc_mempool_path_from_env(),
                         mc_ban_path_from_env(),
-                        &MAINNET_CANDIDATE,
+                        &MAINNET,
                     )?;
                 }
                 "daemon" => {
@@ -238,10 +240,10 @@ fn run() -> Result<(), String> {
                     let rpc_state   = state_path.clone();
                     let rpc_mempool = mempool_path.clone();
                     let rpc_handle  = thread::spawn(move || {
-                        serve_rpc(&rpc_bind, rpc_state, rpc_mempool, &MAINNET_CANDIDATE)
+                        serve_rpc(&rpc_bind, rpc_state, rpc_mempool, &MAINNET)
                     });
 
-                    serve_p2p(&p2p_bind, state_path, mempool_path, ban_path, &MAINNET_CANDIDATE)?;
+                    serve_p2p(&p2p_bind, state_path, mempool_path, ban_path, &MAINNET)?;
 
                     // If P2P exits (error), surface the RPC thread's result too.
                     rpc_handle.join().map_err(|_| "RPC thread panicked".to_owned())??;
@@ -255,12 +257,12 @@ fn run() -> Result<(), String> {
                         .ok_or_else(|| {
                             "usage: tensorium-node mainnet-candidate sync <peer>  (or set TENSORIUM_MC_PEERS; disable seeds with TENSORIUM_NO_DEFAULT_SEEDS=1)".to_owned()
                         })?;
-                    sync_from_peer(peer, &mc_state_path_from_env(), &mc_mempool_path_from_env(), &MAINNET_CANDIDATE)?;
+                    sync_from_peer(peer, &mc_state_path_from_env(), &mc_mempool_path_from_env(), &MAINNET)?;
                 }
                 "status" => {
                     let mc_state = mc_state_path_from_env();
                     let state = load_state(&mc_state)?;
-                    print_status(&state, &MAINNET_CANDIDATE);
+                    print_status(&state, &MAINNET);
                 }
                 _ => print_help_mc(),
             }
@@ -312,14 +314,14 @@ fn mc_ban_path_from_env() -> PathBuf {
 }
 
 /// Multi-threaded CPU nonce search for the mainnet-candidate genesis block.
-/// Returns the first nonce that satisfies MAINNET_CANDIDATE difficulty.
+/// Returns the first nonce that satisfies MAINNET difficulty.
 fn mine_genesis_multithreaded(threads: usize) -> Result<u64, String> {
     use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
     // Build the actual genesis block header with the real merkle root.
     // Must match exactly what init_genesis_nonce constructs via candidate_block.
     let header_template = {
-        let params = &MAINNET_CANDIDATE;
+        let params = &MAINNET;
         let reward = reward_at_height(params, 0);
         let coinbase = Transaction::genesis_coinbase(
             reward,
@@ -335,14 +337,14 @@ fn mine_genesis_multithreaded(threads: usize) -> Result<u64, String> {
             height: 0,
             previous_hash: Hash256::ZERO,
             merkle_root: real_merkle,
-            timestamp_seconds: MC_GENESIS_TIMESTAMP,
+            timestamp_seconds: MAINNET_GENESIS_TIMESTAMP,
             leading_zero_bits: params.initial_leading_zero_bits,
             nonce: 0,
         }
     };
     println!("genesis template: chain_id={} height=0 diff={} merkle_root={}",
-        MAINNET_CANDIDATE.chain_id,
-        MAINNET_CANDIDATE.initial_leading_zero_bits,
+        MAINNET.chain_id,
+        MAINNET.initial_leading_zero_bits,
         header_template.merkle_root,
     );
 
@@ -429,7 +431,7 @@ fn now_seconds() -> u64 {
 fn init_mainnet_candidate_state(state_path: &Path, nonce: u64) -> Result<ChainState, String> {
     let mut state = ChainState::open_db(state_path)?;
     state
-        .init_genesis_nonce(&MAINNET_CANDIDATE, MC_GENESIS_TIMESTAMP, nonce)
+        .init_genesis_nonce(&MAINNET, MAINNET_GENESIS_TIMESTAMP, nonce)
         .map_err(|err| err.to_string())?;
     Ok(state)
 }
@@ -698,9 +700,9 @@ fn print_help() {
     println!("  mainnet-candidate    explicit alias for the same mainnet chain");
     println!();
     println!("default chain params:");
-    println!("  chain_id       = {}", MAINNET_CANDIDATE.chain_id);
-    println!("  initial_diff   = {} bits", MAINNET_CANDIDATE.initial_leading_zero_bits);
-    println!("  target_block   = {}s", MAINNET_CANDIDATE.target_block_seconds);
+    println!("  chain_id       = {}", MAINNET.chain_id);
+    println!("  initial_diff   = {} bits", MAINNET.initial_leading_zero_bits);
+    println!("  target_block   = {}s", MAINNET.target_block_seconds);
     println!();
     println!("rpc endpoints:");
     println!("  GET  /health");
@@ -737,13 +739,12 @@ fn print_help_mc() {
     println!("  status                  show mc chain status");
     println!();
     println!("mainnet-candidate params:");
-    println!("  chain_id       = {}", MAINNET_CANDIDATE.chain_id);
-    println!("  initial_diff   = {} bits (2^{} hashes/block expected)", MAINNET_CANDIDATE.initial_leading_zero_bits, MAINNET_CANDIDATE.initial_leading_zero_bits);
-    println!("  target_block   = {}s ({}min)", MAINNET_CANDIDATE.target_block_seconds, MAINNET_CANDIDATE.target_block_seconds / 60);
-    println!("  halving        = every {} blocks (~{} years)", MAINNET_CANDIDATE.halving_interval_blocks, MAINNET_CANDIDATE.halving_interval_blocks / 525_600);
-    println!("  genesis_ts     = {MC_GENESIS_TIMESTAMP}  (2026-06-01 00:00:00 UTC)");
-    println!("  genesis_nonce  = {MC_GENESIS_NONCE}  (mined RTX 5090, 2026-05-31)");
-    println!("  genesis_hash   = 0000000000d61e99b9e2530609632b399d0f0b538c2d54daa1dddbfe28ea08dc");
+    println!("  chain_id       = {}", MAINNET.chain_id);
+    println!("  initial_diff   = {} bits (2^{} hashes/block expected)", MAINNET.initial_leading_zero_bits, MAINNET.initial_leading_zero_bits);
+    println!("  target_block   = {}s ({}min)", MAINNET.target_block_seconds, MAINNET.target_block_seconds / 60);
+    println!("  halving        = every {} blocks (~{} years)", MAINNET.halving_interval_blocks, MAINNET.halving_interval_blocks / 525_600);
+    println!("  genesis_ts     = {MAINNET_GENESIS_TIMESTAMP}  (TBD — placeholder, set before launch)");
+    println!("  genesis_nonce  = {MAINNET_GENESIS_NONCE}  (TBD — placeholder, re-mine before launch)");
     println!("  rpc_default    = {DEFAULT_MC_RPC_BIND}");
     println!("  p2p_default    = {DEFAULT_MC_P2P_BIND}");
     println!();
@@ -1326,7 +1327,7 @@ fn configured_peers() -> Vec<String> {
 /// an empty peer set and never actively propagate to the other node, leaving
 /// reconvergence entirely to the periodic monitor sync.
 fn peers_for(params: &ConsensusParams) -> Vec<String> {
-    if params.chain_id == MAINNET_CANDIDATE.chain_id {
+    if params.chain_id == MAINNET.chain_id {
         configured_mc_peers()
     } else {
         configured_peers()
@@ -2391,7 +2392,7 @@ mod tests {
         env::set_var("TENSORIUM_MC_PEERS", "10.0.0.1:33333");
         env::set_var("TENSORIUM_PEERS", "10.0.0.2:33333");
 
-        let mc_peers = peers_for(&MAINNET_CANDIDATE);
+        let mc_peers = peers_for(&MAINNET);
         assert_eq!(
             mc_peers,
             vec!["10.0.0.1:33333".to_owned()],
