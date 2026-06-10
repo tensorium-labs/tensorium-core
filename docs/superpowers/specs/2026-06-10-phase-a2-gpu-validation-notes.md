@@ -66,5 +66,8 @@ preserving the −8/+16 spread). One 5090 then averages ~5 min/block at
 genesis and retargeting corrects toward 60 s as miners join. The genesis
 re-mine itself at 36 bits takes minutes instead of GPU-hours.
 
-Decision is a consensus-parameter change (Phase B follow-up commit) and is
-the user's call — recorded separately once made.
+**Decision (2026-06-10): keep 42 bits — no recalibration.** Accepted
+implications: the launch-time genesis re-mine takes ~5.5 expected GPU-hours
+on one RTX 5090 (rent more/bigger GPUs to shorten), and early-chain block
+times will be well above 60 s until network hashrate grows or retargeting
+(−1 bit per 60-block window, floor 34) walks the difficulty down.
