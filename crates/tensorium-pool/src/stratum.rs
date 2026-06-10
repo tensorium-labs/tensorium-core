@@ -3,7 +3,7 @@
 //!
 //! Vardiff: per-worker share difficulty auto-adjusts every 60 s to keep each
 //! miner in the 15–60 shares/minute target band.  Adjustment step is ±1 bit
-//! (×2 or ÷2 difficulty).  Bounds: 16 bit (min) … 38 bit (max, 2 below
+//! (×2 or ÷2 difficulty).  Bounds: 16 bit (min) … 40 bit (max, 2 below
 //! network diff so a valid block always beats a share).
 
 use crate::accounting::{PayoutEntry, PayoutLedger, ShareRecord};
@@ -29,9 +29,9 @@ pub const VARDIFF_TARGET_MIN: u64 = 15;
 pub const VARDIFF_TARGET_MAX: u64 = 60;
 /// Minimum per-worker share difficulty (bits of leading zeros required).
 pub const VARDIFF_MIN_BITS: u8 = 16;
-/// Maximum per-worker share difficulty.  2 bits below mainnet network diff (40)
-/// so there is always a gap between "valid share" and "valid block".
-pub const VARDIFF_MAX_BITS: u8 = 38;
+/// Maximum per-worker share difficulty.  2 bits below MAINNET network diff
+/// (42) so there is always a gap between "valid share" and "valid block".
+pub const VARDIFF_MAX_BITS: u8 = 40;
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 

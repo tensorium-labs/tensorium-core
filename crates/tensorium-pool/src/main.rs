@@ -151,7 +151,9 @@ fn serve() -> Result<(), String> {
     let share_diff: u64 = std::env::var("TENSORIUM_POOL_SHARE_DIFF")
         .ok()
         .and_then(|s| s.parse().ok())
-        .unwrap_or(1_048_576);
+        // 2^28 ≈ 49 shares/min for a 220 MH/s GPU (RTX 5090, measured) —
+        // inside the vardiff 15–60/min target band from the first second.
+        .unwrap_or(268_435_456);
 
     println!("tensorium-pool");
     println!("  bind         = {bind}");
@@ -170,7 +172,7 @@ fn serve() -> Result<(), String> {
     println!("  ledger       = {}", ledger_path.display());
     println!("  pool_fee     = {}%", accounting::POOL_FEE_BPS / 100);
     println!("  stratum      = {stratum_bind}");
-    println!("  share_diff   = {} ({}bits, vardiff 16–38bits target {}-{}/min)",
+    println!("  share_diff   = {} ({}bits, vardiff 16–40bits target {}-{}/min)",
              share_diff, stratum::diff_to_bits(share_diff),
              stratum::VARDIFF_TARGET_MIN, stratum::VARDIFF_TARGET_MAX);
     println!();
