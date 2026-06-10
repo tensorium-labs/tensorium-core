@@ -71,6 +71,6 @@ info:
 	@nvidia-smi --query-gpu=name,compute_cap --format=csv,noheader 2>/dev/null || echo "no GPU detected"
 
 # Host-only KAT harness — no GPU/CUDA needed (g++ only).
-test-host: test_host_tensorhash.cpp blake2b.cuh tensorhash_params.h
-	$(CXX) $(CXXFLAGS) -o test_host_tensorhash test_host_tensorhash.cpp
+test-host: test_host_tensorhash.cpp host_tensorhash.cpp host_tensorhash.h blake2b.cuh tensorhash_params.h
+	$(CXX) $(CXXFLAGS) -o test_host_tensorhash test_host_tensorhash.cpp host_tensorhash.cpp
 	./test_host_tensorhash
