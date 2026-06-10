@@ -42,6 +42,7 @@ pub struct StratumJob {
     pub height:          u64,
     pub previous_hash:   [u8; 32],
     pub merkle_root:     [u8; 32],
+    pub epoch_seed:      [u8; 32],
     pub timestamp:       u64,
     pub difficulty_bits: u8,
     pub version:         u32,
@@ -275,7 +276,14 @@ fn gross_from_template(raw: &str) -> u64 {
 pub fn fetch_job(node_rpc: &str, treasury: &str) -> Option<(StratumJob, String)> {
     let url  = format!("http://{}/getblocktemplate/{}", node_rpc, treasury);
     let resp = http_get_body(&url)?;
-    let v: Value = serde_json::from_str(&resp).ok()?;
+    parse_job_response(&resp)
+}
+
+/// Parse a /getblocktemplate response body into a StratumJob.
+/// Returns None (and logs) when the node does not send `epoch_seed` —
+/// such a node predates TensorHash v1 and cannot be pool-mined against.
+fn parse_job_response(resp: &str) -> Option<(StratumJob, String)> {
+    let v: Value = serde_json::from_str(resp).ok()?;
 
     let hdr       = v["template"]["header"].as_object()?;
     let chain_id  = hdr["chain_id"].as_str()?.to_string();
@@ -286,12 +294,25 @@ pub fn fetch_job(node_rpc: &str, treasury: &str) -> Option<(StratumJob, String)>
     let prev      = parse_byte_array(hdr.get("previous_hash")?)?;
     let mroot     = parse_byte_array(hdr.get("merkle_root")?)?;
 
+    // Top-level field, added by the node in Phase A2.
+    let epoch_seed = match v.get("epoch_seed").and_then(parse_byte_array) {
+        Some(seed) => seed,
+        None => {
+            eprintln!(
+                "[stratum] node template has no epoch_seed — node too old \
+                 for TensorHash v1, upgrade tensorium-node"
+            );
+            return None;
+        }
+    };
+
     let ms     = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().subsec_millis();
     let job_id = format!("h{}-{}", height, ms);
 
     let job = StratumJob { job_id, chain_id, height, previous_hash: prev,
-                           merkle_root: mroot, timestamp, difficulty_bits: diff_bits, version };
-    Some((job, resp))
+                           merkle_root: mroot, epoch_seed, timestamp,
+                           difficulty_bits: diff_bits, version };
+    Some((job, resp.to_string()))
 }
 
 fn parse_byte_array(v: &Value) -> Option<[u8; 32]> {
@@ -397,6 +418,7 @@ fn notify_msg(job: &StratumJob, worker_diff: u64) -> Value {
             "height":           job.height,
             "previous_hash":    bytes_to_hex(&job.previous_hash),
             "merkle_root":      bytes_to_hex(&job.merkle_root),
+            "epoch_seed":       bytes_to_hex(&job.epoch_seed),
             "timestamp":        job.timestamp,
             "difficulty_bits":  job.difficulty_bits,
             "share_difficulty": worker_diff,
@@ -802,5 +824,79 @@ pub fn run_stratum_server(state: Arc<Mutex<StratumState>>, bind: &str) {
         state.lock().unwrap().job_senders.insert(connection_id, tx);
 
         thread::spawn(move || handle_stratum_conn(stream, state2, rx, conn_id2));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn fixture_template_response(with_epoch_seed: bool) -> String {
+        let seed_field = if with_epoch_seed {
+            format!("\"epoch_seed\": {:?},", vec![7u8; 32])
+        } else {
+            String::new()
+        };
+        format!(
+            r#"{{
+                "chain_id": "tensorium-testnet-0",
+                {seed_field}
+                "height": 7,
+                "leading_zero_bits": 20,
+                "previous_hash": {prev:?},
+                "template": {{
+                    "header": {{
+                        "version": 1,
+                        "chain_id": "tensorium-testnet-0",
+                        "height": 7,
+                        "previous_hash": {prev:?},
+                        "merkle_root": {merkle:?},
+                        "timestamp_seconds": 1780000000,
+                        "leading_zero_bits": 20,
+                        "nonce": 0
+                    }},
+                    "transactions": []
+                }},
+                "tx_count": 0
+            }}"#,
+            prev = vec![0x11u8; 32],
+            merkle = vec![0x22u8; 32],
+        )
+    }
+
+    #[test]
+    fn parse_job_response_reads_epoch_seed() {
+        let (job, _raw) = parse_job_response(&fixture_template_response(true))
+            .expect("template with epoch_seed must parse");
+        assert_eq!(job.epoch_seed, [7u8; 32]);
+        assert_eq!(job.height, 7);
+        assert_eq!(job.chain_id, "tensorium-testnet-0");
+    }
+
+    #[test]
+    fn parse_job_response_rejects_template_without_epoch_seed() {
+        // A node that does not send epoch_seed is too old for TensorHash —
+        // the pool must refuse the job rather than guess a seed.
+        assert!(parse_job_response(&fixture_template_response(false)).is_none());
+    }
+
+    #[test]
+    fn notify_msg_carries_epoch_seed_hex() {
+        let job = StratumJob {
+            job_id: "h7-test".into(),
+            chain_id: "tensorium-testnet-0".into(),
+            height: 7,
+            previous_hash: [0x11; 32],
+            merkle_root: [0x22; 32],
+            epoch_seed: [7u8; 32],
+            timestamp: 1_780_000_000,
+            difficulty_bits: 20,
+            version: 1,
+        };
+        let msg = notify_msg(&job, 1 << 28);
+        assert_eq!(
+            msg["params"]["epoch_seed"].as_str().unwrap(),
+            "07".repeat(32),
+        );
     }
 }
