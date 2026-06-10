@@ -22,7 +22,7 @@ type Blake2b256 = Blake2b<U32>;
 pub fn dataset_element(epoch_seed: &[u8; 32], index: u64) -> [u8; 32] {
     let mut hasher = Blake2b256::new();
     hasher.update(epoch_seed);
-    hasher.update(&index.to_le_bytes());
+    hasher.update(index.to_le_bytes());
     let digest = hasher.finalize();
     let mut out = [0u8; 32];
     out.copy_from_slice(&digest);
