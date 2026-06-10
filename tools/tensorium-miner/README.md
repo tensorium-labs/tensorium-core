@@ -1,17 +1,23 @@
-# tensorium-miner — Tensorium GPU Miner
+# tensorium-miner — TensorHash v1 GPU Miner
 
-CUDA-accelerated SHA256d miner for the Tensorium mainnet.
+CUDA miner for Tensorium's memory-hard, GPU-first mainnet. The miner
+materializes a **17.9 GiB dataset in VRAM** (regenerated every 8,192 blocks
+≈ 5.7 days, when the epoch seed changes) and samples 32 random elements per
+hash attempt. Verification on full nodes stays cheap — only miners need the
+dataset.
 
 ## Requirements
 
-| Component | Version |
-|-----------|---------|
-| NVIDIA GPU | Compute Capability 6.1+ (GTX 1060 or newer) |
+| Component | Requirement |
+|-----------|-------------|
+| NVIDIA GPU | **24 GB+ VRAM — RTX 3090 minimum** |
 | CUDA Toolkit | 11.0 or newer |
 | GCC/Clang | Any recent version |
 | OS | Linux x86_64 (Windows supported via WSL2) |
 
-> **Note:** This miner is for Tensorium's live GPU-first mainnet. Throughput depends heavily on GPU architecture, clock behavior, and the current network difficulty.
+> **Cards below 24 GB cannot mine TensorHash v1.** The miner checks free VRAM
+> at startup and refuses to run with less than ~20 GiB free (17.9 GiB dataset
+> + working headroom).
 
 ## Build
 
@@ -22,71 +28,112 @@ cd tools/tensorium-miner
 make
 
 # Or specify GPU architecture explicitly
-make ARCH=sm_89    # RTX 4000 series
-make ARCH=sm_86    # RTX 3000 series
-make ARCH=sm_80    # A100 / RTX 30 (Ampere)
-make ARCH=sm_75    # RTX 2000 series (Turing)
-make ARCH=sm_61    # GTX 1000 series (Pascal)
-make ARCH=sm_90    # H100
+make ARCH=sm_86    # RTX 3090 (Ampere)
+make ARCH=sm_89    # RTX 4090 (Ada)
+make ARCH=sm_80    # A100 80GB
+make ARCH=sm_90    # H100 / H200
+make ARCH=sm_100   # RTX 5090 (Blackwell, needs CUDA 12.8+)
 ```
 
-Common architectures:
+| GPU | VRAM | `ARCH` |
+|-----|------|--------|
+| RTX 3090 / 3090 Ti | 24 GB | `sm_86` |
+| RTX 4090 | 24 GB | `sm_89` |
+| A100 | 80 GB | `sm_80` |
+| H100 / H200 | 80/141 GB | `sm_90` |
+| RTX 5090 | 32 GB | `sm_100` |
 
-| GPU Family | `ARCH` |
-|------------|--------|
-| GTX 1060/1070/1080 | `sm_61` |
-| RTX 2060/2070/2080 | `sm_75` |
-| RTX 3060/3070/3080/3090 | `sm_86` |
-| RTX 4060/4070/4080/4090 | `sm_89` |
-| H100 SXM / PCIe | `sm_90` |
-| H200 | `sm_90` |
-| RTX 5090 (Blackwell) | `sm_100` |
+## First run — selftest
+
+The GPU implementation must match the consensus reference bit-for-bit. After
+building, run the selftest once:
+
+```bash
+./tensorium-miner --selftest
+```
+
+It verifies the host reference against hardcoded Rust KAT vectors, generates
+the full dataset, spot-checks thousands of elements, and pushes known-answer
+and randomized attempts through the real mining kernel. **Any mismatch and
+the miner refuses to mine.** A lighter spot-check also runs automatically
+after every dataset (re)generation during normal mining.
+
+The host-only KAT vectors can be checked on any machine (no GPU needed):
+
+```bash
+make test-host
+```
 
 ## Usage
 
 ```bash
-# Basic (auto-select GPU 0, default blocks/threads)
+# Solo mining (full network difficulty)
 ./tensorium-miner --mode solo --rpc http://127.0.0.1:33332 --wallet txm1youraddress
 
-# Specify GPU device, CUDA blocks, and threads per block
-./tensorium-miner --mode solo --rpc http://127.0.0.1:33332 --wallet txm1youraddress --gpu 0 --intensity 8
+# Pool mining
+./tensorium-miner --mode pool --pool stratum+tcp://pool.tensoriumlabs.com:3333 \
+                  --wallet txm1youraddress --worker rig1
 
-# Arguments:
+# Standalone modes
+./tensorium-miner --selftest                 # consensus KAT verification
+./tensorium-miner --benchmark 120            # dataset-gen time + sustained MH/s
+./tensorium-miner --mode genesis --prefix <hex> --bits 42 [--start-nonce N]
+
+# Options:
 #   --rpc               Node RPC address (keep RPC on localhost)
 #   --wallet            Your txm1... wallet address for block rewards
-#   --gpu               CUDA device index or comma-separated list
-#   --intensity         Kernel size preset (default: auto)
+#   --gpu all|0,1,2     GPUs to use (default: all)
+#   --intensity auto|N  1-10 kernel size preset (default: auto)
+#   --share-diff N      pool share difficulty
+#   --start-nonce N     genesis mode: nonce search start offset
 ```
 
-## Performance Guide
+## Genesis mining workflow
 
-### Tuning `cuda_blocks` and `cuda_threads`
+The mainnet genesis nonce is mined offline with this miner (no node/RPC
+needed — genesis is epoch 0, fixed zero seed):
 
-The total parallel hashrate = `cuda_blocks × cuda_threads × iters_per_thread / elapsed`.
+```bash
+# 1. On any box with the repo: get the canonical prefix for a launch timestamp
+tensorium-node print-genesis-prefix <unix_timestamp>
 
-| GPU | Recommended | Expected Hashrate |
-|-----|-------------|-------------------|
-| RTX 3060 | `2048 256` | ~500 MH/s – 1 GH/s |
-| RTX 3080 | `4096 256` | ~1.2 – 2 GH/s |
-| RTX 4090 | `8192 256` | ~2.5 – 4 GH/s |
-| H100 SXM | `8192 512` | ~2 – 3.5 GH/s |
+# 2. On the GPU box: mine it
+./tensorium-miner --mode genesis --prefix <prefix_hex> --bits 42
 
-> SHA256d is a compute-intensive workload. H100/H200 are optimized for AI matrix
-> operations and do NOT significantly outperform gaming GPUs (RTX 4090) for SHA256d.
+# 3. Verify the found nonce against the Rust consensus reference
+tensorium-node verify-genesis <unix_timestamp> <nonce>
 
-Expected block times on mainnet depend on live network difficulty and should be treated as variable. Use the hashrate table above for relative GPU sizing, not for guaranteed block-time planning.
+# 4. Commit the nonce into MAINNET_GENESIS_NONCE (launch-time step)
+```
 
-## Technical Notes
+See `docs/superpowers/specs/2026-06-10-tensorhash-v1-phase-a2-design.md`.
 
-### SHA256d Header Handling
+## Performance
 
-Tensorium block headers are serialized with a variable-length `chain_id`.
+TensorHash hashrates are measured in **MH/s** (not GH/s — this is not
+SHA256d). Throughput is bound by VRAM random-access bandwidth plus Blake2b
+compute: each attempt does ~35 Blake2b-256 compressions and 32 random 32-byte
+dataset reads. AI-class cards with HBM (H100/H200) benefit from the higher
+memory bandwidth, unlike with SHA256d.
 
-- Mainnet (`tensorium-mainnet-candidate-0`) produces a 122-byte header
+Measured results (fill in via `--benchmark` on real hardware):
 
-The CUDA miner must hash the exact serialized header bytes returned by the RPC template. Hardcoding the old 112-byte layout causes valid-looking nonces to be rejected on mainnet with `block proof-of-work is invalid`.
+| GPU | Dataset gen | Sustained hashrate |
+|-----|-------------|--------------------|
+| RTX 3090 | TBD (run `--benchmark`) | TBD (run `--benchmark`) |
+| RTX 4090 | TBD (run `--benchmark`) | TBD (run `--benchmark`) |
+| H100 | TBD (run `--benchmark`) | TBD (run `--benchmark`) |
 
-### Header Format
+Expected attempts for the 42-bit genesis: 2^42 ≈ 4.4×10¹². Network block
+times after launch depend on live difficulty (retargeting is active from
+block 0).
+
+## Technical notes
+
+### Header format
+
+Tensorium block headers serialize with a variable-length `chain_id`; mainnet
+(`tensorium-mainnet`) gives a **102-byte pow prefix + 8 nonce bytes**:
 
 ```
 bytes [0..3]      version         (u32 LE)
@@ -99,22 +146,24 @@ bytes [...]       difficulty_bits (u8)
 bytes [...]       nonce           (u64 LE)  ← varied per thread
 ```
 
-## Integration with Node
+The pow hash is `tensorhash_v1(prefix, nonce, epoch_seed)` — see
+`crates/tensorium-tensorhash` for the consensus reference.
 
-The CUDA miner uses the same RPC endpoints as `txmminer`:
-- `GET /getblocktemplate/<address>` — fetch candidate block
-- `POST /submitblock` — submit mined block
+### Node integration
 
-Keep the RPC bound to `127.0.0.1:33332` — never expose it publicly.
+- `GET /getblocktemplate/<address>` — candidate block; the response includes
+  `epoch_seed`, which the miner needs to (re)generate its dataset. Nodes
+  older than v0.5 don't send it and are rejected by the miner.
+- `POST /submitblock` — submit mined block.
 
-## Multi-GPU Setup
+Keep the RPC bound to `127.0.0.1` — never expose it publicly.
 
-Run one instance per GPU:
+## Multi-GPU
+
+Run one instance with `--gpu all` (default): each GPU gets its own dataset
+copy and a disjoint nonce range. One instance per GPU also works:
 
 ```bash
-./tensorium-miner --mode solo --rpc http://127.0.0.1:33332 --wallet txm1youraddress --gpu 0 &
-./tensorium-miner --mode solo --rpc http://127.0.0.1:33332 --wallet txm1youraddress --gpu 1 &
-./tensorium-miner --mode solo --rpc http://127.0.0.1:33332 --wallet txm1youraddress --gpu 2 &
+./tensorium-miner --mode solo --rpc http://127.0.0.1:33332 --wallet txm1you --gpu 0 &
+./tensorium-miner --mode solo --rpc http://127.0.0.1:33332 --wallet txm1you --gpu 1 &
 ```
-
-Each instance uses a different `start_nonce` region by default (based on device ID).
