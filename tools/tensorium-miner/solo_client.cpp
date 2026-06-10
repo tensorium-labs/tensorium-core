@@ -368,6 +368,12 @@ void solo_client_run(const MinerConfig *cfg, SharedState *state) {
         /* Try to pop shares from GPU workers and handle them */
         ShareResult share;
         if (share_pop(state, &share)) {
+            if (strcmp(share.job_id, job.job_id) != 0) {
+                /* Stale share mined against a previous job — its nonce does
+                   not satisfy the current template's header, so submitting
+                   it would be rejected as invalid proof-of-work. */
+                continue;
+            }
             if (share.is_block) {
                 printf("[solo] ⛏ BLOCK FOUND! height=%llu  nonce=%llu  GPU=%d\n",
                        (unsigned long long)job.height,
@@ -404,6 +410,14 @@ void solo_client_run(const MinerConfig *cfg, SharedState *state) {
         if (time(NULL) - last_refresh >= 10) {
             JobDesc fresh;
             memset(&fresh, 0, sizeof(fresh));
+            /* fetch_template overwrites the cached template JSON. If the
+               refresh does NOT republish the job (same height/prev), the GPU
+               keeps mining the OLD header (old timestamp) while submits
+               would use the NEW template — every nonce would be rejected as
+               invalid proof-of-work. Restore the cached template in that
+               case so job and template stay in lockstep. */
+            static char tmpl_backup[RPC_BUF];
+            memcpy(tmpl_backup, s_template_json, sizeof(tmpl_backup));
             if (fetch_template(host, port, cfg->wallet, &fresh)) {
                 if (fresh.height != last_height ||
                     memcmp(fresh.previous_hash, job.previous_hash, 32) != 0) {
@@ -414,7 +428,11 @@ void solo_client_run(const MinerConfig *cfg, SharedState *state) {
                     printf("[solo] new block  height=%llu\n",
                            (unsigned long long)job.height);
                     fflush(stdout);
+                } else {
+                    memcpy(s_template_json, tmpl_backup, sizeof(tmpl_backup));
                 }
+            } else {
+                memcpy(s_template_json, tmpl_backup, sizeof(tmpl_backup));
             }
             last_refresh = time(NULL);
         }
