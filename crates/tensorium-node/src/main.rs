@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tensorium_core::{
     block::{merkle_root as compute_merkle_root, BlockHeader, Transaction},
-    chain::{ConsensusParams, MAINNET},
+    chain::{ConsensusParams, MAINNET, TESTNET},
     emission::reward_at_height,
     pow::header_meets_work,
     script::standard::{extract_address, p2pkh_from_address},
@@ -199,6 +199,38 @@ fn run() -> Result<(), String> {
                 ));
             }
         }
+        "devnet" => {
+            let subcmd = args.get(2).map(String::as_str).unwrap_or("help");
+            match subcmd {
+                "init" => {
+                    let mut state = ChainState::open_db(&devnet_state_path_from_env())?;
+                    state
+                        .init_genesis(&TESTNET, now_seconds(), u64::MAX)
+                        .map_err(|err| err.to_string())?;
+                    println!("devnet (TESTNET params, {} bits) genesis initialized",
+                        TESTNET.initial_leading_zero_bits);
+                    print_status(&state, &TESTNET);
+                }
+                "rpc" => {
+                    let bind = args.get(3).map(String::as_str).unwrap_or("127.0.0.1:43332");
+                    serve_rpc(
+                        bind,
+                        devnet_state_path_from_env(),
+                        devnet_mempool_path_from_env(),
+                        &TESTNET,
+                    )?;
+                }
+                "status" => {
+                    let state = load_state(&devnet_state_path_from_env())?;
+                    print_status(&state, &TESTNET);
+                }
+                _ => {
+                    println!("usage: tensorium-node devnet init|rpc [bind]|status");
+                    println!("  low-difficulty TESTNET-params chain for miner live-path testing");
+                    println!("  env: TENSORIUM_DEVNET_STATE, TENSORIUM_DEVNET_MEMPOOL");
+                }
+            }
+        }
         "mainnet-candidate" | "mc" => {
             let subcmd = args.get(2).map(String::as_str).unwrap_or("help");
             match subcmd {
@@ -338,6 +370,18 @@ fn ban_path_from_env() -> PathBuf {
     env::var("TENSORIUM_BANS")
         .map(PathBuf::from)
         .unwrap_or_else(|_| PathBuf::from(DEFAULT_BAN_PATH))
+}
+
+fn devnet_state_path_from_env() -> PathBuf {
+    env::var("TENSORIUM_DEVNET_STATE")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| PathBuf::from("tensorium-devnet.json"))
+}
+
+fn devnet_mempool_path_from_env() -> PathBuf {
+    env::var("TENSORIUM_DEVNET_MEMPOOL")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| PathBuf::from("tensorium-devnet-mempool.json"))
 }
 
 fn mc_state_path_from_env() -> PathBuf {
@@ -754,6 +798,7 @@ fn print_help() {
     println!("  print-genesis-prefix [ts]   print MAINNET genesis pow-prefix hex for GPU mining");
     println!("  verify-genesis <ts> <nonce> check a mined genesis nonce against MAINNET difficulty");
     println!("  mainnet-candidate    explicit alias for the same mainnet chain");
+    println!("  devnet init|rpc|status      low-difficulty TESTNET chain for miner testing");
     println!();
     println!("default chain params:");
     println!("  chain_id       = {}", MAINNET.chain_id);
