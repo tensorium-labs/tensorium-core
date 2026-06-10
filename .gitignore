@@ -25,3 +25,4 @@ contracts/artifacts/
 *.db/
 tensorium-*-state.db/
 tensorium-mc-state.db/
+.worktrees/
