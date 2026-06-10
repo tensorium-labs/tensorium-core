@@ -33,7 +33,7 @@ pub fn emitted_supply_until_height(params: &ConsensusParams, exclusive_height: u
 
 #[cfg(test)]
 mod tests {
-    use crate::chain::{MAINNET_CANDIDATE, TESTNET};
+    use crate::chain::{MAINNET, TESTNET};
 
     use super::*;
 
@@ -67,25 +67,26 @@ mod tests {
     }
 
     #[test]
-    fn mainnet_candidate_emission_matches_reference_schedule() {
-        // MC uses 25M mining supply with 1_190_279_581 initial reward (tokenomics v2).
-        let mc_supply = emitted_supply_until_height(
-            &MAINNET_CANDIDATE,
-            MAINNET_CANDIDATE.halving_interval_blocks * 10,
+    fn mainnet_emission_matches_zero_premine_schedule() {
+        // MAINNET uses the full 33M supply as mining allocation (zero premine)
+        // with a 4-year halving era and 785_584_523-atom initial reward.
+        let mainnet_supply = emitted_supply_until_height(
+            &MAINNET,
+            MAINNET.halving_interval_blocks * 10,
         );
-        // Verify total mining supply is close to 25M (minor rounding dust from bit-shifts).
-        assert!(mc_supply <= 25_000_000 * 100_000_000, "must not exceed 25M TXM");
-        assert!(mc_supply >= 25_000_000 * 100_000_000 - MAINNET_CANDIDATE.initial_reward_atoms,
-                "dust must be less than one block reward");
+        assert_eq!(mainnet_supply, 3_299_999_986_972_800);
 
-        // MC initial reward differs from testnet (25M vs 32M mining supply).
-        assert_eq!(MAINNET_CANDIDATE.initial_reward_atoms, 1_190_279_581);
+        let dust = MAINNET.mining_allocation_atoms - mainnet_supply;
+        assert_eq!(dust, 13_027_200);
+        assert!(dust < MAINNET.initial_reward_atoms, "dust must be less than one block reward");
+
+        assert_eq!(MAINNET.initial_reward_atoms, 785_584_523);
         assert_eq!(TESTNET.initial_reward_atoms, 1_523_557_865);
     }
 
     #[test]
     fn reward_is_zero_after_final_halving_era() {
-        for params in [TESTNET, MAINNET_CANDIDATE] {
+        for params in [TESTNET, MAINNET] {
             let first_zero_height =
                 params.halving_interval_blocks * u64::from(params.max_halving_eras);
             assert_eq!(reward_at_height(&params, first_zero_height), 0);
