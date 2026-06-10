@@ -1239,6 +1239,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "tempfile",
+ "tensorium-tensorhash",
  "thiserror",
 ]
 
@@ -1277,6 +1278,7 @@ name = "tensorium-tensorhash"
 version = "0.1.0"
 dependencies = [
  "blake2",
+ "hex",
 ]
 
 [[package]]
@@ -1331,15 +1333,6 @@ dependencies = [
  "tensorium-core",
  "tiny_http",
  "ureq",
-]
-
-[[package]]
-name = "txmminer"
-version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
- "tensorium-core",
 ]
 
 [[package]]

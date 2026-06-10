@@ -181,7 +181,7 @@ fn run() -> Result<(), String> {
                         threads,
                         MC_GENESIS_TIMESTAMP
                     );
-                    println!("This may take hours on CPU — use txmminer-cuda for GPU acceleration.");
+                    println!("This may take hours — use tensorium-miner for GPU acceleration.");
                     let nonce = mine_genesis_multithreaded(threads)?;
                     let mc_state = mc_state_path_from_env();
                     let state = init_mainnet_candidate_state(&mc_state, nonce)?;

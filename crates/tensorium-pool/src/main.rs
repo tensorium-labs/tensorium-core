@@ -648,11 +648,10 @@ fn print_help() {
     println!();
     println!("pool fee: {}%  ({} bps)", accounting::POOL_FEE_BPS / 100, accounting::POOL_FEE_BPS);
     println!();
-    println!("miners: point txmminer-cuda (GPU) at pool bind address instead of node RPC.");
-    println!("  txmminer (CPU) is dev/diagnostic only — cannot mine at mainnet difficulty.");
+    println!("miners: point tensorium-miner (GPU/CUDA) at pool bind address instead of node RPC.");
     println!("example:");
     println!("  TENSORIUM_POOL_TREASURY=txm1treasury... TENSORIUM_POOL_PAYOUT_HOT_WALLET=txm1hot... tensorium-pool serve");
-    println!("  txmminer-cuda <pool_host:23336> <miner_wallet_address>");
+    println!("  tensorium-miner <pool_host:23336> <miner_wallet_address>");
 }
 
 // ---------------------------------------------------------------------------
