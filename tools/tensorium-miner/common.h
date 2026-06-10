@@ -7,7 +7,7 @@
 #include <stdatomic.h>
 #include <unistd.h>
 
-#define TENSORIUM_MINER_VERSION "2.0.0"
+#define TENSORIUM_MINER_VERSION "3.0.0"
 #define DEFAULT_SHARE_DIFF 1048576ULL   /* ~20 bits */
 #define MAX_GPUS           16
 #define JOB_ID_LEN         48
@@ -41,6 +41,7 @@ typedef struct {
     uint64_t height;
     uint8_t  previous_hash[32];
     uint8_t  merkle_root[32];
+    uint8_t  epoch_seed[32];     /* TensorHash dataset seed for this height */
     uint64_t timestamp;
     uint8_t  difficulty_bits;    /* network difficulty */
     uint8_t  share_bits;         /* floor(log2(share_diff)) */

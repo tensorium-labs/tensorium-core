@@ -250,6 +250,14 @@ static int fetch_template(const char *host, const char *port,
     extract_byte_array(hdr, "previous_hash", job->previous_hash, 32);
     extract_byte_array(hdr, "merkle_root",   job->merkle_root,   32);
 
+    /* epoch_seed lives at the response root, not inside template.header */
+    if (!extract_byte_array(s_rpc_buf, "epoch_seed", job->epoch_seed, 32)) {
+        fprintf(stderr,
+            "[solo] template has no epoch_seed — tensorium-node is too old "
+            "for TensorHash v1, upgrade the node\n");
+        return 0;
+    }
+
     snprintf(job->job_id, JOB_ID_LEN, "solo-%llu",
              (unsigned long long)job->height);
     job->valid = 1;

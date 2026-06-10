@@ -116,7 +116,7 @@ static int parse_notify(const char *line, JobDesc *job, uint64_t share_diff) {
 
     if (!jstr(params, "job_id",   job->job_id,   JOB_ID_LEN))    return 0;
     if (!jstr(params, "chain_id", job->chain_id, CHAIN_ID_LEN)) {
-        strncpy(job->chain_id, "tensorium-mainnet-candidate-0", CHAIN_ID_LEN - 1);
+        strncpy(job->chain_id, "tensorium-mainnet", CHAIN_ID_LEN - 1);
     }
     job->height          = jnum(params, "height");
     job->timestamp       = jnum(params, "timestamp");
@@ -133,6 +133,20 @@ static int parse_notify(const char *line, JobDesc *job, uint64_t share_diff) {
     memset(hex, 0, sizeof(hex));
     if (jstr(params, "merkle_root", hex, sizeof(hex)) && strlen(hex) == 64)
         hex64_to_bytes(hex, job->merkle_root);
+
+    memset(hex, 0, sizeof(hex));
+    if (jstr(params, "epoch_seed", hex, sizeof(hex)) && strlen(hex) == 64) {
+        hex64_to_bytes(hex, job->epoch_seed);
+    } else {
+        static int warned = 0;
+        if (!warned) {
+            fprintf(stderr,
+                "[pool] job has no epoch_seed — assuming epoch 0 (zero seed); "
+                "the pool must send epoch_seed once the chain passes height 8191\n");
+            warned = 1;
+        }
+        memset(job->epoch_seed, 0, 32);
+    }
 
     job->valid = 1;
     return 1;
