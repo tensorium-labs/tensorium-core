@@ -67,7 +67,7 @@ impl ConsensusParams {
             founder_address: "",
             initial_reward_atoms: 1_523_557_865,
             // Legacy low-difficulty network retained for CPU development and migration drills.
-            // Mainnet candidate remains GPU-first at 40 bits.
+            // MAINNET remains GPU-first at 42 bits.
             initial_leading_zero_bits: 20,
             min_leading_zero_bits: 8,
             max_leading_zero_bits: 36,
@@ -110,7 +110,7 @@ impl ConsensusParams {
 
 // ── CONSENSUS FREEZE ──────────────────────────────────────────────────────
 // Low-difficulty development-network parameters retained for tests and migration drills.
-// MC diff (40 bits) remains higher and is unaffected by this configuration.
+// MAINNET diff (42 bits) remains higher and is unaffected by this configuration.
 pub const TESTNET: ConsensusParams = ConsensusParams::testnet();
 
 // MAINNET — TensorHash v1 clean relaunch, tokenomics v2 (2026-06-10)
