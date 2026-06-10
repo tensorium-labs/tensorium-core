@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tensorium_core::{
     block::{Transaction, TxInput, TxOutput},
-    chain::MAINNET_CANDIDATE,
+    chain::MAINNET,
     script::standard::{
         cltv_p2pkh_script, extract_multisig, extract_p2sh_hash, htlc_claim_script_sig,
         htlc_refund_script_sig, htlc_script, multisig_script, multisig_script_sig,
@@ -1082,7 +1082,7 @@ fn print_balance(wallet: &WalletFile, state: &ChainState) -> Result<(), String> 
     let mut utxos = UtxoSet::new();
     for block in state.canonical_blocks_iter() {
         utxos
-            .apply_block(&MAINNET_CANDIDATE, &block)
+            .apply_block(&MAINNET, &block)
             .map_err(|err| err.to_string())?;
     }
 
@@ -1100,7 +1100,7 @@ fn print_balance(wallet: &WalletFile, state: &ChainState) -> Result<(), String> 
             && tip_height
                 < entry
                     .created_height
-                    .saturating_add(MAINNET_CANDIDATE.coinbase_maturity_blocks);
+                    .saturating_add(MAINNET.coinbase_maturity_blocks);
         if is_immature_coinbase {
             immature_atoms = immature_atoms.saturating_add(entry.output.value_atoms);
         } else {
@@ -1132,7 +1132,7 @@ fn build_signed_payment(
     let mut utxos = UtxoSet::new();
     for block in state.canonical_blocks_iter() {
         utxos
-            .apply_block(&MAINNET_CANDIDATE, &block)
+            .apply_block(&MAINNET, &block)
             .map_err(|err| err.to_string())?;
     }
 
@@ -1149,7 +1149,7 @@ fn build_signed_payment(
             && tip_height
                 < entry
                     .created_height
-                    .saturating_add(MAINNET_CANDIDATE.coinbase_maturity_blocks);
+                    .saturating_add(MAINNET.coinbase_maturity_blocks);
         if immature {
             continue;
         }
