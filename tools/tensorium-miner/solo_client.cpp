@@ -177,11 +177,18 @@ static int replace_header_nonce(const char *block_json, uint64_t nonce,
     if (*value_end == '-') value_end++;
     while (*value_end >= '0' && *value_end <= '9') value_end++;
 
+    /* Resume from the same offset in the ORIGINAL block JSON — value_end
+       points into the header_buf copy, which ends at the header's closing
+       brace; printing from it would drop everything after the header
+       (notably "transactions") and the node would reject the block. */
     int prefix = (int)(header_start - block_json) + (int)(value_start - header_buf);
+    const char *tail = block_json
+                     + (header_start - block_json)
+                     + (value_end - header_buf);
     int written = snprintf(out, out_len, "%.*s%llu%s",
                            prefix, block_json,
                            (unsigned long long)nonce,
-                           value_end);
+                           tail);
     return written > 0 && written < out_len;
 }
 
