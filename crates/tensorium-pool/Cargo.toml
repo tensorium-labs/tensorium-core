@@ -11,4 +11,3 @@ description = "Reference mining pool for Tensorium — HTTP proxy, share account
 tensorium-core = { path = "../tensorium-core" }
 serde = { workspace = true }
 serde_json = { workspace = true }
-sha2 = "0.10"

@@ -8,7 +8,7 @@
 
 use crate::accounting::{PayoutEntry, PayoutLedger, ShareRecord};
 use serde_json::{json, Value};
-use sha2::{Digest, Sha256};
+use tensorium_core::{block::BlockHeader, hash::Hash256};
 use std::{
     collections::HashMap,
     io::{BufRead, BufReader, Write},
@@ -177,16 +177,6 @@ fn unix_now() -> u64 {
         .as_secs()
 }
 
-// ── SHA256d ───────────────────────────────────────────────────────────────────
-
-fn sha256d(data: &[u8]) -> [u8; 32] {
-    let first  = Sha256::digest(data);
-    let second = Sha256::digest(&first);
-    let mut out = [0u8; 32];
-    out.copy_from_slice(&second);
-    out
-}
-
 fn leading_zero_bits(hash: &[u8; 32]) -> u8 {
     let mut bits = 0u8;
     for &byte in hash.iter() {
@@ -195,20 +185,22 @@ fn leading_zero_bits(hash: &[u8; 32]) -> u8 {
     bits
 }
 
-// ── Header builder ─────────────────────────────────────────────────────────────
+// ── Consensus header builder ──────────────────────────────────────────────────
 
-fn build_header(job: &StratumJob, nonce: u64) -> Vec<u8> {
-    let cid = job.chain_id.as_bytes();
-    let mut h = Vec::with_capacity(4 + cid.len() + 8 + 32 + 32 + 8 + 1 + 8);
-    h.extend_from_slice(&job.version.to_le_bytes());
-    h.extend_from_slice(cid);
-    h.extend_from_slice(&job.height.to_le_bytes());
-    h.extend_from_slice(&job.previous_hash);
-    h.extend_from_slice(&job.merkle_root);
-    h.extend_from_slice(&job.timestamp.to_le_bytes());
-    h.push(job.difficulty_bits);
-    h.extend_from_slice(&nonce.to_le_bytes());
-    h
+/// Build the consensus `BlockHeader` for a job + nonce. Using the consensus
+/// type means the pool's PoW check and ledger id-hash can never drift from
+/// the node's serialization.
+fn job_header(job: &StratumJob, nonce: u64) -> BlockHeader {
+    BlockHeader {
+        version: job.version,
+        chain_id: job.chain_id.clone(),
+        height: job.height,
+        previous_hash: Hash256(job.previous_hash),
+        merkle_root: Hash256(job.merkle_root),
+        timestamp_seconds: job.timestamp,
+        leading_zero_bits: job.difficulty_bits,
+        nonce,
+    }
 }
 
 // ── Nonce helpers ─────────────────────────────────────────────────────────────
@@ -235,9 +227,8 @@ fn validate_share(
     worker_diff_bits: u8,
 ) -> Option<(u8, bool, bool)> {
     let nonce  = le_hex_to_u64(nonce_hex)?;
-    let header = build_header(job, nonce);
-    let hash   = sha256d(&header);
-    let zeros  = leading_zero_bits(&hash);
+    let hash   = job_header(job, nonce).pow_hash(Hash256(job.epoch_seed));
+    let zeros  = leading_zero_bits(&hash.0);
     let is_share = zeros >= worker_diff_bits;
     let is_block = zeros >= job.difficulty_bits;
     Some((zeros, is_share, is_block))
@@ -601,8 +592,7 @@ fn handle_stratum_conn(
 
                                 let accepted = submit_block(&node_rpc, job, nonce, raw_tpl.as_deref());
                                 if accepted {
-                                    let hash_bytes = sha256d(&build_header(job, nonce));
-                                    let block_hash = bytes_to_hex(&hash_bytes);
+                                    let block_hash = bytes_to_hex(&job_header(job, nonce).hash().0);
                                     let gross = raw_tpl.as_deref()
                                         .map(gross_from_template).unwrap_or(0);
                                     if gross == 0 {
@@ -878,6 +868,81 @@ mod tests {
         // A node that does not send epoch_seed is too old for TensorHash —
         // the pool must refuse the job rather than guess a seed.
         assert!(parse_job_response(&fixture_template_response(false)).is_none());
+    }
+
+    fn fixture_job() -> StratumJob {
+        StratumJob {
+            job_id: "h7-test".into(),
+            chain_id: "tensorium-testnet-0".into(),
+            height: 7,
+            previous_hash: [0x11; 32],
+            merkle_root: [0x22; 32],
+            epoch_seed: [0u8; 32],
+            timestamp: 1_780_000_000,
+            difficulty_bits: 20,
+            version: 1,
+        }
+    }
+
+    /// LE-hex encoding of a nonce, as miners submit it.
+    fn nonce_to_le_hex(nonce: u64) -> String {
+        nonce.to_le_bytes().iter().map(|b| format!("{b:02x}")).collect()
+    }
+
+    /// CPU-mine the fixture job at `bits` leading zeros (zero epoch seed).
+    /// At 12 bits this is ~4k pow_hash calls — fast even unoptimized.
+    fn mine_fixture_nonce(bits: u8) -> u64 {
+        let job = fixture_job();
+        for nonce in 0u64.. {
+            let hash = job_header(&job, nonce).pow_hash(Hash256(job.epoch_seed));
+            if leading_zero_bits(&hash.0) >= bits {
+                return nonce;
+            }
+        }
+        unreachable!()
+    }
+
+    #[test]
+    fn validate_share_accepts_tensorhash_share() {
+        let job = fixture_job();
+        let nonce = mine_fixture_nonce(12);
+        let (zeros, is_share, _) =
+            validate_share(&job, &nonce_to_le_hex(nonce), 12).expect("nonce parses");
+        assert!(zeros >= 12);
+        assert!(is_share);
+    }
+
+    #[test]
+    fn validate_share_rejects_wrong_nonce_and_wrong_seed() {
+        let job = fixture_job();
+        let nonce = mine_fixture_nonce(12);
+
+        // Neighbouring nonce: fails the 12-bit share check (deterministic
+        // for these fixed inputs; a priori odds of passing were 2^-12).
+        let (_, is_share, _) =
+            validate_share(&job, &nonce_to_le_hex(nonce + 1), 12).unwrap();
+        assert!(!is_share, "nonce+1 must not satisfy the share target");
+
+        // Same nonce under a different epoch seed: different dataset,
+        // different pow hash — must also fail.
+        let mut other_seed_job = job.clone();
+        other_seed_job.epoch_seed = [9u8; 32];
+        let (_, is_share, _) =
+            validate_share(&other_seed_job, &nonce_to_le_hex(nonce), 12).unwrap();
+        assert!(!is_share, "share must be bound to the epoch seed");
+    }
+
+    #[test]
+    fn job_header_id_hash_matches_pre_refactor_vector() {
+        // Pins ledger block-hash stability: BlockHeader::hash() (double-
+        // SHA256) must equal what sha256d(build_header(..)) produced before
+        // this refactor. Vector computed against the pre-change code and
+        // cross-checked with Python hashlib.
+        let header = job_header(&fixture_job(), 424242);
+        assert_eq!(
+            bytes_to_hex(&header.hash().0),
+            "dae08fc31e66282b654c853bf490a0677f0fd6f508ff4d1539ca4c3b88f84302",
+        );
     }
 
     #[test]
