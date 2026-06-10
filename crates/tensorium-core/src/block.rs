@@ -157,6 +157,30 @@ impl BlockHeader {
         bytes.extend_from_slice(&self.nonce.to_le_bytes());
         Hash256::double_sha256(&bytes)
     }
+
+    /// Serialized header bytes excluding `nonce` — the nonce-independent
+    /// prefix fed into TensorHash's `pow_hash`. Mirrors the field order of
+    /// `hash()` minus the trailing nonce bytes.
+    fn pow_prefix_bytes(&self) -> Vec<u8> {
+        let mut bytes = Vec::with_capacity(120);
+        bytes.extend_from_slice(&self.version.to_le_bytes());
+        bytes.extend_from_slice(self.chain_id.as_bytes());
+        bytes.extend_from_slice(&self.height.to_le_bytes());
+        bytes.extend_from_slice(&self.previous_hash.0);
+        bytes.extend_from_slice(&self.merkle_root.0);
+        bytes.extend_from_slice(&self.timestamp_seconds.to_le_bytes());
+        bytes.push(self.leading_zero_bits);
+        bytes
+    }
+
+    /// TensorHash v1 proof-of-work hash for this header, given the dataset
+    /// epoch seed for the epoch containing `self.height`. Used only by
+    /// `pow::header_meets_work` — chain linkage, merkle roots, and storage
+    /// keys continue to use `hash()` (double-SHA256), unaffected by this.
+    pub fn pow_hash(&self, epoch_seed: Hash256) -> Hash256 {
+        let prefix = self.pow_prefix_bytes();
+        Hash256(tensorium_tensorhash::pow_hash(&prefix, self.nonce, &epoch_seed.0))
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -231,4 +255,42 @@ fn transaction_id(inputs: &[TxInput], outputs: &[TxOutput], payload: &[u8]) -> H
     }
     bytes.extend_from_slice(payload);
     Hash256::double_sha256(&bytes)
+}
+
+#[cfg(test)]
+mod pow_hash_tests {
+    use super::*;
+
+    #[test]
+    fn pow_hash_differs_from_id_hash() {
+        let header = BlockHeader {
+            version: 1,
+            chain_id: "tensorium-testnet-0".to_owned(),
+            height: 0,
+            previous_hash: Hash256::ZERO,
+            merkle_root: Hash256::ZERO,
+            timestamp_seconds: 1_700_000_000,
+            leading_zero_bits: 8,
+            nonce: 0,
+        };
+        assert_ne!(header.hash(), header.pow_hash(Hash256::ZERO));
+    }
+
+    #[test]
+    fn pow_hash_changes_with_nonce() {
+        let mut header = BlockHeader {
+            version: 1,
+            chain_id: "tensorium-testnet-0".to_owned(),
+            height: 0,
+            previous_hash: Hash256::ZERO,
+            merkle_root: Hash256::ZERO,
+            timestamp_seconds: 1_700_000_000,
+            leading_zero_bits: 8,
+            nonce: 0,
+        };
+        let h0 = header.pow_hash(Hash256::ZERO);
+        header.nonce = 1;
+        let h1 = header.pow_hash(Hash256::ZERO);
+        assert_ne!(h0, h1);
+    }
 }

@@ -19,6 +19,7 @@ thiserror.workspace = true
 rocksdb  = { version = "0.22", features = ["snappy"] }
 bincode  = "1.3"
 tempfile = "3"
+tensorium-tensorhash = { path = "../tensorium-tensorhash" }
 
 [dev-dependencies]
 serde_json.workspace = true
