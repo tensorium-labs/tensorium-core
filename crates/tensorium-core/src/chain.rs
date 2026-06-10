@@ -3,27 +3,15 @@ use serde::{Deserialize, Serialize};
 pub const COIN: u64 = 100_000_000;
 pub const MAX_HALVING_ERAS: u32 = 10;
 pub const TOTAL_SUPPLY_COINS: u64 = 33_000_000;
-/// Total genesis pre-mint (all allocation buckets combined).
-pub const GENESIS_PRE_MINT_COINS: u64 = 8_000_000;
-pub const MINING_ALLOCATION_COINS: u64 = 25_000_000;
 pub const TOTAL_SUPPLY_ATOMS: u64 = TOTAL_SUPPLY_COINS * COIN;
-/// Kept for backward-compat; equals GENESIS_PRE_MINT_COINS * COIN.
-pub const FOUNDER_ALLOCATION_ATOMS: u64 = GENESIS_PRE_MINT_COINS * COIN;
+/// Zero premine: the entire max supply is mining-only issuance.
+pub const MINING_ALLOCATION_COINS: u64 = TOTAL_SUPPLY_COINS;
 pub const MINING_ALLOCATION_ATOMS: u64 = MINING_ALLOCATION_COINS * COIN;
-
-/// Genesis allocation buckets — (address, atoms). All minted at block 0.
-/// Founder 1M | Liquidity pool 3M | Bridge reserve 2M | Ecosystem 2M = 8M total.
-pub const MC_GENESIS_ALLOCATIONS: &[(&str, u64)] = &[
-    ("txm18c3t652j0x0sanux3dhse8fqgrqpsdzx97358d", 1_000_000 * COIN), // founder
-    ("txm1uyy0sfm07p47f8dy0mvdtwfefya8w5y2qr0q8p", 3_000_000 * COIN), // liquidity pool
-    ("txm13ydx0hc8g3e07qfcecznt0u3jcw6y386e28qhq", 2_000_000 * COIN), // bridge reserve
-    ("txm1jwz2nvfajy84kyypzxp0pq8n5vrwahu6yny9hf", 2_000_000 * COIN), // ecosystem/treasury
-];
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub enum ChainNetwork {
     Testnet,
-    MainnetCandidate,
+    Mainnet,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -93,26 +81,26 @@ impl ConsensusParams {
         }
     }
 
-    pub const fn mainnet_candidate() -> Self {
+    pub const fn mainnet() -> Self {
         Self {
-            network: ChainNetwork::MainnetCandidate,
-            chain_id: "tensorium-mainnet-candidate-0",
+            network: ChainNetwork::Mainnet,
+            chain_id: "tensorium-mainnet",
             target_block_seconds: 60,
-            halving_interval_blocks: 1_051_200,
+            halving_interval_blocks: 2_102_400,
             max_halving_eras: MAX_HALVING_ERAS,
             total_supply_atoms: TOTAL_SUPPLY_ATOMS,
-            founder_allocation_atoms: FOUNDER_ALLOCATION_ATOMS, // = 8M total pre-mint
-            mining_allocation_atoms: MINING_ALLOCATION_ATOMS,   // = 25M
-            genesis_allocations: MC_GENESIS_ALLOCATIONS,
+            founder_allocation_atoms: 0,
+            mining_allocation_atoms: MINING_ALLOCATION_ATOMS, // = 33M (zero premine)
+            genesis_allocations: &[],
             founder_address: "",
-            initial_reward_atoms: 1_190_279_581,                // 11.9027... TXM/block for 25M over 10 eras
-            initial_leading_zero_bits: 40,
-            min_leading_zero_bits: 32,
-            max_leading_zero_bits: 56,
-            difficulty_adjustment_window: 120,
-            // Disabled until a real activation height is chosen and coordinated
-            // (network stays on fixed 40-bit difficulty until then).
-            difficulty_retarget_activation_height: u64::MAX,
+            initial_reward_atoms: 785_584_523, // ~7.8558 TXM/block for 33M over 10 eras
+            initial_leading_zero_bits: 42,
+            min_leading_zero_bits: 34,
+            max_leading_zero_bits: 58,
+            difficulty_adjustment_window: 60,
+            // Active from genesis: this is a fresh chain with no blocks mined
+            // under fixed difficulty, so there is no backward-compat concern.
+            difficulty_retarget_activation_height: 0,
             coinbase_maturity_blocks: 10,
             max_future_block_time_seconds: 2 * 60 * 60,
             max_block_bytes: 1_000_000,
@@ -125,14 +113,15 @@ impl ConsensusParams {
 // MC diff (40 bits) remains higher and is unaffected by this configuration.
 pub const TESTNET: ConsensusParams = ConsensusParams::testnet();
 
-// MAINNET_CANDIDATE — tokenomics v2 (2026-06-02)
-// chain_id:        tensorium-mainnet-candidate-0
-// Initial diff:    40 bits (GPU-first, RTX 3060+)
-// Genesis ts:      1_780_272_000 (2026-06-01 00:00:00 UTC)
-// Genesis nonce:   TBD — re-mine after tokenomics update
-// Pre-mint (8M):   founder 1M | liquidity 3M | bridge 2M | ecosystem 2M
-// Mining (25M):    11.9027... TXM/block, 10 eras, ~20 years
-pub const MAINNET_CANDIDATE: ConsensusParams = ConsensusParams::mainnet_candidate();
+// MAINNET — TensorHash v1 clean relaunch, tokenomics v2 (2026-06-10)
+// chain_id:        tensorium-mainnet
+// Algorithm:       TensorHash v1 (memory-hard, GPU-first)
+// Initial diff:    42 bits equivalent, retargeting active from genesis (window 60 blocks)
+// Genesis ts:      TBD — set at actual launch time
+// Genesis nonce:   TBD — re-mine offline (CPU brute-force or GPU miner) before launch
+// Pre-mint:        0 (zero premine, mining-only issuance)
+// Mining (33M):    ~7.8558 TXM/block, halving every ~4 years, 10 eras, ~40 years
+pub const MAINNET: ConsensusParams = ConsensusParams::mainnet();
 
 /// Low-difficulty params for unit tests — mines instantly (difficulty 8 = 256 hashes avg).
 pub const TEST_PARAMS: ConsensusParams = ConsensusParams {
@@ -180,36 +169,39 @@ mod tests {
     }
 
     #[test]
-    fn mainnet_candidate_tokenomics_match_reference_supply_plan() {
-        assert_eq!(MAINNET_CANDIDATE.chain_id, "tensorium-mainnet-candidate-0");
-        assert_eq!(
-            MAINNET_CANDIDATE.target_block_seconds,
-            TESTNET.target_block_seconds
-        );
-        assert_eq!(
-            MAINNET_CANDIDATE.halving_interval_blocks,
-            TESTNET.halving_interval_blocks
-        );
-        assert_eq!(MAINNET_CANDIDATE.max_halving_eras, TESTNET.max_halving_eras);
-        // MC has different reward (25M mining) and different genesis allocations
-        assert_eq!(MAINNET_CANDIDATE.initial_reward_atoms, 1_190_279_581);
-        assert_eq!(MAINNET_CANDIDATE.genesis_allocations.len(), 4);
-        assert_eq!(MAINNET_CANDIDATE.coinbase_maturity_blocks, 10);
-        let genesis_total: u64 = MAINNET_CANDIDATE.genesis_allocations.iter().map(|(_, a)| a).sum();
-        assert_eq!(genesis_total, 8_000_000 * COIN);
-        assert_supply_split(MAINNET_CANDIDATE);
+    fn mainnet_tokenomics_match_zero_premine_relaunch_plan() {
+        assert_eq!(MAINNET.chain_id, "tensorium-mainnet");
+        assert_eq!(MAINNET.target_block_seconds, TESTNET.target_block_seconds);
+        // MAINNET uses a 4-year halving era (TESTNET uses 2 years) — different
+        // emission schedule for the zero-premine relaunch.
+        assert_eq!(MAINNET.halving_interval_blocks, 2_102_400);
+        assert_eq!(MAINNET.max_halving_eras, TESTNET.max_halving_eras);
+        // Zero premine: no genesis allocations, founder allocation is 0.
+        assert_eq!(MAINNET.founder_allocation_atoms, 0);
+        assert!(MAINNET.genesis_allocations.is_empty());
+        let genesis_total: u64 = MAINNET.genesis_allocations.iter().map(|(_, a)| a).sum();
+        assert_eq!(genesis_total, 0);
+        // 33M mining allocation with new initial reward.
+        assert_eq!(MAINNET.initial_reward_atoms, 785_584_523);
+        assert_eq!(MAINNET.coinbase_maturity_blocks, 10);
+        assert_supply_split(MAINNET);
     }
 
     #[test]
     fn mainnet_is_gpu_first_harder_than_reference_network() {
-        assert!(MAINNET_CANDIDATE.initial_leading_zero_bits > TESTNET.initial_leading_zero_bits);
-        assert!(MAINNET_CANDIDATE.min_leading_zero_bits > TESTNET.min_leading_zero_bits);
-        assert!(MAINNET_CANDIDATE.max_leading_zero_bits > TESTNET.max_leading_zero_bits);
-        assert!(
-            MAINNET_CANDIDATE.min_leading_zero_bits <= MAINNET_CANDIDATE.initial_leading_zero_bits
-        );
-        assert!(
-            MAINNET_CANDIDATE.initial_leading_zero_bits <= MAINNET_CANDIDATE.max_leading_zero_bits
-        );
+        assert!(MAINNET.initial_leading_zero_bits > TESTNET.initial_leading_zero_bits);
+        assert!(MAINNET.min_leading_zero_bits > TESTNET.min_leading_zero_bits);
+        assert!(MAINNET.max_leading_zero_bits > TESTNET.max_leading_zero_bits);
+        assert!(MAINNET.min_leading_zero_bits <= MAINNET.initial_leading_zero_bits);
+        assert!(MAINNET.initial_leading_zero_bits <= MAINNET.max_leading_zero_bits);
+    }
+
+    #[test]
+    fn mainnet_retargeting_is_active_from_genesis() {
+        // Fresh chain — retargeting is enabled from block 0, unlike the old
+        // MAINNET_CANDIDATE which kept it disabled (u64::MAX).
+        assert_eq!(MAINNET.difficulty_retarget_activation_height, 0);
+        assert_eq!(MAINNET.difficulty_adjustment_window, 60);
+        assert_eq!(MAINNET.initial_leading_zero_bits, 42);
     }
 }
