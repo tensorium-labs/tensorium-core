@@ -16,7 +16,7 @@ pub mod wallet;
 
 pub use assets::{AssetOp, AssetState, IssueData, NftMintData, TransferData};
 pub use block::{Block, BlockHeader, OutPoint, Transaction, TxInput, TxOutput};
-pub use chain::{ChainNetwork, ConsensusParams, MAINNET_CANDIDATE, TESTNET};
+pub use chain::{ChainNetwork, ConsensusParams, MAINNET, TESTNET};
 pub use hash::Hash256;
 pub use mempool::{Mempool, MempoolError};
 pub use state::{ChainState, StateError};
