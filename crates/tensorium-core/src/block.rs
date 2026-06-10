@@ -161,7 +161,7 @@ impl BlockHeader {
     /// Serialized header bytes excluding `nonce` — the nonce-independent
     /// prefix fed into TensorHash's `pow_hash`. Mirrors the field order of
     /// `hash()` minus the trailing nonce bytes.
-    fn pow_prefix_bytes(&self) -> Vec<u8> {
+    pub fn pow_prefix_bytes(&self) -> Vec<u8> {
         let mut bytes = Vec::with_capacity(120);
         bytes.extend_from_slice(&self.version.to_le_bytes());
         bytes.extend_from_slice(self.chain_id.as_bytes());
@@ -292,5 +292,26 @@ mod pow_hash_tests {
         header.nonce = 1;
         let h1 = header.pow_hash(Hash256::ZERO);
         assert_ne!(h0, h1);
+    }
+
+    #[test]
+    fn pow_prefix_is_nonce_independent_and_102_bytes_for_mainnet() {
+        let mut header = BlockHeader {
+            version: 1,
+            chain_id: "tensorium-mainnet".to_owned(),
+            height: 0,
+            previous_hash: Hash256::ZERO,
+            merkle_root: Hash256::ZERO,
+            timestamp_seconds: 1,
+            leading_zero_bits: 42,
+            nonce: 99,
+        };
+        let prefix = header.pow_prefix_bytes();
+        // version(4) + chain_id(17) + height(8) + prev(32) + merkle(32)
+        // + timestamp(8) + bits(1) = 102 — this is the byte count the CUDA
+        // miner's genesis mode receives via print-genesis-prefix.
+        assert_eq!(prefix.len(), 102);
+        header.nonce = 12345;
+        assert_eq!(prefix, header.pow_prefix_bytes(), "prefix must not depend on nonce");
     }
 }
