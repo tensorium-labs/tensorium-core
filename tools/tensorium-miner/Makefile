@@ -13,12 +13,12 @@ ifndef ARCH
   endif
 endif
 
-NVCCFLAGS := -arch=$(ARCH) -O3 --use_fast_math -Xcompiler "-O3 -pthread" \
+NVCCFLAGS := -arch=$(ARCH) -O3 -Xcompiler "-O3 -pthread" \
              -Xptxas -O3,--warn-on-spills
 CXXFLAGS  := -O3 -Wall -std=c++11 -pthread
 
-SRCS_CU  := gpu_worker.cu mining_kernel.cu
-SRCS_CPP := main.cpp solo_client.cpp stratum_client.cpp
+SRCS_CU  := gpu_worker.cu tensorhash_kernel.cu
+SRCS_CPP := main.cpp solo_client.cpp stratum_client.cpp modes.cpp host_tensorhash.cpp
 
 ifdef WITH_NVML
   SRCS_CPP  += nvml_monitor.cpp
@@ -37,17 +37,21 @@ $(TARGET): $(OBJS_CU) $(OBJS_CPP)
 	@echo ""
 	@echo "Built: $(TARGET) ($(ARCH))"
 
-# Explicit rules for CUDA sources (only gpu_worker.cu and mining_kernel.cu)
-gpu_worker.o: gpu_worker.cu sha256d.cuh common.h gpu_worker.h
+gpu_worker.o: gpu_worker.cu gpu_worker.h common.h solo_client.h host_tensorhash.h tensorhash_params.h
 	$(NVCC) $(NVCCFLAGS) -c -o $@ $<
 
-mining_kernel.o: mining_kernel.cu sha256d.cuh common.h
+tensorhash_kernel.o: tensorhash_kernel.cu tensorhash.cuh blake2b.cuh tensorhash_params.h host_tensorhash.h
 	$(NVCC) $(NVCCFLAGS) -c -o $@ $<
 
-# Explicit rules for C++ sources (main.cpp, not main.cu)
-# main.cpp uses cuda_runtime.h — compile via nvcc -x c++ so CUDA headers are found
-main.o: main.cpp common.h solo_client.h stratum_client.h gpu_worker.h nvml_monitor.h
+# main.cpp and modes.cpp use cuda_runtime.h — compile via nvcc -x c++
+main.o: main.cpp common.h solo_client.h stratum_client.h gpu_worker.h nvml_monitor.h modes.h
 	$(NVCC) $(NVCCFLAGS) -x c++ -c -o $@ $<
+
+modes.o: modes.cpp modes.h common.h host_tensorhash.h tensorhash_params.h
+	$(NVCC) $(NVCCFLAGS) -x c++ -c -o $@ $<
+
+host_tensorhash.o: host_tensorhash.cpp host_tensorhash.h blake2b.cuh tensorhash_params.h
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
 solo_client.o: solo_client.cpp solo_client.h common.h
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
@@ -58,19 +62,19 @@ stratum_client.o: stratum_client.cpp stratum_client.h common.h
 nvml_monitor.o: nvml_monitor.cpp nvml_monitor.h common.h
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
+# Host-only KAT harness — no GPU/CUDA needed (g++ only).
+test-host: test_host_tensorhash.cpp host_tensorhash.cpp host_tensorhash.h blake2b.cuh tensorhash_params.h
+	$(CXX) $(CXXFLAGS) -o test_host_tensorhash test_host_tensorhash.cpp host_tensorhash.cpp
+	./test_host_tensorhash
+
 install: $(TARGET)
 	sudo cp $(TARGET) /usr/local/bin/tensorium-miner
 	@echo "Installed tensorium-miner"
 
 clean:
-	rm -f $(TARGET) *.o
+	rm -f $(TARGET) test_host_tensorhash *.o
 
 info:
 	@echo "ARCH=$(ARCH)"
 	@nvcc --version 2>/dev/null | head -1
 	@nvidia-smi --query-gpu=name,compute_cap --format=csv,noheader 2>/dev/null || echo "no GPU detected"
-
-# Host-only KAT harness — no GPU/CUDA needed (g++ only).
-test-host: test_host_tensorhash.cpp host_tensorhash.cpp host_tensorhash.h blake2b.cuh tensorhash_params.h
-	$(CXX) $(CXXFLAGS) -o test_host_tensorhash test_host_tensorhash.cpp host_tensorhash.cpp
-	./test_host_tensorhash

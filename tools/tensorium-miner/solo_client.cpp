@@ -345,7 +345,7 @@ void solo_client_run(const MinerConfig *cfg, SharedState *state) {
     }
     if (!state->running) return;
 
-    /* In solo mode the kernel must mine at full 40-bit network difficulty.
+    /* In solo mode the kernel mines at full network difficulty.
        Setting share_bits = difficulty_bits means every found nonce IS a real block. */
     job.share_bits = job.difficulty_bits;
     job_publish(state, &job);

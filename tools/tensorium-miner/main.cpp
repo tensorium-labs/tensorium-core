@@ -4,6 +4,7 @@
 #include "stratum_client.h"
 #include "gpu_worker.h"
 #include "nvml_monitor.h"
+#include "modes.h"
 #include <cuda_runtime.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -23,6 +24,11 @@ static void print_usage(const char *prog) {
         "  %s --mode solo --rpc http://HOST:PORT --wallet ADDR [options]\n\n"
         "Pool mode:\n"
         "  %s --mode pool --pool stratum+tcp://HOST:PORT --wallet ADDR [options]\n\n"
+        "Standalone modes:\n"
+        "  %s --selftest                 verify GPU kernel against consensus KATs\n"
+        "  %s --benchmark [secs]         dataset-gen time + sustained hashrate\n"
+        "  %s --mode genesis --prefix HEX --bits N [--start-nonce N]\n"
+        "                                mine a genesis nonce (no node needed)\n\n"
         "Options:\n"
         "  --worker NAME        worker name for pool stats (default: hostname)\n"
         "  --gpu all|0,1,2      GPUs to use (default: all)\n"
@@ -30,7 +36,7 @@ static void print_usage(const char *prog) {
         "  --share-diff N       pool share difficulty (default: %llu)\n\n"
         "Backward-compat (legacy positional syntax):\n"
         "  %s HOST:PORT ADDR [device_id] [cuda_blocks] [cuda_threads]\n",
-        prog, prog, (unsigned long long)DEFAULT_SHARE_DIFF, prog);
+        prog, prog, prog, prog, prog, (unsigned long long)DEFAULT_SHARE_DIFF, prog);
 }
 
 /* intensity 1-10 → cuda_blocks, cuda_threads */
@@ -72,20 +78,20 @@ static void *stats_thread(void *arg) {
             GpuStats *g = &s->gpu_stats[i];
             if (g->hashrate_ghs <= 0.0) continue;
             if (g->temp_c >= 0) {
-                printf("[GPU %d] %6.2f GH/s  temp=%d°C  power=%dW  fan=%d%%  shares=%llu\n",
-                       g->gpu_id, g->hashrate_ghs, g->temp_c, g->power_w, g->fan_pct,
+                printf("[GPU %d] %8.2f MH/s  temp=%d°C  power=%dW  fan=%d%%  shares=%llu\n",
+                       g->gpu_id, g->hashrate_ghs * 1000.0, g->temp_c, g->power_w, g->fan_pct,
                        (unsigned long long)g->shares_found);
             } else {
-                printf("[GPU %d] %6.2f GH/s  shares=%llu\n",
-                       g->gpu_id, g->hashrate_ghs,
+                printf("[GPU %d] %8.2f MH/s  shares=%llu\n",
+                       g->gpu_id, g->hashrate_ghs * 1000.0,
                        (unsigned long long)g->shares_found);
             }
             total_ghs    += g->hashrate_ghs;
             total_shares += g->shares_found;
         }
         if (s->gpu_count > 1)
-            printf("[total] %6.2f GH/s  shares=%llu\n\n",
-                   total_ghs, (unsigned long long)total_shares);
+            printf("[total] %8.2f MH/s  shares=%llu\n\n",
+                   total_ghs * 1000.0, (unsigned long long)total_shares);
         else
             printf("\n");
         fflush(stdout);
@@ -124,6 +130,11 @@ int main(int argc, char *argv[]) {
     cfg.share_diff = DEFAULT_SHARE_DIFF;
 
     int use_intensity = 0; /* 0 = auto (intensity_to_launch defaults to 8 = 8192×256) */
+    int do_selftest = 0;
+    int do_benchmark = 0, bench_secs = 60;
+    const char *genesis_prefix = NULL;
+    int genesis_bits = 42;
+    uint64_t genesis_start = 0;
 
     /* ── Backward-compat mode: tensorium-miner HOST:PORT ADDR [dev] [blks] [thr] ── */
     if (argc >= 3 && argv[1][0] != '-') {
@@ -156,7 +167,9 @@ int main(int argc, char *argv[]) {
         }
         else if (strcmp(argv[i], "--mode") == 0) {
             const char *m = NEXTARG();
-            cfg.mode = (strcmp(m, "pool") == 0) ? MODE_POOL : MODE_SOLO;
+            if      (strcmp(m, "pool") == 0)    cfg.mode = MODE_POOL;
+            else if (strcmp(m, "genesis") == 0) cfg.mode = MODE_GENESIS;
+            else                                cfg.mode = MODE_SOLO;
         }
         else if (strcmp(argv[i], "--rpc") == 0) {
             const char *url = NEXTARG();
@@ -207,6 +220,15 @@ int main(int argc, char *argv[]) {
             cfg.share_diff = (uint64_t)strtoull(NEXTARG(), NULL, 10);
             if (cfg.share_diff == 0) cfg.share_diff = DEFAULT_SHARE_DIFF;
         }
+        else if (strcmp(argv[i], "--selftest") == 0) do_selftest = 1;
+        else if (strcmp(argv[i], "--benchmark") == 0) {
+            do_benchmark = 1;
+            if (i + 1 < argc && argv[i + 1][0] != '-') bench_secs = atoi(argv[++i]);
+        }
+        else if (strcmp(argv[i], "--prefix") == 0) genesis_prefix = NEXTARG();
+        else if (strcmp(argv[i], "--bits") == 0)   genesis_bits = atoi(NEXTARG());
+        else if (strcmp(argv[i], "--start-nonce") == 0)
+            genesis_start = (uint64_t)strtoull(NEXTARG(), NULL, 10);
         else {
             fprintf(stderr, "unknown flag: %s\n", argv[i]);
             print_usage(argv[0]); return 1;
@@ -214,7 +236,38 @@ int main(int argc, char *argv[]) {
 #undef NEXTARG
     }
 
-    /* Validate required args */
+    /* Compute cuda_blocks/threads from intensity (needed by all modes) */
+    if (cfg.cuda_blocks == 0)
+        intensity_to_launch(use_intensity, &cfg.cuda_blocks, &cfg.cuda_threads);
+
+    /* ── Standalone modes (no wallet/RPC needed) ── */
+    if (do_selftest)
+        return run_selftest(cfg.gpu_count > 0 ? cfg.gpu_ids[0] : 0);
+    if (do_benchmark)
+        return run_benchmark(cfg.gpu_count > 0 ? cfg.gpu_ids[0] : 0,
+                             bench_secs, cfg.cuda_blocks, cfg.cuda_threads);
+    if (cfg.mode == MODE_GENESIS) {
+        if (!genesis_prefix) {
+            fprintf(stderr, "error: --mode genesis requires --prefix <hex> "
+                            "(from: tensorium-node print-genesis-prefix)\n");
+            return 1;
+        }
+        int total = 0;
+        cudaGetDeviceCount(&total);
+        if (total == 0) { fprintf(stderr, "error: no CUDA GPUs found\n"); return 1; }
+        int ids[MAX_GPUS], n;
+        if (cfg.gpu_count == 0) {
+            n = (total > MAX_GPUS) ? MAX_GPUS : total;
+            for (int i = 0; i < n; i++) ids[i] = i;
+        } else {
+            n = cfg.gpu_count;
+            memcpy(ids, cfg.gpu_ids, n * sizeof(int));
+        }
+        return run_genesis(genesis_prefix, genesis_bits, genesis_start,
+                           n, ids, cfg.cuda_blocks, cfg.cuda_threads);
+    }
+
+    /* Validate required args (solo/pool only) */
     if (cfg.wallet[0] == '\0') {
         fprintf(stderr, "error: --wallet is required\n");
         print_usage(argv[0]); return 1;
@@ -223,10 +276,6 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "error: --pool is required in pool mode\n");
         return 1;
     }
-
-    /* Compute cuda_blocks/threads from intensity */
-    if (cfg.cuda_blocks == 0)
-        intensity_to_launch(use_intensity, &cfg.cuda_blocks, &cfg.cuda_threads);
 
 run:;
     /* ── GPU discovery ── */

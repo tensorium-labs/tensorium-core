@@ -17,7 +17,7 @@
 #define HEADER_MAX         192
 #define SHARE_QUEUE_MAX    256
 
-typedef enum { MODE_SOLO = 0, MODE_POOL = 1 } MiningMode;
+typedef enum { MODE_SOLO = 0, MODE_POOL = 1, MODE_GENESIS = 2 } MiningMode;
 
 typedef struct {
     MiningMode  mode;
