@@ -48,6 +48,13 @@ pub struct ConsensusParams {
     pub min_leading_zero_bits: u8,
     pub max_leading_zero_bits: u8,
     pub difficulty_adjustment_window: u64,
+    /// Height at which difficulty retargeting (`next_leading_zero_bits`) becomes
+    /// a consensus-enforced rule. Below this height every block must use the
+    /// network's fixed `initial_leading_zero_bits` (preserves validity of all
+    /// blocks mined before the fork). `u64::MAX` disables retargeting entirely —
+    /// the network stays on fixed difficulty until a real activation height is
+    /// chosen and coordinated.
+    pub difficulty_retarget_activation_height: u64,
     pub coinbase_maturity_blocks: u64,
     pub max_future_block_time_seconds: u64,
     pub max_block_bytes: u64,
@@ -77,6 +84,8 @@ impl ConsensusParams {
             min_leading_zero_bits: 8,
             max_leading_zero_bits: 36,
             difficulty_adjustment_window: 60,
+            // Disabled until a real activation height is chosen and coordinated.
+            difficulty_retarget_activation_height: u64::MAX,
             // Short maturity retained for the low-difficulty development network.
             coinbase_maturity_blocks: 10,
             max_future_block_time_seconds: 2 * 60 * 60,
@@ -101,6 +110,9 @@ impl ConsensusParams {
             min_leading_zero_bits: 32,
             max_leading_zero_bits: 56,
             difficulty_adjustment_window: 120,
+            // Disabled until a real activation height is chosen and coordinated
+            // (network stays on fixed 40-bit difficulty until then).
+            difficulty_retarget_activation_height: u64::MAX,
             coinbase_maturity_blocks: 10,
             max_future_block_time_seconds: 2 * 60 * 60,
             max_block_bytes: 1_000_000,

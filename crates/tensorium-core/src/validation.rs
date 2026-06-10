@@ -20,6 +20,8 @@ pub enum ValidationError {
     InvalidMerkleRoot,
     #[error("block proof-of-work is invalid")]
     InvalidProofOfWork,
+    #[error("block declares an unexpected difficulty (consensus retarget mismatch)")]
+    UnexpectedDifficulty,
     #[error("coinbase transaction is missing")]
     MissingCoinbase,
     #[error("first transaction must be coinbase")]
@@ -31,6 +33,7 @@ pub fn validate_block(
     parent: Option<&Block>,
     block: &Block,
     now_seconds: u64,
+    expected_leading_zero_bits: u8,
 ) -> Result<(), ValidationError> {
     if block.header.chain_id != params.chain_id {
         return Err(ValidationError::WrongChainId);
@@ -53,6 +56,13 @@ pub fn validate_block(
 
     if block.header.merkle_root != merkle_root(&block.transactions) {
         return Err(ValidationError::InvalidMerkleRoot);
+    }
+
+    // Consensus-enforced difficulty: the block must declare exactly the
+    // `leading_zero_bits` the retargeting rule requires for this height — a
+    // miner cannot just pick an easier target and still pass `header_meets_work`.
+    if block.header.leading_zero_bits != expected_leading_zero_bits {
+        return Err(ValidationError::UnexpectedDifficulty);
     }
 
     if !header_meets_work(&block.header) {
@@ -97,7 +107,7 @@ mod tests {
             .unwrap();
 
         assert_eq!(
-            validate_block(&TEST_PARAMS, None, block, 1_700_000_000),
+            validate_block(&TEST_PARAMS, None, block, 1_700_000_000, TEST_PARAMS.initial_leading_zero_bits),
             Ok(())
         );
     }
@@ -112,8 +122,30 @@ mod tests {
         block.transactions.clear();
 
         assert_eq!(
-            validate_block(&TEST_PARAMS, None, &block, 1_700_000_000),
+            validate_block(&TEST_PARAMS, None, &block, 1_700_000_000, TEST_PARAMS.initial_leading_zero_bits),
             Err(ValidationError::InvalidMerkleRoot)
+        );
+    }
+
+    #[test]
+    fn rejects_block_declaring_a_different_difficulty_than_expected() {
+        let mut state = ChainState::new();
+        let block = state
+            .init_genesis(&TEST_PARAMS, 1_700_000_000, 1_000_000)
+            .unwrap();
+
+        // The block is internally consistent (PoW matches its own claimed
+        // bits) but does not match what consensus requires for this height —
+        // a miner picking an easier-than-required target must be rejected.
+        assert_eq!(
+            validate_block(
+                &TEST_PARAMS,
+                None,
+                block,
+                1_700_000_000,
+                TEST_PARAMS.initial_leading_zero_bits + 1,
+            ),
+            Err(ValidationError::UnexpectedDifficulty)
         );
     }
 
@@ -127,7 +159,7 @@ mod tests {
         block.header.chain_id = "tensorium-wrong-chain".to_owned();
 
         assert_eq!(
-            validate_block(&TEST_PARAMS, None, &block, 1_700_000_000),
+            validate_block(&TEST_PARAMS, None, &block, 1_700_000_000, TEST_PARAMS.initial_leading_zero_bits),
             Err(ValidationError::WrongChainId)
         );
     }
@@ -142,7 +174,7 @@ mod tests {
             1_700_000_000 - TEST_PARAMS.max_future_block_time_seconds - 1;
 
         assert_eq!(
-            validate_block(&TEST_PARAMS, None, block, now_before_allowed_window),
+            validate_block(&TEST_PARAMS, None, block, now_before_allowed_window, TEST_PARAMS.initial_leading_zero_bits),
             Err(ValidationError::FutureTimestamp)
         );
     }
@@ -166,7 +198,7 @@ mod tests {
         block.header = mine_header(block.header.clone(), 1_000_000).unwrap();
 
         assert_eq!(
-            validate_block(&TEST_PARAMS, None, &block, 1_700_000_000),
+            validate_block(&TEST_PARAMS, None, &block, 1_700_000_000, TEST_PARAMS.initial_leading_zero_bits),
             Ok(())
         );
     }

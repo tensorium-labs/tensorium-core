@@ -7,6 +7,7 @@ use thiserror::Error;
 use crate::{
     block::{merkle_root, Block, BlockHeader, OutPoint, Transaction},
     chain::ConsensusParams,
+    difficulty::{expected_leading_zero_bits, DifficultySample},
     emission::reward_at_height,
     hash::Hash256,
     pow::mine_header,
@@ -294,8 +295,9 @@ impl ChainState {
         if self.height_cache.is_some() {
             return Err(StateError::GenesisAlreadyExists);
         }
-        let block = mine_candidate_block(params, None, timestamp_seconds, "genesis", max_nonce)?;
-        validate_block(params, None, &block, timestamp_seconds)?;
+        let leading_zero_bits = self.expected_leading_zero_bits_for(params, None);
+        let block = mine_candidate_block(params, None, timestamp_seconds, "genesis", max_nonce, leading_zero_bits)?;
+        validate_block(params, None, &block, timestamp_seconds, leading_zero_bits)?;
         let mut batch = WriteBatch::default();
         self.put_block_batch(&mut batch, &block);
         self.write_batch(batch);
@@ -315,12 +317,14 @@ impl ChainState {
         if self.height_cache.is_some() {
             return Err(StateError::GenesisAlreadyExists);
         }
+        let leading_zero_bits = self.expected_leading_zero_bits_for(params, None);
         let mut block = candidate_block(params, None, timestamp_seconds, "genesis", vec![], 0);
+        block.header.leading_zero_bits = leading_zero_bits;
         block.header.nonce = genesis_nonce;
         if !crate::pow::header_meets_work(&block.header) {
             return Err(StateError::MiningFailed);
         }
-        validate_block(params, None, &block, timestamp_seconds)?;
+        validate_block(params, None, &block, timestamp_seconds, leading_zero_bits)?;
         let mut batch = WriteBatch::default();
         self.put_block_batch(&mut batch, &block);
         self.write_batch(batch);
@@ -337,8 +341,9 @@ impl ChainState {
         max_nonce: u64,
     ) -> Result<&Block, StateError> {
         let parent = self.tip().ok_or(StateError::MissingGenesis)?.clone();
-        let block = mine_candidate_block(params, Some(&parent), timestamp_seconds, miner, max_nonce)?;
-        validate_block(params, Some(&parent), &block, timestamp_seconds)?;
+        let leading_zero_bits = self.expected_leading_zero_bits_for(params, Some(&parent));
+        let block = mine_candidate_block(params, Some(&parent), timestamp_seconds, miner, max_nonce, leading_zero_bits)?;
+        validate_block(params, Some(&parent), &block, timestamp_seconds, leading_zero_bits)?;
         let height = block.header.height;
         let mut batch = WriteBatch::default();
         self.put_block_batch(&mut batch, &block);
@@ -348,6 +353,60 @@ impl ChainState {
         Ok(self.tip_cache.as_ref().unwrap())
     }
 
+    /// Computes the consensus-required `leading_zero_bits` for the block that
+    /// would extend `parent` (or for genesis when `parent` is `None`).
+    ///
+    /// Below `params.difficulty_retarget_activation_height` (or when no prior
+    /// adjustment window has completed yet) this returns the network's fixed
+    /// `initial_leading_zero_bits` — see `difficulty::expected_leading_zero_bits`.
+    ///
+    /// Crucially, when a completed window's sample is needed, this walks
+    /// **`parent`'s own ancestry** via `previous_hash` rather than indexing
+    /// the canonical chain by height: a candidate or incoming block may sit on
+    /// a side branch whose history at those heights differs from whatever is
+    /// canonical right now, and scoring it against the wrong chain's blocks
+    /// would produce the wrong difficulty (and either wrongly reject a valid
+    /// fork or wrongly accept an invalid one).
+    fn expected_leading_zero_bits_for(&self, params: &ConsensusParams, parent: Option<&Block>) -> u8 {
+        let height = parent.map_or(0, |p| p.header.height + 1);
+        let activation = params.difficulty_retarget_activation_height;
+        let sample = if height < activation {
+            None
+        } else {
+            let window = params.difficulty_adjustment_window.max(1);
+            let epoch = (height - activation) / window;
+            if epoch == 0 {
+                // No completed window since activation yet — keep fixed difficulty.
+                None
+            } else {
+                let window_start = activation + (epoch - 1) * window;
+                let window_end = window_start + window - 1;
+                let mut first = None;
+                let mut last = None;
+                let mut cur = parent.cloned();
+                while let Some(b) = cur {
+                    let h = b.header.height;
+                    if h == window_end { last = Some(b.clone()); }
+                    if h == window_start { first = Some(b.clone()); }
+                    if h <= window_start { break; }
+                    cur = self.get_block_by_hash(b.header.previous_hash);
+                }
+                match (first, last) {
+                    (Some(first), Some(last)) => Some(DifficultySample {
+                        first_timestamp_seconds: first.header.timestamp_seconds,
+                        last_timestamp_seconds: last.header.timestamp_seconds,
+                        // Every block within a window is mined at the same
+                        // difficulty by construction — the window's last block
+                        // carries the value the next retarget adjusts from.
+                        current_leading_zero_bits: last.header.leading_zero_bits,
+                    }),
+                    _ => None,
+                }
+            }
+        };
+        expected_leading_zero_bits(params, height, sample)
+    }
+
     pub fn candidate_block(
         &self,
         params: &ConsensusParams,
@@ -355,7 +414,9 @@ impl ChainState {
         miner: &str,
     ) -> Result<Block, StateError> {
         let parent = self.tip().ok_or(StateError::MissingGenesis)?;
-        Ok(candidate_block(params, Some(parent), timestamp_seconds, miner, vec![], 0))
+        let mut block = candidate_block(params, Some(parent), timestamp_seconds, miner, vec![], 0);
+        block.header.leading_zero_bits = self.expected_leading_zero_bits_for(params, Some(parent));
+        Ok(block)
     }
 
     /// Like `candidate_block` but includes `extra_txs` after the coinbase.
@@ -371,7 +432,9 @@ impl ChainState {
         total_fees: u64,
     ) -> Result<Block, StateError> {
         let parent = self.tip().ok_or(StateError::MissingGenesis)?;
-        Ok(candidate_block(params, Some(parent), timestamp_seconds, miner, extra_txs, total_fees))
+        let mut block = candidate_block(params, Some(parent), timestamp_seconds, miner, extra_txs, total_fees);
+        block.header.leading_zero_bits = self.expected_leading_zero_bits_for(params, Some(parent));
+        Ok(block)
     }
 
     /// Accept a block from a miner or a peer, applying the fork-choice rule.
@@ -398,7 +461,8 @@ impl ChainState {
         self.ensure_utxo_synced(params)?;
         let parent_hash = block.header.previous_hash;
         let parent = self.get_block_by_hash(parent_hash).ok_or(StateError::UnknownParent)?;
-        validate_block(params, Some(&parent), &block, now_seconds)?;
+        let leading_zero_bits = self.expected_leading_zero_bits_for(params, Some(&parent));
+        validate_block(params, Some(&parent), &block, now_seconds, leading_zero_bits)?;
 
         // Always store the block.
         let blocks_cf = self.db.cf_handle(CF_BLOCKS).expect("blocks CF");
@@ -610,8 +674,10 @@ fn mine_candidate_block(
     timestamp_seconds: u64,
     miner: &str,
     max_nonce: u64,
+    leading_zero_bits: u8,
 ) -> Result<Block, StateError> {
-    let block = candidate_block(params, parent, timestamp_seconds, miner, vec![], 0);
+    let mut block = candidate_block(params, parent, timestamp_seconds, miner, vec![], 0);
+    block.header.leading_zero_bits = leading_zero_bits;
     let header = block.header;
     let mined_header = mine_header(header, max_nonce).ok_or(StateError::MiningFailed)?;
     Ok(Block::new(mined_header, block.transactions))
@@ -868,16 +934,26 @@ mod tests {
     /// upper bound, so it would then yield the new chain followed by the old
     /// chain's orphaned tail — a non-contiguous sequence whose blocks don't
     /// chain together, causing `build_utxo_set`'s replay to fail.
+    /// Regression test for the mechanism behind the 936→901 reorg observed on
+    /// the Vultr node: a single block that *self-declared* a much higher
+    /// difficulty than the network actually required out-weighed several
+    /// honestly-mined blocks in `chain_work` (its own PoW checked out against
+    /// its own claimed bits, and `validate_block` never compared that claim
+    /// against what consensus required for the height) — rolling back 35
+    /// blocks despite being far shorter. The new `UnexpectedDifficulty` check
+    /// (enforcing that every block's declared `leading_zero_bits` matches the
+    /// consensus-required value for its height) closes this permanently: the
+    /// exact block that could have caused that incident is now rejected
+    /// outright, before fork choice or UTXO replay ever sees it.
     #[test]
-    fn submit_block_prunes_stale_canonical_entries_on_reorg_to_shorter_chain() {
+    fn submit_block_rejects_self_declared_difficulty_that_enabled_the_936_901_reorg() {
         let mut state = ChainState::new();
         state
             .init_genesis(&TEST_PARAMS, 1_700_000_000, 1_000_000)
             .unwrap();
         let genesis = state.get_block_by_height(0).unwrap();
 
-        // Chain A: five low-difficulty blocks (height 5) extending genesis —
-        // becomes canonical first since it's the only chain.
+        // Chain A: five honestly-mined blocks (height 5) extending genesis.
         let mut parent = genesis.clone();
         let mut chain_a = Vec::new();
         for i in 0..5u64 {
@@ -900,11 +976,12 @@ mod tests {
         assert_eq!(state.height(), Some(5));
         assert_eq!(state.tip().unwrap().hash(), chain_a[4].hash());
 
-        // Chain B: a single block directly off genesis, mined at much higher
-        // difficulty. Its cumulative work (genesis@8 + 1 block@16 = 256 +
-        // 65536 = 65792) exceeds chain A's (genesis@8 + 5 blocks@8 = 1536),
-        // even though it is far shorter — exactly the scenario that produced
-        // the 936→901 reorg observed on the Vultr node.
+        // The exact attack shape: a single block directly off genesis,
+        // self-declaring 16 bits (network requires 8). Its claimed PoW is
+        // internally consistent — `header_meets_work` alone would accept it,
+        // and its self-declared `chain_work` contribution (2^16 = 65536)
+        // would dwarf chain A's honest total (6 * 2^8 = 1536) — but it must
+        // now be rejected before any of that is even considered.
         let mut c_b1 = candidate_block(
             &TEST_PARAMS,
             Some(&genesis),
@@ -917,35 +994,109 @@ mod tests {
         let h_b1 = mine_header(c_b1.header.clone(), 10_000_000).unwrap();
         let b1 = Block::new(h_b1, c_b1.transactions);
 
-        state
-            .submit_block(&TEST_PARAMS, b1.clone(), 1_700_000_500)
-            .unwrap();
-
-        // The shorter-but-heavier chain must win the reorg.
         assert_eq!(
-            state.height(),
-            Some(1),
-            "shorter chain with more cumulative work must become canonical"
+            state.submit_block(&TEST_PARAMS, b1.clone(), 1_700_000_500),
+            Err(StateError::Validation(ValidationError::UnexpectedDifficulty)),
+            "a block claiming a different difficulty than consensus requires must be rejected outright"
         );
-        assert_eq!(state.tip().unwrap().hash(), b1.hash());
 
-        // Canonical iteration must yield exactly the new chain — not the old
-        // chain's orphaned tail at heights 2..=5.
+        // Chain A remains canonical and untouched — no rollback occurred.
+        assert_eq!(state.height(), Some(5));
+        assert_eq!(state.tip().unwrap().hash(), chain_a[4].hash());
+        assert!(state.get_block_by_hash(b1.hash()).is_none(), "the rejected block must not even be stored");
+    }
+
+    #[test]
+    fn submit_block_prunes_stale_canonical_entries_on_reorg_to_a_legitimately_heavier_shorter_chain() {
+        // Coverage for the canonical-pruning path that runs when a reorg
+        // replaces a TALLER chain with a SHORTER one carrying more cumulative
+        // work (see commit 842b2b8 and the test above this one) — now only
+        // reachable through *legitimate* per-branch difficulty divergence
+        // under real retargeting, exactly as the original incident's
+        // post-mortem anticipated, rather than through a self-declared-
+        // difficulty loophole.
+        //
+        // Branch A mines at a relaxed, steady ~80s/block pace — every
+        // adjustment window lands inside the "stay flat" band (target 60s *
+        // window 2 = 120s expected, flat band [60s, 240s]), so it remains on
+        // the fixed difficulty for its whole length. Branch B mines
+        // aggressively fast (~5s/block), so every completed window triggers a
+        // genuine +1 retarget; its fewer-but-harder blocks eventually
+        // out-weigh branch A's larger block count.
+        fn mine_onto(state: &mut ChainState, params: &ConsensusParams, parent: &Block, ts: u64, miner: &str) -> Block {
+            let cand = candidate_block(params, Some(parent), ts, miner, vec![], 0);
+            let mut header = cand.header.clone();
+            header.leading_zero_bits = state.expected_leading_zero_bits_for(params, Some(parent));
+            let mined_header = mine_header(header, 2_000_000).unwrap();
+            let block = Block::new(mined_header, cand.transactions);
+            state.submit_block(params, block.clone(), ts).unwrap();
+            block
+        }
+        fn chain_work_of(state: &ChainState, tip: &Block) -> u128 {
+            let mut work = 0u128;
+            let mut cur = Some(tip.clone());
+            while let Some(b) = cur {
+                work += 1u128 << b.header.leading_zero_bits;
+                if b.header.previous_hash == Hash256::ZERO { break; }
+                cur = state.get_block_by_hash(b.header.previous_hash);
+            }
+            work
+        }
+
+        let params = ConsensusParams {
+            difficulty_retarget_activation_height: 2,
+            difficulty_adjustment_window: 2,
+            ..TEST_PARAMS
+        };
+        let mut state = ChainState::new();
+        state.init_genesis(&params, 1_700_000_000, 1_000_000).unwrap();
+        let genesis = state.get_block_by_height(0).unwrap();
+
+        let mut a_tip = genesis.clone();
+        let mut a_ts = 1_700_000_000;
+        for _ in 0..9 {
+            a_ts += 80;
+            a_tip = mine_onto(&mut state, &params, &a_tip, a_ts, "miner-a");
+        }
+        let old_tip = a_tip.clone();
+        let old_height = state.height().unwrap();
+        let old_work = chain_work_of(&state, &old_tip);
+        assert_eq!(old_height, 9);
+
+        let mut b_tip = genesis.clone();
+        let mut b_ts = 1_700_000_000;
+        let mut winner = None;
+        for _ in 0..30 {
+            b_ts += 5;
+            b_tip = mine_onto(&mut state, &params, &b_tip, b_ts, "miner-b");
+            let b_height = b_tip.header.height;
+            let b_work = chain_work_of(&state, &b_tip);
+            if b_height < old_height && b_work > old_work {
+                winner = Some(b_tip.clone());
+                break;
+            }
+            // Branch B must not overtake by simply growing taller than
+            // branch A before its difficulty has legitimately ramped —
+            // that would be the (uninteresting, already-covered) ordinary
+            // longer-chain-wins case, not the scenario this test targets.
+            assert!(b_height < old_height, "branch B must out-weigh branch A while still shorter, not by becoming taller");
+        }
+        let winner = winner.expect("branch B should eventually out-weigh branch A while remaining shorter");
+
+        assert_eq!(state.tip().unwrap().hash(), winner.hash(), "the legitimately heavier shorter chain must become canonical");
+        assert_eq!(state.height(), Some(winner.header.height));
+        assert!(winner.header.height < old_height);
+
+        // Canonical iteration must yield exactly the new (shorter) chain —
+        // not the old chain's orphaned tail beyond the new tip.
         let canon: Vec<Block> = state.canonical_blocks_iter().collect();
-        assert_eq!(
-            canon.iter().map(|b| b.hash()).collect::<Vec<_>>(),
-            vec![genesis.hash(), b1.hash()],
-            "stale canonical entries from the replaced chain must be pruned"
-        );
+        assert_eq!(canon.last().unwrap().hash(), winner.hash());
+        assert_eq!(canon.len() as u64, winner.header.height + 1, "stale canonical entries from the replaced chain must be pruned");
+        assert!(state.get_block_by_height(winner.header.height + 1).is_none());
+        assert!(state.get_block_by_height(old_height).is_none());
 
-        // Heights beyond the new tip must not resolve to stale entries.
-        assert!(state.get_block_by_height(2).is_none());
-        assert!(state.get_block_by_height(5).is_none());
-
-        // The old chain's blocks remain stored (so a future reorg back to a
-        // heavier extension of chain A is still possible) — they're just no
-        // longer indexed as canonical.
-        assert!(state.get_block_by_hash(chain_a[4].hash()).is_some());
+        // The old chain's blocks remain stored — just no longer canonical.
+        assert!(state.get_block_by_hash(old_tip.hash()).is_some());
     }
 
     #[test]
@@ -1152,17 +1303,31 @@ mod tests {
         state.submit_block(&TEST_PARAMS, good.clone(), 1_700_000_060).unwrap();
         let good_utxo_tip = state.read_meta_utxo_tip();
 
-        // Competing branch: a single higher-difficulty block off genesis whose
-        // coinbase is inflated. It has more work, so fork choice would adopt it —
-        // but the UTXO replay must reject it.
-        let mut s1 = candidate_block(&TEST_PARAMS, Some(&genesis), 1_700_000_061, "miner-b", vec![], 0);
-        s1.transactions[0] = Transaction::coinbase(1, reward_at_height(&TEST_PARAMS, 1).saturating_mul(5), "attacker");
-        s1.header.leading_zero_bits = 16;
-        s1.header.merkle_root = merkle_root(&s1.transactions);
-        let h2 = mine_header(s1.header.clone(), 10_000_000).unwrap();
-        let evil = Block::new(h2, s1.transactions);
+        // Competing branch: TWO honestly-difficultied blocks off genesis — an
+        // ordinary longer-chain reorg (more cumulative work via more blocks at
+        // the consensus-required difficulty, no self-declared-difficulty
+        // trickery needed now that `UnexpectedDifficulty` forbids it). The
+        // first block's coinbase is inflated — structurally valid (`validate_block`
+        // defers amount checks to UTXO replay, see `validate_coinbase`) but
+        // economically invalid, so the reorg's UTXO replay must catch and
+        // reject the whole branch.
+        let mut e1 = candidate_block(&TEST_PARAMS, Some(&genesis), 1_700_000_061, "attacker", vec![], 0);
+        e1.transactions[0] = Transaction::coinbase(1, reward_at_height(&TEST_PARAMS, 1).saturating_mul(5), "attacker");
+        e1.header.merkle_root = merkle_root(&e1.transactions);
+        let eh1 = mine_header(e1.header.clone(), 10_000_000).unwrap();
+        let evil1 = Block::new(eh1, e1.transactions);
+        // Tied cumulative work with canonical (1 honest block each) — stored
+        // as a side-chain block, no reorg attempted yet.
+        state.submit_block(&TEST_PARAMS, evil1.clone(), 1_700_000_061).unwrap();
+        assert_eq!(state.tip().unwrap().hash(), good.hash());
 
-        let result = state.submit_block(&TEST_PARAMS, evil.clone(), 1_700_000_061);
+        let e2 = candidate_block(&TEST_PARAMS, Some(&evil1), 1_700_000_062, "attacker", vec![], 0);
+        let eh2 = mine_header(e2.header.clone(), 10_000_000).unwrap();
+        let evil2 = Block::new(eh2, e2.transactions);
+
+        // Now strictly heavier than canonical (2 blocks vs 1) — fork choice
+        // prefers it, but UTXO replay must reject the inflated coinbase.
+        let result = state.submit_block(&TEST_PARAMS, evil2.clone(), 1_700_000_062);
         assert!(matches!(result, Err(StateError::Utxo(_))), "invalid heavier branch must be rejected, got {result:?}");
         // Old canonical chain and UTXO tip are untouched.
         assert_eq!(state.tip().unwrap().hash(), good.hash());
@@ -1363,5 +1528,154 @@ mod tests {
         let cf = state.db.cf_handle(CF_UTXO).expect("utxo CF");
         let persisted_count = state.db.iterator_cf(cf, rocksdb::IteratorMode::Start).count();
         assert_eq!(persisted_count, expected.entries.len(), "persistent UTXO has extra/missing entries");
+    }
+
+    // ── Difficulty retargeting (hard-fork, gated by activation height) ──────
+
+    #[test]
+    fn candidate_block_keeps_fixed_difficulty_while_retargeting_is_disabled() {
+        // TEST_PARAMS ships with difficulty_retarget_activation_height = u64::MAX
+        // (inherited from testnet()), i.e. retargeting disabled — every block
+        // must keep using the network's fixed difficulty.
+        let mut state = ChainState::new();
+        state.init_genesis(&TEST_PARAMS, 1_700_000_000, 1_000_000).unwrap();
+
+        let mut ts = 1_700_000_000;
+        for h in 1..=4u64 {
+            ts += 1; // mine far faster than target_block_seconds
+            state.mine_next_block(&TEST_PARAMS, ts, "miner", 1_000_000).unwrap();
+            assert_eq!(
+                state.get_block_by_height(h).unwrap().header.leading_zero_bits,
+                TEST_PARAMS.initial_leading_zero_bits,
+                "height {h} must stay on fixed difficulty while retargeting is disabled"
+            );
+        }
+    }
+
+    #[test]
+    fn retargeting_raises_difficulty_once_activation_height_is_reached() {
+        let params = ConsensusParams {
+            difficulty_retarget_activation_height: 2,
+            difficulty_adjustment_window: 2,
+            ..TEST_PARAMS
+        };
+        let mut state = ChainState::new();
+        state.init_genesis(&params, 1_700_000_000, 1_000_000).unwrap();
+
+        // Heights 1-3: still legacy fixed difficulty — heights 0,1 are below
+        // the activation height, and height 2-3 form the *first* post-activation
+        // window, which has no completed prior window to retarget from yet.
+        let mut ts = 1_700_000_000;
+        for h in 1..=3u64 {
+            ts += 10; // 10s/block — far faster than the 60s target
+            state.mine_next_block(&params, ts, "miner", 1_000_000).unwrap();
+            assert_eq!(
+                state.get_block_by_height(h).unwrap().header.leading_zero_bits,
+                params.initial_leading_zero_bits,
+                "height {h} should still be on legacy fixed difficulty"
+            );
+        }
+
+        // Window [2,3] spanned only 10s vs an expected 120s (60s target * 2
+        // blocks) — under half, so height 4 must retarget difficulty upward.
+        ts += 10;
+        state.mine_next_block(&params, ts, "miner", 1_000_000).unwrap();
+        assert_eq!(
+            state.get_block_by_height(4).unwrap().header.leading_zero_bits,
+            params.initial_leading_zero_bits + 1,
+            "height 4 should retarget to a higher difficulty after a too-fast window"
+        );
+    }
+
+    #[test]
+    fn submit_block_rejects_block_mined_at_a_stale_pre_retarget_difficulty() {
+        let params = ConsensusParams {
+            difficulty_retarget_activation_height: 2,
+            difficulty_adjustment_window: 2,
+            ..TEST_PARAMS
+        };
+        let mut state = ChainState::new();
+        state.init_genesis(&params, 1_700_000_000, 1_000_000).unwrap();
+
+        let mut ts = 1_700_000_000;
+        for _ in 1..=3u64 {
+            ts += 10;
+            state.mine_next_block(&params, ts, "miner", 1_000_000).unwrap();
+        }
+        ts += 10;
+        let parent = state.tip().unwrap().clone();
+
+        // A miner that ignores the retarget and keeps mining at the old fixed
+        // difficulty produces a block whose own claimed PoW checks out, but
+        // which does not match what consensus now requires for this height.
+        let mut stale = candidate_block(&params, Some(&parent), ts, "miner", vec![], 0);
+        stale.header.leading_zero_bits = params.initial_leading_zero_bits;
+        let mined_header = mine_header(stale.header.clone(), 1_000_000).unwrap();
+        let stale_block = Block::new(mined_header, stale.transactions);
+
+        assert_eq!(
+            state.submit_block(&params, stale_block, ts),
+            Err(StateError::Validation(ValidationError::UnexpectedDifficulty))
+        );
+    }
+
+    #[test]
+    fn retargeting_scores_a_branch_against_its_own_history_not_the_canonical_chain() {
+        // Two branches fork at genesis and stay equal-work through height 3
+        // (heights 2-3 form the *first* post-activation window — no completed
+        // prior sample, so both still mine at the legacy fixed difficulty).
+        // At height 4, each branch's *own* heights-2..3 timestamps determine
+        // its next difficulty: branch A mined that window very fast (retarget
+        // should raise it), branch B mined it very slowly (retarget should
+        // lower it). If the computation indexed "the" canonical chain by
+        // height instead of walking the specific branch's own ancestry, both
+        // branches would be scored identically — wrongly, for whichever
+        // branch isn't canonical.
+        fn mine_onto(state: &mut ChainState, params: &ConsensusParams, parent: &Block, ts: u64, miner: &str) -> Block {
+            let cand = candidate_block(params, Some(parent), ts, miner, vec![], 0);
+            let mut header = cand.header.clone();
+            header.leading_zero_bits = state.expected_leading_zero_bits_for(params, Some(parent));
+            let mined_header = mine_header(header, 1_000_000).unwrap();
+            let block = Block::new(mined_header, cand.transactions);
+            state.submit_block(params, block.clone(), ts).unwrap();
+            block
+        }
+
+        let params = ConsensusParams {
+            difficulty_retarget_activation_height: 2,
+            difficulty_adjustment_window: 2,
+            ..TEST_PARAMS
+        };
+        let mut state = ChainState::new();
+        state.init_genesis(&params, 1_700_000_000, 1_000_000).unwrap();
+        let genesis = state.get_block_by_height(0).unwrap();
+
+        // Branch A: window [2,3] spans 5s — far below half of the expected
+        // 120s (60s target * 2 blocks) — retarget must raise difficulty.
+        let a1 = mine_onto(&mut state, &params, &genesis, 1_700_000_005, "miner-a");
+        let a2 = mine_onto(&mut state, &params, &a1, 1_700_000_010, "miner-a");
+        let a3 = mine_onto(&mut state, &params, &a2, 1_700_000_015, "miner-a");
+
+        // Branch B: window [2,3] spans 1000s — far above double the expected
+        // 120s — retarget must lower difficulty.
+        let b1 = mine_onto(&mut state, &params, &genesis, 1_700_001_000, "miner-b");
+        let b2 = mine_onto(&mut state, &params, &b1, 1_700_002_000, "miner-b");
+        let b3 = mine_onto(&mut state, &params, &b2, 1_700_003_000, "miner-b");
+
+        // Both branches accumulate equal work through height 3 (4 blocks each
+        // at the fixed difficulty) — neither displaces the other as tip.
+        assert_eq!(state.tip().unwrap().hash(), a3.hash());
+        assert!(state.get_block_by_hash(b3.hash()).is_some(), "side branch must remain stored");
+
+        assert_eq!(
+            state.expected_leading_zero_bits_for(&params, Some(&a3)),
+            params.initial_leading_zero_bits + 1,
+            "branch A's own too-fast window must raise ITS next difficulty"
+        );
+        assert_eq!(
+            state.expected_leading_zero_bits_for(&params, Some(&b3)),
+            params.initial_leading_zero_bits - 1,
+            "branch B's own too-slow window must lower ITS next difficulty, independent of canonical chain A"
+        );
     }
 }

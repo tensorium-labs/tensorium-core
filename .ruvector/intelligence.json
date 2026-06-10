@@ -1,0 +1,26 @@
+{
+  "patterns": {},
+  "memories": [],
+  "trajectories": [],
+  "errors": {},
+  "file_sequences": [],
+  "agents": {},
+  "edges": [],
+  "stats": {
+    "total_patterns": 0,
+    "total_memories": 0,
+    "total_trajectories": 0,
+    "total_errors": 0,
+    "session_count": 0,
+    "last_session": 0
+  },
+  "activeTrajectories": {
+    "traj_1780668944222_j2opohfec": {
+      "id": "traj_1780668944222_j2opohfec",
+      "context": "Check Tensorium blockchain explorer ecosystem wallet stats and transaction history",
+      "agent": "browser-agent",
+      "steps": [],
+      "startTime": 1780668944222
+    }
+  }
+}
