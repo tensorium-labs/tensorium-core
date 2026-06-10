@@ -101,7 +101,7 @@ mod tests {
         let coinbase = Transaction::coinbase(10, 1190, "txm1miner");
         let header = tensorium_core::block::BlockHeader {
             version: 1,
-            chain_id: "tensorium-mainnet-candidate-0".into(),
+            chain_id: "tensorium-mainnet".into(),
             height: 10,
             previous_hash: Hash256([1u8; 32]),
             merkle_root: Hash256([2u8; 32]),
