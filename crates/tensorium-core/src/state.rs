@@ -279,6 +279,23 @@ impl ChainState {
         self.db.get_cf(blocks_cf, &hash.0).ok()?.map(|b| decode_block(&b))
     }
 
+    /// The TensorHash dataset epoch seed for the block at `height`.
+    ///
+    /// Epoch 0 (heights `0..tensorium_tensorhash::EPOCH_LENGTH`) always uses
+    /// the fixed zero seed — there is no prior epoch to derive it from.
+    /// Later epochs derive their seed from the id-hash (`Block::hash`) of the
+    /// last block of the previous epoch.
+    pub fn epoch_seed_for_height(&self, height: u64) -> Hash256 {
+        let epoch = height / tensorium_tensorhash::EPOCH_LENGTH;
+        if epoch == 0 {
+            return Hash256::ZERO;
+        }
+        let seed_height = epoch * tensorium_tensorhash::EPOCH_LENGTH - 1;
+        self.get_block_by_height(seed_height)
+            .map(|b| b.hash())
+            .unwrap_or(Hash256::ZERO)
+    }
+
     fn block_known(&self, hash: &Hash256) -> bool {
         let cf = self.db.cf_handle(CF_BLOCKS).expect("blocks CF");
         self.db.get_cf(cf, &hash.0).expect("DB read").is_some()
@@ -296,8 +313,9 @@ impl ChainState {
             return Err(StateError::GenesisAlreadyExists);
         }
         let leading_zero_bits = self.expected_leading_zero_bits_for(params, None);
-        let block = mine_candidate_block(params, None, timestamp_seconds, "genesis", max_nonce, leading_zero_bits)?;
-        validate_block(params, None, &block, timestamp_seconds, leading_zero_bits)?;
+        let epoch_seed = self.epoch_seed_for_height(0);
+        let block = mine_candidate_block(params, None, timestamp_seconds, "genesis", max_nonce, leading_zero_bits, epoch_seed)?;
+        validate_block(params, None, &block, timestamp_seconds, leading_zero_bits, epoch_seed)?;
         let mut batch = WriteBatch::default();
         self.put_block_batch(&mut batch, &block);
         self.write_batch(batch);
@@ -318,13 +336,14 @@ impl ChainState {
             return Err(StateError::GenesisAlreadyExists);
         }
         let leading_zero_bits = self.expected_leading_zero_bits_for(params, None);
+        let epoch_seed = self.epoch_seed_for_height(0);
         let mut block = candidate_block(params, None, timestamp_seconds, "genesis", vec![], 0);
         block.header.leading_zero_bits = leading_zero_bits;
         block.header.nonce = genesis_nonce;
-        if !crate::pow::header_meets_work(&block.header) {
+        if !crate::pow::header_meets_work(&block.header, epoch_seed) {
             return Err(StateError::MiningFailed);
         }
-        validate_block(params, None, &block, timestamp_seconds, leading_zero_bits)?;
+        validate_block(params, None, &block, timestamp_seconds, leading_zero_bits, epoch_seed)?;
         let mut batch = WriteBatch::default();
         self.put_block_batch(&mut batch, &block);
         self.write_batch(batch);
@@ -342,8 +361,10 @@ impl ChainState {
     ) -> Result<&Block, StateError> {
         let parent = self.tip().ok_or(StateError::MissingGenesis)?.clone();
         let leading_zero_bits = self.expected_leading_zero_bits_for(params, Some(&parent));
-        let block = mine_candidate_block(params, Some(&parent), timestamp_seconds, miner, max_nonce, leading_zero_bits)?;
-        validate_block(params, Some(&parent), &block, timestamp_seconds, leading_zero_bits)?;
+        let next_height = parent.header.height + 1;
+        let epoch_seed = self.epoch_seed_for_height(next_height);
+        let block = mine_candidate_block(params, Some(&parent), timestamp_seconds, miner, max_nonce, leading_zero_bits, epoch_seed)?;
+        validate_block(params, Some(&parent), &block, timestamp_seconds, leading_zero_bits, epoch_seed)?;
         let height = block.header.height;
         let mut batch = WriteBatch::default();
         self.put_block_batch(&mut batch, &block);
@@ -462,7 +483,8 @@ impl ChainState {
         let parent_hash = block.header.previous_hash;
         let parent = self.get_block_by_hash(parent_hash).ok_or(StateError::UnknownParent)?;
         let leading_zero_bits = self.expected_leading_zero_bits_for(params, Some(&parent));
-        validate_block(params, Some(&parent), &block, now_seconds, leading_zero_bits)?;
+        let epoch_seed = self.epoch_seed_for_height(block.header.height);
+        validate_block(params, Some(&parent), &block, now_seconds, leading_zero_bits, epoch_seed)?;
 
         // Always store the block.
         let blocks_cf = self.db.cf_handle(CF_BLOCKS).expect("blocks CF");
@@ -675,11 +697,12 @@ fn mine_candidate_block(
     miner: &str,
     max_nonce: u64,
     leading_zero_bits: u8,
+    epoch_seed: Hash256,
 ) -> Result<Block, StateError> {
     let mut block = candidate_block(params, parent, timestamp_seconds, miner, vec![], 0);
     block.header.leading_zero_bits = leading_zero_bits;
     let header = block.header;
-    let mined_header = mine_header(header, max_nonce).ok_or(StateError::MiningFailed)?;
+    let mined_header = mine_header(header, epoch_seed, max_nonce).ok_or(StateError::MiningFailed)?;
     Ok(Block::new(mined_header, block.transactions))
 }
 
@@ -760,7 +783,7 @@ mod tests {
         let candidate = state
             .candidate_block(&TEST_PARAMS, 1_700_000_060, "template-miner")
             .unwrap();
-        let mined_header = mine_header(candidate.header.clone(), 1_000_000).unwrap();
+        let mined_header = mine_header(candidate.header.clone(), Hash256::ZERO, 1_000_000).unwrap();
         let mined_block = Block::new(mined_header, candidate.transactions);
 
         state
@@ -779,7 +802,7 @@ mod tests {
         let candidate = state
             .candidate_block(&TEST_PARAMS, 1_700_000_060, "miner")
             .unwrap();
-        let mined_header = mine_header(candidate.header.clone(), 1_000_000).unwrap();
+        let mined_header = mine_header(candidate.header.clone(), Hash256::ZERO, 1_000_000).unwrap();
         let block = Block::new(mined_header, candidate.transactions);
 
         state
@@ -825,13 +848,13 @@ mod tests {
         let c1 = state
             .candidate_block(&TEST_PARAMS, 1_700_000_060, "miner-a")
             .unwrap();
-        let h1 = mine_header(c1.header.clone(), 10_000_000).unwrap();
+        let h1 = mine_header(c1.header.clone(), Hash256::ZERO, 10_000_000).unwrap();
         let block_a = Block::new(h1, c1.transactions.clone());
 
         let c2 = state
             .candidate_block(&TEST_PARAMS, 1_700_000_061, "miner-b")
             .unwrap();
-        let h2 = mine_header(c2.header.clone(), 10_000_000).unwrap();
+        let h2 = mine_header(c2.header.clone(), Hash256::ZERO, 10_000_000).unwrap();
         let block_b = Block::new(h2, c2.transactions.clone());
 
         // Accept block_a first — it becomes canonical tip.
@@ -876,7 +899,7 @@ mod tests {
             vec![],
             0,
         );
-        let h1 = mine_header(c1.header.clone(), 10_000_000).unwrap();
+        let h1 = mine_header(c1.header.clone(), Hash256::ZERO, 10_000_000).unwrap();
         let canonical_block = Block::new(h1, c1.transactions);
         state
             .submit_block(&TEST_PARAMS, canonical_block.clone(), 1_700_000_060)
@@ -891,7 +914,7 @@ mod tests {
             vec![],
             0,
         );
-        let h2 = mine_header(s1.header.clone(), 10_000_000).unwrap();
+        let h2 = mine_header(s1.header.clone(), Hash256::ZERO, 10_000_000).unwrap();
         let side_block = Block::new(h2, s1.transactions);
         state
             .submit_block(&TEST_PARAMS, side_block.clone(), 1_700_000_061)
@@ -910,7 +933,7 @@ mod tests {
             vec![],
             0,
         );
-        let h3 = mine_header(s2.header.clone(), 10_000_000).unwrap();
+        let h3 = mine_header(s2.header.clone(), Hash256::ZERO, 10_000_000).unwrap();
         let side_extension = Block::new(h3, s2.transactions);
         state
             .submit_block(&TEST_PARAMS, side_extension.clone(), 1_700_000_120)
@@ -965,7 +988,7 @@ mod tests {
                 vec![],
                 0,
             );
-            let h = mine_header(c.header.clone(), 1_000_000).unwrap();
+            let h = mine_header(c.header.clone(), Hash256::ZERO, 1_000_000).unwrap();
             let block = Block::new(h, c.transactions);
             state
                 .submit_block(&TEST_PARAMS, block.clone(), 1_700_000_060 + i)
@@ -991,7 +1014,7 @@ mod tests {
             0,
         );
         c_b1.header.leading_zero_bits = 16;
-        let h_b1 = mine_header(c_b1.header.clone(), 10_000_000).unwrap();
+        let h_b1 = mine_header(c_b1.header.clone(), Hash256::ZERO, 10_000_000).unwrap();
         let b1 = Block::new(h_b1, c_b1.transactions);
 
         assert_eq!(
@@ -1027,7 +1050,7 @@ mod tests {
             let cand = candidate_block(params, Some(parent), ts, miner, vec![], 0);
             let mut header = cand.header.clone();
             header.leading_zero_bits = state.expected_leading_zero_bits_for(params, Some(parent));
-            let mined_header = mine_header(header, 2_000_000).unwrap();
+            let mined_header = mine_header(header, Hash256::ZERO, 2_000_000).unwrap();
             let block = Block::new(mined_header, cand.transactions);
             state.submit_block(params, block.clone(), ts).unwrap();
             block
@@ -1113,7 +1136,7 @@ mod tests {
         c.transactions[0] = Transaction::coinbase(1, inflated, "attacker");
         c.header.merkle_root = merkle_root(&c.transactions);
         c.header.nonce = 0;
-        let header = mine_header(c.header.clone(), 10_000_000).unwrap();
+        let header = mine_header(c.header.clone(), Hash256::ZERO, 10_000_000).unwrap();
         let bad = Block::new(header, c.transactions);
 
         let result = state.submit_block(&TEST_PARAMS, bad.clone(), 1_700_000_060);
@@ -1131,7 +1154,7 @@ mod tests {
         state.ensure_utxo_synced(&TEST_PARAMS).unwrap();
 
         let candidate = state.candidate_block(&TEST_PARAMS, 1_700_000_060, "miner").unwrap();
-        let header = mine_header(candidate.header.clone(), 1_000_000).unwrap();
+        let header = mine_header(candidate.header.clone(), Hash256::ZERO, 1_000_000).unwrap();
         let block = Block::new(header, candidate.transactions);
         state.submit_block(&TEST_PARAMS, block.clone(), 1_700_000_060).unwrap();
 
@@ -1242,7 +1265,7 @@ mod tests {
         let cb1 = Transaction::coinbase(1, crate::emission::reward_at_height(&TEST_PARAMS, 1), keypair.address.as_str());
         c1.transactions[0] = cb1.clone();
         c1.header.merkle_root = merkle_root(&c1.transactions);
-        let h1 = mine_header(c1.header.clone(), 10_000_000).unwrap();
+        let h1 = mine_header(c1.header.clone(), Hash256::ZERO, 10_000_000).unwrap();
         let b1 = Block::new(h1, c1.transactions);
         state.submit_block(&TEST_PARAMS, b1, 1_700_000_060).unwrap();
 
@@ -1250,7 +1273,7 @@ mod tests {
         let mut ts = 1_700_000_120;
         for _ in 0..TEST_PARAMS.coinbase_maturity_blocks {
             let cand = state.candidate_block(&TEST_PARAMS, ts, "x").unwrap();
-            let hh = mine_header(cand.header.clone(), 10_000_000).unwrap();
+            let hh = mine_header(cand.header.clone(), Hash256::ZERO, 10_000_000).unwrap();
             state.submit_block(&TEST_PARAMS, Block::new(hh, cand.transactions), ts).unwrap();
             ts += 60;
         }
@@ -1278,7 +1301,7 @@ mod tests {
             leading_zero_bits: TEST_PARAMS.initial_leading_zero_bits,
             nonce: 0,
         };
-        let mined = mine_header(header, 10_000_000).unwrap();
+        let mined = mine_header(header, Hash256::ZERO, 10_000_000).unwrap();
         let bad = Block::new(mined, txs);
 
         let before = state.height();
@@ -1298,7 +1321,7 @@ mod tests {
 
         // Canonical: one valid block off genesis.
         let c1 = candidate_block(&TEST_PARAMS, Some(&genesis), 1_700_000_060, "miner-a", vec![], 0);
-        let h1 = mine_header(c1.header.clone(), 10_000_000).unwrap();
+        let h1 = mine_header(c1.header.clone(), Hash256::ZERO, 10_000_000).unwrap();
         let good = Block::new(h1, c1.transactions);
         state.submit_block(&TEST_PARAMS, good.clone(), 1_700_000_060).unwrap();
         let good_utxo_tip = state.read_meta_utxo_tip();
@@ -1314,7 +1337,7 @@ mod tests {
         let mut e1 = candidate_block(&TEST_PARAMS, Some(&genesis), 1_700_000_061, "attacker", vec![], 0);
         e1.transactions[0] = Transaction::coinbase(1, reward_at_height(&TEST_PARAMS, 1).saturating_mul(5), "attacker");
         e1.header.merkle_root = merkle_root(&e1.transactions);
-        let eh1 = mine_header(e1.header.clone(), 10_000_000).unwrap();
+        let eh1 = mine_header(e1.header.clone(), Hash256::ZERO, 10_000_000).unwrap();
         let evil1 = Block::new(eh1, e1.transactions);
         // Tied cumulative work with canonical (1 honest block each) — stored
         // as a side-chain block, no reorg attempted yet.
@@ -1322,7 +1345,7 @@ mod tests {
         assert_eq!(state.tip().unwrap().hash(), good.hash());
 
         let e2 = candidate_block(&TEST_PARAMS, Some(&evil1), 1_700_000_062, "attacker", vec![], 0);
-        let eh2 = mine_header(e2.header.clone(), 10_000_000).unwrap();
+        let eh2 = mine_header(e2.header.clone(), Hash256::ZERO, 10_000_000).unwrap();
         let evil2 = Block::new(eh2, e2.transactions);
 
         // Now strictly heavier than canonical (2 blocks vs 1) — fork choice
@@ -1362,13 +1385,13 @@ mod tests {
         let cb1 = Transaction::coinbase(1, crate::emission::reward_at_height(&TEST_PARAMS, 1), sender.address.as_str());
         c1.transactions[0] = cb1.clone();
         c1.header.merkle_root = merkle_root(&c1.transactions);
-        let h1 = mine_header(c1.header.clone(), 10_000_000).unwrap();
+        let h1 = mine_header(c1.header.clone(), Hash256::ZERO, 10_000_000).unwrap();
         state.submit_block(&TEST_PARAMS, Block::new(h1, c1.transactions), 1_700_000_060).unwrap();
 
         let mut ts = 1_700_000_120;
         for _ in 0..TEST_PARAMS.coinbase_maturity_blocks {
             let cand = state.candidate_block(&TEST_PARAMS, ts, "x").unwrap();
-            let hh = mine_header(cand.header.clone(), 10_000_000).unwrap();
+            let hh = mine_header(cand.header.clone(), Hash256::ZERO, 10_000_000).unwrap();
             state.submit_block(&TEST_PARAMS, Block::new(hh, cand.transactions), ts).unwrap();
             ts += 60;
         }
@@ -1401,7 +1424,7 @@ mod tests {
                 leading_zero_bits: TEST_PARAMS.initial_leading_zero_bits,
                 nonce: 0,
             };
-            let mined = mine_header(header, 10_000_000).unwrap();
+            let mined = mine_header(header, Hash256::ZERO, 10_000_000).unwrap();
             Block::new(mined, txs)
         };
 
@@ -1449,7 +1472,7 @@ mod tests {
         let mut ts = 1_700_000_060;
         for _ in 0..4 {
             let cand = state.candidate_block(&TEST_PARAMS, ts, "miner").unwrap();
-            let header = mine_header(cand.header.clone(), 1_000_000).unwrap();
+            let header = mine_header(cand.header.clone(), Hash256::ZERO, 1_000_000).unwrap();
             state.submit_block(&TEST_PARAMS, Block::new(header, cand.transactions), ts).unwrap();
             ts += 60;
         }
@@ -1509,7 +1532,7 @@ mod tests {
         let mut ts = 1_700_000_060;
         for _ in 0..6 {
             let cand = state.candidate_block(&TEST_PARAMS, ts, "miner").unwrap();
-            let header = mine_header(cand.header.clone(), 1_000_000).unwrap();
+            let header = mine_header(cand.header.clone(), Hash256::ZERO, 1_000_000).unwrap();
             state.submit_block(&TEST_PARAMS, Block::new(header, cand.transactions), ts).unwrap();
             ts += 60;
         }
@@ -1610,7 +1633,7 @@ mod tests {
         // which does not match what consensus now requires for this height.
         let mut stale = candidate_block(&params, Some(&parent), ts, "miner", vec![], 0);
         stale.header.leading_zero_bits = params.initial_leading_zero_bits;
-        let mined_header = mine_header(stale.header.clone(), 1_000_000).unwrap();
+        let mined_header = mine_header(stale.header.clone(), Hash256::ZERO, 1_000_000).unwrap();
         let stale_block = Block::new(mined_header, stale.transactions);
 
         assert_eq!(
@@ -1635,7 +1658,7 @@ mod tests {
             let cand = candidate_block(params, Some(parent), ts, miner, vec![], 0);
             let mut header = cand.header.clone();
             header.leading_zero_bits = state.expected_leading_zero_bits_for(params, Some(parent));
-            let mined_header = mine_header(header, 1_000_000).unwrap();
+            let mined_header = mine_header(header, Hash256::ZERO, 1_000_000).unwrap();
             let block = Block::new(mined_header, cand.transactions);
             state.submit_block(params, block.clone(), ts).unwrap();
             block
