@@ -3,6 +3,7 @@ use thiserror::Error;
 use crate::{
     block::{merkle_root, Block},
     chain::ConsensusParams,
+    hash::Hash256,
     pow::header_meets_work,
 };
 
@@ -34,6 +35,7 @@ pub fn validate_block(
     block: &Block,
     now_seconds: u64,
     expected_leading_zero_bits: u8,
+    epoch_seed: Hash256,
 ) -> Result<(), ValidationError> {
     if block.header.chain_id != params.chain_id {
         return Err(ValidationError::WrongChainId);
@@ -65,7 +67,7 @@ pub fn validate_block(
         return Err(ValidationError::UnexpectedDifficulty);
     }
 
-    if !header_meets_work(&block.header) {
+    if !header_meets_work(&block.header, epoch_seed) {
         return Err(ValidationError::InvalidProofOfWork);
     }
 
@@ -93,6 +95,7 @@ mod tests {
         block::Transaction,
         chain::TEST_PARAMS,
         emission::reward_at_height,
+        hash::Hash256,
         pow::mine_header,
         state::ChainState,
     };
@@ -107,7 +110,7 @@ mod tests {
             .unwrap();
 
         assert_eq!(
-            validate_block(&TEST_PARAMS, None, block, 1_700_000_000, TEST_PARAMS.initial_leading_zero_bits),
+            validate_block(&TEST_PARAMS, None, block, 1_700_000_000, TEST_PARAMS.initial_leading_zero_bits, Hash256::ZERO),
             Ok(())
         );
     }
@@ -122,7 +125,7 @@ mod tests {
         block.transactions.clear();
 
         assert_eq!(
-            validate_block(&TEST_PARAMS, None, &block, 1_700_000_000, TEST_PARAMS.initial_leading_zero_bits),
+            validate_block(&TEST_PARAMS, None, &block, 1_700_000_000, TEST_PARAMS.initial_leading_zero_bits, Hash256::ZERO),
             Err(ValidationError::InvalidMerkleRoot)
         );
     }
@@ -144,6 +147,7 @@ mod tests {
                 block,
                 1_700_000_000,
                 TEST_PARAMS.initial_leading_zero_bits + 1,
+                Hash256::ZERO,
             ),
             Err(ValidationError::UnexpectedDifficulty)
         );
@@ -159,7 +163,7 @@ mod tests {
         block.header.chain_id = "tensorium-wrong-chain".to_owned();
 
         assert_eq!(
-            validate_block(&TEST_PARAMS, None, &block, 1_700_000_000, TEST_PARAMS.initial_leading_zero_bits),
+            validate_block(&TEST_PARAMS, None, &block, 1_700_000_000, TEST_PARAMS.initial_leading_zero_bits, Hash256::ZERO),
             Err(ValidationError::WrongChainId)
         );
     }
@@ -174,7 +178,7 @@ mod tests {
             1_700_000_000 - TEST_PARAMS.max_future_block_time_seconds - 1;
 
         assert_eq!(
-            validate_block(&TEST_PARAMS, None, block, now_before_allowed_window, TEST_PARAMS.initial_leading_zero_bits),
+            validate_block(&TEST_PARAMS, None, block, now_before_allowed_window, TEST_PARAMS.initial_leading_zero_bits, Hash256::ZERO),
             Err(ValidationError::FutureTimestamp)
         );
     }
@@ -195,10 +199,10 @@ mod tests {
         );
         block.header.merkle_root = merkle_root(&block.transactions);
         block.header.nonce = 0;
-        block.header = mine_header(block.header.clone(), 1_000_000).unwrap();
+        block.header = mine_header(block.header.clone(), Hash256::ZERO, 1_000_000).unwrap();
 
         assert_eq!(
-            validate_block(&TEST_PARAMS, None, &block, 1_700_000_000, TEST_PARAMS.initial_leading_zero_bits),
+            validate_block(&TEST_PARAMS, None, &block, 1_700_000_000, TEST_PARAMS.initial_leading_zero_bits, Hash256::ZERO),
             Ok(())
         );
     }
