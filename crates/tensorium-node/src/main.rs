@@ -2199,9 +2199,10 @@ mod tests {
         let tip_height_immature = 50u64;
         let tip_height_mature = 105u64;
 
-        let mature_when_immature_tip = !true
+        let is_coinbase = true;
+        let mature_when_immature_tip = !is_coinbase
             || tip_height_immature >= created_height.saturating_add(coinbase_maturity);
-        let mature_when_mature_tip = !true
+        let mature_when_mature_tip = !is_coinbase
             || tip_height_mature >= created_height.saturating_add(coinbase_maturity);
 
         assert!(!mature_when_immature_tip, "coinbase at height 5 should be immature when tip=50");
@@ -2215,7 +2216,8 @@ mod tests {
         let created_height = 5u64;
         let tip_height = 0u64; // even at tip_height 0
 
-        let mature = !false || tip_height >= created_height.saturating_add(coinbase_maturity);
+        let is_coinbase = false;
+        let mature = !is_coinbase || tip_height >= created_height.saturating_add(coinbase_maturity);
         assert!(mature, "non-coinbase output is always mature");
     }
 
