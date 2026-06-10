@@ -1718,6 +1718,7 @@ fn handle_rpc_stream(
                     "height": block.header.height,
                     "previous_hash": block.header.previous_hash,
                     "leading_zero_bits": block.header.leading_zero_bits,
+                    "epoch_seed": state.epoch_seed_for_height(block.header.height),
                     "tx_count": block.transactions.len(),
                     "template": block,
                 }),
