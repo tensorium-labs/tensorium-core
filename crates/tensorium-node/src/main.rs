@@ -371,7 +371,7 @@ fn mine_genesis_multithreaded(threads: usize) -> Result<u64, String> {
                     }
                     h.nonce = nonce;
                     local += 1;
-                    if header_meets_work(&h) {
+                    if header_meets_work(&h, Hash256::ZERO) {
                         done.store(true, Ordering::SeqCst);
                         total.fetch_add(local, Ordering::Relaxed);
                         winner.store(nonce, Ordering::SeqCst);
@@ -2314,7 +2314,7 @@ mod tests {
         fn extend(state: &mut ChainState, count: u64, base_ts: u64, miner: &str) {
             for i in 0..count {
                 let candidate = state.candidate_block(&TEST_PARAMS, base_ts + i, miner).unwrap();
-                let header = mine_header(candidate.header.clone(), 1_000_000).unwrap();
+                let header = mine_header(candidate.header.clone(), Hash256::ZERO, 1_000_000).unwrap();
                 let block = Block::new(header, candidate.transactions);
                 state.submit_block(&TEST_PARAMS, block, base_ts + i).unwrap();
             }
