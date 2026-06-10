@@ -154,6 +154,48 @@ fn run() -> Result<(), String> {
                 .ok_or_else(|| "usage: tensorium-node unban <ip>".to_owned())?;
             unban_ip(ip)?;
         }
+        "print-genesis-prefix" => {
+            let timestamp: u64 = match args.get(2) {
+                Some(s) => s.parse().map_err(|_| format!("invalid timestamp: {s}"))?,
+                None => MAINNET_GENESIS_TIMESTAMP,
+            };
+            let header = genesis_header_template(timestamp);
+            println!("chain_id    = {}", MAINNET.chain_id);
+            println!("timestamp   = {timestamp}");
+            println!("bits        = {}", header.leading_zero_bits);
+            println!("merkle_root = {}", header.merkle_root);
+            println!("prefix_hex  = {}", hex_lower(&header.pow_prefix_bytes()));
+            println!();
+            println!("mine with:  tensorium-miner --mode genesis --prefix <prefix_hex> --bits {}",
+                header.leading_zero_bits);
+        }
+        "verify-genesis" => {
+            let usage = "usage: tensorium-node verify-genesis <timestamp> <nonce>";
+            let timestamp: u64 = args
+                .get(2)
+                .and_then(|s| s.parse().ok())
+                .ok_or_else(|| usage.to_owned())?;
+            let nonce: u64 = args
+                .get(3)
+                .and_then(|s| s.parse().ok())
+                .ok_or_else(|| usage.to_owned())?;
+            let mut header = genesis_header_template(timestamp);
+            header.nonce = nonce;
+            // Genesis is height 0 → epoch 0 → fixed zero seed.
+            let pow = header.pow_hash(Hash256::ZERO);
+            if header_meets_work(&header, Hash256::ZERO) {
+                println!("VALID    pow_hash = {pow}");
+                println!("paste into crates/tensorium-node/src/main.rs:");
+                println!("  const MAINNET_GENESIS_TIMESTAMP: u64 = {timestamp};");
+                println!("  const MAINNET_GENESIS_NONCE: u64 = {nonce};");
+            } else {
+                println!(
+                    "INVALID  pow_hash = {pow}  (needs {} leading zero bits)",
+                    header.leading_zero_bits
+                );
+                std::process::exit(1);
+            }
+        }
         "mainnet-candidate" | "mc" => {
             let subcmd = args.get(2).map(String::as_str).unwrap_or("help");
             match subcmd {
@@ -313,6 +355,36 @@ fn mc_ban_path_from_env() -> PathBuf {
         .unwrap_or_else(|_| PathBuf::from(DEFAULT_MC_BAN_PATH))
 }
 
+/// Genesis block header (nonce = 0) for the given launch timestamp.
+/// Must construct exactly what `init_genesis_nonce` validates via
+/// `candidate_block` — same coinbase, same merkle root.
+fn genesis_header_template(timestamp_seconds: u64) -> BlockHeader {
+    let params = &MAINNET;
+    let reward = reward_at_height(params, 0);
+    let coinbase = Transaction::genesis_coinbase(
+        reward,
+        "genesis",
+        params.founder_allocation_atoms,
+        params.founder_address,
+        params.genesis_allocations,
+    );
+    let real_merkle = compute_merkle_root(&[coinbase]);
+    BlockHeader {
+        version: 1,
+        chain_id: params.chain_id.to_owned(),
+        height: 0,
+        previous_hash: Hash256::ZERO,
+        merkle_root: real_merkle,
+        timestamp_seconds,
+        leading_zero_bits: params.initial_leading_zero_bits,
+        nonce: 0,
+    }
+}
+
+fn hex_lower(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
 /// Multi-threaded CPU nonce search for the mainnet-candidate genesis block.
 /// Returns the first nonce that satisfies MAINNET difficulty.
 fn mine_genesis_multithreaded(threads: usize) -> Result<u64, String> {
@@ -320,28 +392,7 @@ fn mine_genesis_multithreaded(threads: usize) -> Result<u64, String> {
 
     // Build the actual genesis block header with the real merkle root.
     // Must match exactly what init_genesis_nonce constructs via candidate_block.
-    let header_template = {
-        let params = &MAINNET;
-        let reward = reward_at_height(params, 0);
-        let coinbase = Transaction::genesis_coinbase(
-            reward,
-            "genesis",
-            params.founder_allocation_atoms,
-            params.founder_address,
-            params.genesis_allocations,
-        );
-        let real_merkle = compute_merkle_root(&[coinbase]);
-        BlockHeader {
-            version: 1,
-            chain_id: params.chain_id.to_owned(),
-            height: 0,
-            previous_hash: Hash256::ZERO,
-            merkle_root: real_merkle,
-            timestamp_seconds: MAINNET_GENESIS_TIMESTAMP,
-            leading_zero_bits: params.initial_leading_zero_bits,
-            nonce: 0,
-        }
-    };
+    let header_template = genesis_header_template(MAINNET_GENESIS_TIMESTAMP);
     println!("genesis template: chain_id={} height=0 diff={} merkle_root={}",
         MAINNET.chain_id,
         MAINNET.initial_leading_zero_bits,
@@ -697,6 +748,8 @@ fn print_help() {
     println!("  peers                print manual peers from TENSORIUM_PEERS");
     println!("  banlist              show peer ban list");
     println!("  unban <ip>           remove a peer from the ban list");
+    println!("  print-genesis-prefix [ts]   print MAINNET genesis pow-prefix hex for GPU mining");
+    println!("  verify-genesis <ts> <nonce> check a mined genesis nonce against MAINNET difficulty");
     println!("  mainnet-candidate    explicit alias for the same mainnet chain");
     println!();
     println!("default chain params:");
@@ -2423,5 +2476,34 @@ mod tests {
             result.is_err(),
             "connecting to a closed port must return Err, not hang or panic"
         );
+    }
+
+    // --- genesis prefix / verify helpers ---
+
+    #[test]
+    fn genesis_header_template_matches_consensus_shape() {
+        let header = genesis_header_template(MAINNET_GENESIS_TIMESTAMP);
+        assert_eq!(header.height, 0);
+        assert_eq!(header.nonce, 0);
+        assert_eq!(header.chain_id, MAINNET.chain_id);
+        assert_eq!(header.leading_zero_bits, MAINNET.initial_leading_zero_bits);
+        assert_eq!(header.previous_hash, Hash256::ZERO);
+        // pow prefix is what print-genesis-prefix emits for the CUDA miner
+        assert_eq!(header.pow_prefix_bytes().len(), 102);
+    }
+
+    #[test]
+    fn genesis_header_template_depends_on_timestamp() {
+        let a = genesis_header_template(1_780_272_000);
+        let b = genesis_header_template(1_780_272_001);
+        assert_ne!(a.pow_prefix_bytes(), b.pow_prefix_bytes());
+    }
+
+    #[test]
+    fn unmined_genesis_nonce_zero_fails_work_check() {
+        // The placeholder nonce 0 must not satisfy 42-bit difficulty —
+        // verify-genesis relies on header_meets_work for its pass/fail.
+        let header = genesis_header_template(MAINNET_GENESIS_TIMESTAMP);
+        assert!(!header_meets_work(&header, Hash256::ZERO));
     }
 }
