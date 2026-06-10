@@ -193,7 +193,10 @@ fn run() -> Result<(), String> {
                     "INVALID  pow_hash = {pow}  (needs {} leading zero bits)",
                     header.leading_zero_bits
                 );
-                std::process::exit(1);
+                return Err(format!(
+                    "genesis nonce {nonce} does not satisfy {} leading zero bits",
+                    header.leading_zero_bits
+                ));
             }
         }
         "mainnet-candidate" | "mc" => {
