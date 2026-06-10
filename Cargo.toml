@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "crates/tensorium-core",
+    "crates/tensorium-tensorhash",
     "crates/tensorium-node",
     "crates/txmwallet",
     "crates/txmminer",
@@ -20,6 +21,7 @@ rust-version = "1.76"
 argon2 = "0.5"
 base64ct = "=1.6.0"
 bech32 = "0.9"
+blake2 = "0.10"
 chacha20poly1305 = "0.10"
 hex = "0.4"
 k256 = { version = "0.13", features = ["ecdsa"] }
