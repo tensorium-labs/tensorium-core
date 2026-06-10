@@ -136,9 +136,19 @@ full `--selftest` additionally runs layers 3–4.
 
 ## 2. Node-Side Support (`crates/tensorium-node`)
 
-- **`/getblocktemplate` response** gains
-  `"epoch_seed": "<64-char hex>"`, computed via
-  `state.epoch_seed_for_height(block.header.height)`.
+- **`/getblocktemplate` response** gains an `"epoch_seed"` field, computed via
+  `state.epoch_seed_for_height(block.header.height)` and serialized like every
+  other `Hash256` in the response (JSON array of 32 byte values, same as
+  `previous_hash`) — the miner parses it with its existing
+  `extract_byte_array` helper. (Stratum, by contrast, uses 64-char hex strings
+  per the existing pool convention — relevant in Phase A3.)
+- **`devnet` subcommand family** (`devnet init|rpc|status`) — runs a node on
+  the existing low-difficulty `TESTNET` params (20 bits, CPU-mineable
+  genesis). Today the node CLI only serves `MAINNET`, whose genesis cannot be
+  initialized until the re-mine — so the end-to-end live-path test
+  (template → GPU mine → submitblock) needs a runnable devnet mode. Uses
+  separate state/mempool paths (`TENSORIUM_DEVNET_STATE` /
+  `TENSORIUM_DEVNET_MEMPOOL` env overrides).
 - **`print-genesis-prefix --timestamp <unix>`** (new CLI subcommand) —
   builds the MAINNET genesis block exactly as `init_mainnet_state` would for
   that timestamp and prints the header's `pow_prefix_bytes` as hex plus the
@@ -188,8 +198,8 @@ Any mismatch at any layer → print diagnostics and refuse to mine.
      42-bit calibration (expected attempts for 42 bits ≈ 2^42 ≈ 4.4×10¹²;
      at an assumed 50–150 MH/s that is roughly 8–24 GPU-hours per block —
      the benchmark replaces these assumptions with measurements).
-   - **Live-path test:** run a `tensorium-node` TESTNET node on the rental
-     box, solo-mine against it — validates template parsing (incl.
+   - **Live-path test:** run a `tensorium-node devnet` (TESTNET-params) node
+     on the rental box, solo-mine against it — validates template parsing (incl.
      `epoch_seed`), mining, and `submitblock` acceptance end-to-end.
    - **Genesis dry-run:** `print-genesis-prefix` at the placeholder
      timestamp (`1_780_272_000`) → `--mode genesis --prefix … --bits 42` →
