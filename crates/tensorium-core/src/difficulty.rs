@@ -56,7 +56,7 @@ pub fn expected_leading_zero_bits(
 
 #[cfg(test)]
 mod tests {
-    use crate::chain::{MAINNET_CANDIDATE, TESTNET};
+    use crate::chain::{MAINNET, TESTNET};
 
     use super::*;
 
@@ -121,25 +121,25 @@ mod tests {
     }
 
     #[test]
-    fn mainnet_candidate_difficulty_bounds_are_clamped() {
+    fn mainnet_difficulty_bounds_are_clamped() {
         let fast_sample = DifficultySample {
             first_timestamp_seconds: 0,
             last_timestamp_seconds: 1,
-            current_leading_zero_bits: MAINNET_CANDIDATE.max_leading_zero_bits,
+            current_leading_zero_bits: MAINNET.max_leading_zero_bits,
         };
         assert_eq!(
-            next_leading_zero_bits(&MAINNET_CANDIDATE, fast_sample),
-            MAINNET_CANDIDATE.max_leading_zero_bits
+            next_leading_zero_bits(&MAINNET, fast_sample),
+            MAINNET.max_leading_zero_bits
         );
 
         let slow_sample = DifficultySample {
             first_timestamp_seconds: 0,
             last_timestamp_seconds: u64::MAX,
-            current_leading_zero_bits: MAINNET_CANDIDATE.min_leading_zero_bits,
+            current_leading_zero_bits: MAINNET.min_leading_zero_bits,
         };
         assert_eq!(
-            next_leading_zero_bits(&MAINNET_CANDIDATE, slow_sample),
-            MAINNET_CANDIDATE.min_leading_zero_bits
+            next_leading_zero_bits(&MAINNET, slow_sample),
+            MAINNET.min_leading_zero_bits
         );
     }
 
@@ -216,6 +216,37 @@ mod tests {
         assert_eq!(
             expected_leading_zero_bits(&params, 1_500, Some(slow_sample)),
             params.initial_leading_zero_bits - 1
+        );
+    }
+
+    #[test]
+    fn mainnet_retargets_starting_from_the_first_completed_window() {
+        // MAINNET ships with difficulty_retarget_activation_height = 0, so
+        // retargeting applies from the very first completed adjustment window
+        // (no legacy fixed-difficulty period, unlike TESTNET/old MAINNET_CANDIDATE).
+        assert_eq!(
+            expected_leading_zero_bits(&MAINNET, 0, None),
+            MAINNET.initial_leading_zero_bits
+        );
+
+        let fast_sample = DifficultySample {
+            first_timestamp_seconds: 0,
+            last_timestamp_seconds: 1,
+            current_leading_zero_bits: MAINNET.initial_leading_zero_bits,
+        };
+        assert_eq!(
+            expected_leading_zero_bits(&MAINNET, MAINNET.difficulty_adjustment_window, Some(fast_sample)),
+            MAINNET.initial_leading_zero_bits + 1
+        );
+
+        let slow_sample = DifficultySample {
+            first_timestamp_seconds: 0,
+            last_timestamp_seconds: MAINNET.target_block_seconds * MAINNET.difficulty_adjustment_window * 3,
+            current_leading_zero_bits: MAINNET.initial_leading_zero_bits,
+        };
+        assert_eq!(
+            expected_leading_zero_bits(&MAINNET, MAINNET.difficulty_adjustment_window, Some(slow_sample)),
+            MAINNET.initial_leading_zero_bits - 1
         );
     }
 }
