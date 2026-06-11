@@ -79,15 +79,20 @@ Treasury: `txm13vgxzj5ulrfhe7x0mlzxg0q6veq42tkku4g3jr`
 
 **Solo mining (0% fee — full block reward to your address):**
 
-No local node needed — connect directly to the public RPC:
+No local node needed — connect directly to the public miner-compatible RPC:
 
 ```bash
 tensorium-miner \
   --mode solo \
-  --rpc http://rpc.tensoriumlabs.com \
+  --rpc http://mc-rpc.tensoriumlabs.com \
   --wallet YOUR_TXM_ADDRESS \
   --gpu all
 ```
+
+`rpc.tensoriumlabs.com` remains the canonical public HTTPS endpoint for wallets,
+SDKs, and integrations. `tensorium-miner` currently uses plain HTTP and does
+not follow HTTPS redirects, so use `http://mc-rpc.tensoriumlabs.com` for solo
+mining until miner-side HTTPS/redirect support is added.
 
 Or point to your own local node if you run one:
 ```bash
@@ -240,7 +245,7 @@ tensorium-miner --mode pool \
   --gpu all
 # Or: Solo mining — 0% fee, uses public node (no local node required)
 tensorium-miner --mode solo \
-  --rpc http://rpc.tensoriumlabs.com \
+  --rpc http://mc-rpc.tensoriumlabs.com \
   --wallet YOUR_TXM_ADDRESS \
   --gpu all
 ```
