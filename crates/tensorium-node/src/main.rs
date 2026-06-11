@@ -1948,10 +1948,10 @@ fn handle_rpc_stream(
 
             let (from, op, dest): (String, AssetOp, Option<(String, u64)>) = match req {
                 BuildAssetTxRequest::Issue { from, ticker, decimals, supply, name } => {
-                    if ticker.as_bytes().len() > 8 {
+                    if ticker.len() > 8 {
                         return write_json_response(stream, 400, &RpcError::new("ticker must be <= 8 bytes"));
                     }
-                    if name.as_bytes().len() > 32 {
+                    if name.len() > 32 {
                         return write_json_response(stream, 400, &RpcError::new("name must be <= 32 bytes"));
                     }
                     if decimals > 18 {
@@ -1966,7 +1966,7 @@ fn handle_rpc_stream(
                     if royalty_bps > 10_000 {
                         return write_json_response(stream, 400, &RpcError::new("royalty_bps must be <= 10000"));
                     }
-                    if uri.as_bytes().len() > 200 {
+                    if uri.len() > 200 {
                         return write_json_response(stream, 400, &RpcError::new("uri must be <= 200 bytes"));
                     }
                     let content_hash_bytes = match hex::decode(&content_hash) {
