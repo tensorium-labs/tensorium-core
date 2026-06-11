@@ -168,8 +168,8 @@ Tensorium is a Proof-of-Work Layer 1 blockchain focused on open mining, transpar
 
 - Max supply: 33,000,000 TXM total (zero premine, 33,000,000 mining allocation)
 - Block time: 60 seconds
-- Initial reward: 11.9027 TXM/block (1,190,279,581 atoms)
-- Halving: every 1,051,200 blocks (~2 years), 10 eras over 20 years
+- Initial reward: 7.85584523 TXM/block (785,584,523 atoms)
+- Halving: every 2,102,400 blocks (~4 years), 10 eras over ~40 years
 - Mainnet PoW: TensorHash v1, GPU-first (42-bit initial difficulty)
 - Current phase: Mainnet v1 live on `tensorium-mainnet`
 
