@@ -32,13 +32,11 @@ const DEFAULT_P2P_BIND: &str = "0.0.0.0:33333";
 /// Genesis timestamp for the MAINNET chain (TensorHash v1 relaunch, zero premine).
 /// All nodes MUST use this exact value to share the same genesis block.
 /// TODO(launch): placeholder — set to the actual mainnet genesis timestamp before launch.
-const MAINNET_GENESIS_TIMESTAMP: u64 = 1_780_272_000;
+const MAINNET_GENESIS_TIMESTAMP: u64 = 1_781_144_892;
 /// Genesis nonce for the MAINNET chain (TensorHash v1, zero premine, 33M mining allocation).
-/// TODO(launch): placeholder — TensorHash v1 invalidates any nonce found under the old
-/// SHA256d algorithm. Re-mine at 42-bit difficulty (CPU brute-force across many cores,
-/// or the Phase A2 GPU miner) before launch. `init_genesis_nonce` rejects an invalid
-/// nonce with `StateError::MiningFailed`, so this placeholder fails loudly and safely.
-const MAINNET_GENESIS_NONCE: u64 = 0;
+/// Mined 2026-06-11 on 4x RTX 5090 against MAINNET_GENESIS_TIMESTAMP (TensorHash v1, 42-bit).
+/// Verified: pow_hash 00000000001fb20...8a3aa6 has 43 leading zero bits (>= 42 required).
+const MAINNET_GENESIS_NONCE: u64 = 9_223_372_445_780_809_059;
 const P2P_PROTOCOL_VERSION: u32 = 1;
 /// Maximum blocks returned per GetBlocks response.
 const SYNC_BATCH_SIZE: usize = 50;
