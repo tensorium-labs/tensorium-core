@@ -29,7 +29,7 @@ Tensorium mainnet v1 (`tensorium-mainnet`) is **live** as of 2026-06-11. Mining 
 ## 3. Pool Fee
 
 - The **official/reference mining pool** charges a **5% fee** on block rewards.
-- The pool fee destination: `txm13vgxzj5ulrfhe7x0mlzxg0q6veq42tkku4g3jr` (pool treasury wallet).
+- The pool fee destination: `txm1px2nmtp087mz8dv3lplqadwzxawk0c5kg0mt24` (pool treasury wallet).
 - This fee is **pool-level only**, not a protocol-level tax.
 - **Solo mining is fee-free at the protocol level.** Miners who connect directly to a node receive 100% of the block reward.
 - Miners using the official pool must accept the 5% fee. Third-party pools may charge different fees.

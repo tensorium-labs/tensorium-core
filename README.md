@@ -75,7 +75,7 @@ tensorium-miner \
 
 Pool stats and payout history: https://pooltxm.tensoriumlabs.com  
 Fee: **5%** of block reward. Reward method: **PPLNS** (last 4096 shares, difficulty-weighted).  
-Treasury: `txm13vgxzj5ulrfhe7x0mlzxg0q6veq42tkku4g3jr`
+Treasury: `txm1px2nmtp087mz8dv3lplqadwzxawk0c5kg0mt24`
 
 **Solo mining (0% fee — full block reward to your address):**
 

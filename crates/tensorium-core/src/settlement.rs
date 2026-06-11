@@ -8,7 +8,7 @@ use crate::script::standard::{extract_address, p2pkh_from_address};
 /// Platform fee in basis points (2.5%).
 pub const PLATFORM_FEE_BPS: u16 = 250;
 /// Platform fee recipient — the existing pool-treasury / operations wallet.
-pub const PLATFORM_FEE_ADDRESS: &str = "txm13vgxzj5ulrfhe7x0mlzxg0q6veq42tkku4g3jr";
+pub const PLATFORM_FEE_ADDRESS: &str = "txm1px2nmtp087mz8dv3lplqadwzxawk0c5kg0mt24";
 /// Dust placed on the buyer's asset-destination output.
 pub const CARRIER_ATOMS: u64 = 1_000;
 
