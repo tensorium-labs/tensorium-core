@@ -1422,17 +1422,10 @@ fn configured_peers() -> Vec<String> {
 
 /// Select the peer list appropriate to the chain being served.
 ///
-/// The mainnet-candidate daemon configures peers via TENSORIUM_MC_PEERS (and
-/// sets TENSORIUM_NO_DEFAULT_SEEDS=1). Broadcasting must read that list — not
-/// the legacy TENSORIUM_PEERS list — otherwise pool-found blocks are pushed to
-/// an empty peer set and never actively propagate to the other node, leaving
-/// reconvergence entirely to the periodic monitor sync.
+/// Single canonical peer list for every chain now that the mc namespace is gone.
 fn peers_for(params: &ConsensusParams) -> Vec<String> {
-    if params.chain_id == MAINNET.chain_id {
-        configured_mc_peers()
-    } else {
-        configured_peers()
-    }
+    let _ = params;
+    configured_peers()
 }
 
 fn configured_mc_peers() -> Vec<String> {
@@ -2482,28 +2475,19 @@ mod tests {
     // --- broadcast peer selection: mainnet-candidate must use MC peers ---
 
     #[test]
-    fn peers_for_mainnet_candidate_uses_mc_peer_list() {
-        // Regression test for the silent block-propagation failure on the live
-        // DO/Vultr mainnet: the daemon sets TENSORIUM_MC_PEERS (+ NO_DEFAULT_SEEDS)
-        // but broadcast_block_to_peers selected peers via configured_peers(),
-        // which reads TENSORIUM_PEERS — left unset — so every pool-found block
-        // was broadcast to an EMPTY list and never actively reached the other
-        // node. peers_for() must pick the MC peer list for the MC chain.
-        //
-        // Set both env vars to distinct values so the assertion proves the MC
-        // branch reads TENSORIUM_MC_PEERS and not TENSORIUM_PEERS, independent
-        // of the NO_DEFAULT_SEEDS fallback path.
-        env::set_var("TENSORIUM_MC_PEERS", "10.0.0.1:33333");
+    fn peers_for_mainnet_uses_tensorium_peers() {
+        // After the mc-namespace removal there is a single peer env var.
+        // peers_for(&MAINNET) must read TENSORIUM_PEERS (the canonical list the
+        // top-level rpc/p2p/daemon commands and install.sh configure).
         env::set_var("TENSORIUM_PEERS", "10.0.0.2:33333");
 
-        let mc_peers = peers_for(&MAINNET);
+        let peers = peers_for(&MAINNET);
         assert_eq!(
-            mc_peers,
-            vec!["10.0.0.1:33333".to_owned()],
-            "mainnet-candidate broadcast must use TENSORIUM_MC_PEERS, not TENSORIUM_PEERS"
+            peers,
+            vec!["10.0.0.2:33333".to_owned()],
+            "mainnet broadcast must use TENSORIUM_PEERS"
         );
 
-        env::remove_var("TENSORIUM_MC_PEERS");
         env::remove_var("TENSORIUM_PEERS");
     }
 
