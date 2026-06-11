@@ -7,7 +7,7 @@ set -euo pipefail
 # ---------------------------------------------------------------------------
 
 REPO="tensorium-labs/tensorium-core"
-RELEASE_TAG="v0.5.0-mainnet" # technical asset tag; user-facing track is Mainnet v1
+RELEASE_TAG="v0.5.1-mainnet" # technical asset tag; user-facing track is Mainnet v1
 DISPLAY_VERSION="Mainnet v1"
 SEED_NODE="seed.tensoriumlabs.com"
 RPC_PORT="33332"
