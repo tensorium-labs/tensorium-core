@@ -14,6 +14,7 @@ use std::{
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tensorium_core::{
+    assets::{build_outputs, AssetOp, IssueData, NftMintData, TransferData},
     block::{merkle_root as compute_merkle_root, BlockHeader, Transaction},
     chain::{ConsensusParams, MAINNET, TESTNET},
     emission::reward_at_height,
@@ -1555,6 +1556,33 @@ fn rpc_state(stream: &mut TcpStream, path: &Path) -> Result<ChainState, String> 
     })
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(tag = "op", rename_all = "snake_case")]
+enum BuildAssetTxRequest {
+    Issue {
+        from: String,
+        ticker: String,
+        decimals: u8,
+        supply: u64,
+        name: String,
+    },
+    NftMint {
+        from: String,
+        #[serde(default)]
+        collection_id: Option<String>, // 64-hex, defaults to all-zero (standalone)
+        royalty_bps: u16,
+        royalty_addr: String,
+        uri: String,
+        content_hash: String, // 64-hex sha256
+    },
+    Transfer {
+        from: String,
+        to: String,
+        asset_id: String, // 64-hex
+        amount: u64,
+    },
+}
+
 fn handle_rpc_stream(
     stream: &mut TcpStream,
     state_path: &Path,
@@ -1903,6 +1931,143 @@ fn handle_rpc_stream(
             )
         }
 
+        ("POST", "/buildAssetTx") => {
+            let req: BuildAssetTxRequest = match serde_json::from_str(parsed.body) {
+                Ok(r) => r,
+                Err(err) => {
+                    return write_json_response(
+                        stream,
+                        400,
+                        &RpcError::new(&format!("invalid request: {err}")),
+                    )
+                }
+            };
+
+            const ASSET_CARRIER_ATOMS: u64 = 1_000;
+            let fee_atoms = tensorium_core::mempool::MIN_RELAY_FEE_ATOMS;
+
+            let (from, op, dest): (String, AssetOp, Option<(String, u64)>) = match req {
+                BuildAssetTxRequest::Issue { from, ticker, decimals, supply, name } => {
+                    if ticker.as_bytes().len() > 8 {
+                        return write_json_response(stream, 400, &RpcError::new("ticker must be <= 8 bytes"));
+                    }
+                    if name.as_bytes().len() > 32 {
+                        return write_json_response(stream, 400, &RpcError::new("name must be <= 32 bytes"));
+                    }
+                    if decimals > 18 {
+                        return write_json_response(stream, 400, &RpcError::new("decimals must be <= 18"));
+                    }
+                    if supply == 0 {
+                        return write_json_response(stream, 400, &RpcError::new("supply must be > 0"));
+                    }
+                    (from, AssetOp::Issue(IssueData { ticker, decimals, supply, name, flags: 0 }), None)
+                }
+                BuildAssetTxRequest::NftMint { from, collection_id, royalty_bps, royalty_addr, uri, content_hash } => {
+                    if royalty_bps > 10_000 {
+                        return write_json_response(stream, 400, &RpcError::new("royalty_bps must be <= 10000"));
+                    }
+                    if uri.as_bytes().len() > 200 {
+                        return write_json_response(stream, 400, &RpcError::new("uri must be <= 200 bytes"));
+                    }
+                    let content_hash_bytes = match hex::decode(&content_hash) {
+                        Ok(b) if b.len() == 32 => b,
+                        _ => return write_json_response(stream, 400, &RpcError::new("content_hash must be 32 bytes (64 hex chars)")),
+                    };
+                    let collection_id_bytes: [u8; 32] = match collection_id {
+                        Some(hexstr) => match hex::decode(&hexstr) {
+                            Ok(b) if b.len() == 32 => b.try_into().unwrap(),
+                            _ => return write_json_response(stream, 400, &RpcError::new("collection_id must be 32 bytes (64 hex chars)")),
+                        },
+                        None => [0u8; 32],
+                    };
+                    (from, AssetOp::NftMint(NftMintData {
+                        collection_id: collection_id_bytes,
+                        royalty_bps,
+                        royalty_addr,
+                        uri,
+                        content_hash: content_hash_bytes.try_into().unwrap(),
+                    }), None)
+                }
+                BuildAssetTxRequest::Transfer { from, to, asset_id, amount } => {
+                    if amount == 0 {
+                        return write_json_response(stream, 400, &RpcError::new("amount must be > 0"));
+                    }
+                    let asset_id_bytes: [u8; 32] = match hex::decode(&asset_id) {
+                        Ok(b) if b.len() == 32 => b.try_into().unwrap(),
+                        _ => return write_json_response(stream, 400, &RpcError::new("asset_id must be 32 bytes (64 hex chars)")),
+                    };
+                    // Balance/ownership check against the read-only asset indexer.
+                    match indexer_check_transfer(&from, &asset_id, amount) {
+                        Ok(true) => {}
+                        Ok(false) => return write_json_response(stream, 400, &RpcError::new("insufficient asset balance or not the NFT owner")),
+                        Err(e) => return write_json_response(stream, 503, &RpcError::new(&format!("asset index unavailable: {e}"))),
+                    }
+                    (from.clone(), AssetOp::Transfer(TransferData { asset_id: asset_id_bytes, amount, dest_output_index: 0 }), Some((to, ASSET_CARRIER_ATOMS)))
+                }
+            };
+
+            let script = match p2pkh_from_address(&from) {
+                Ok(s) => s,
+                Err(_) => return write_json_response(stream, 400, &RpcError::new("invalid 'from' address")),
+            };
+
+            let mut state = rpc_state(stream, state_path)?;
+            state.ensure_utxo_synced(params).map_err(|e| e.to_string())?;
+            let tip_height = state.height().unwrap_or(0);
+            let needed = dest.as_ref().map(|(_, a)| *a).unwrap_or(0).saturating_add(fee_atoms);
+
+            let mut inputs = Vec::new();
+            let mut total_in = 0u64;
+            for (outpoint, entry) in state.utxos_for_script(&script).iter() {
+                let mature = !entry.coinbase
+                    || tip_height >= entry.created_height.saturating_add(params.coinbase_maturity_blocks);
+                if !mature {
+                    continue;
+                }
+                inputs.push(tensorium_core::TxInput {
+                    previous_output: *outpoint,
+                    signature_script: Vec::new(),
+                });
+                total_in = total_in.saturating_add(entry.output.value_atoms);
+                if total_in >= needed {
+                    break;
+                }
+            }
+            if total_in < needed {
+                return write_json_response(
+                    stream,
+                    400,
+                    &RpcError::new(&format!("insufficient mature balance: have {total_in}, need {needed}")),
+                );
+            }
+
+            let dest_ref = dest.as_ref().map(|(addr, atoms)| (addr.as_str(), *atoms));
+            let outputs = match build_outputs(&op, dest_ref, &from, total_in, fee_atoms) {
+                Ok(o) => o,
+                Err(e) => return write_json_response(stream, 400, &RpcError::new(&e)),
+            };
+
+            let tx = Transaction::payment(inputs, outputs);
+            let description = match &op {
+                AssetOp::Issue(d) => format!("Issue token {} — supply {}, decimals {}", d.ticker, d.supply, d.decimals),
+                AssetOp::NftMint(d) => format!("Mint NFT — {}", d.uri),
+                AssetOp::Transfer(d) => format!("Transfer {} of asset {} to {}", d.amount, hex::encode(d.asset_id), dest.as_ref().unwrap().0),
+            };
+
+            write_json_response(
+                stream,
+                200,
+                &json!({
+                    "unsigned_tx": tx,
+                    "summary": {
+                        "op": match &op { AssetOp::Issue(_) => "issue", AssetOp::NftMint(_) => "nft_mint", AssetOp::Transfer(_) => "transfer" },
+                        "description": description,
+                        "fee_atoms": fee_atoms,
+                    },
+                }),
+            )
+        }
+
         _ => write_json_response(stream, 404, &RpcError::new("unknown RPC endpoint")),
     }
 }
@@ -1978,6 +2143,60 @@ fn parse_http_request(request: &str) -> Option<ParsedHttpRequest<'_>> {
     Some(ParsedHttpRequest { method, path, body })
 }
 
+/// Query the local read-only asset indexer to check whether `from` can
+/// perform a transfer of `amount` of `asset_id` (fungible balance, or NFT
+/// ownership when `amount == 1` and the asset is non-fungible).
+/// Returns `Ok(true)`/`Ok(false)` for a definitive answer, `Err` if the
+/// indexer is unreachable or returns malformed data.
+fn indexer_check_transfer(from: &str, asset_id: &str, amount: u64) -> Result<bool, String> {
+    let indexer_base = env::var("TENSORIUM_INDEXER_URL").unwrap_or_else(|_| "127.0.0.1:23340".to_string());
+    let body = http_get(&indexer_base, &format!("/balance/{from}"))?;
+    let v: serde_json::Value = serde_json::from_str(&body).map_err(|e| format!("bad indexer response: {e}"))?;
+
+    if let Some(nfts) = v.get("nfts").and_then(|n| n.as_array()) {
+        if nfts.iter().any(|id| id.as_str() == Some(asset_id)) {
+            return Ok(amount == 1);
+        }
+    }
+    if let Some(fts) = v.get("fungible").and_then(|n| n.as_array()) {
+        for ft in fts {
+            if ft.get("asset_id").and_then(|i| i.as_str()) == Some(asset_id) {
+                let bal = ft.get("amount").and_then(|a| a.as_u64()).unwrap_or(0);
+                return Ok(bal >= amount);
+            }
+        }
+    }
+    Ok(false)
+}
+
+/// Minimal blocking HTTP/1.1 GET over a raw TCP socket — avoids adding an
+/// HTTP client dependency for this one internal call to the indexer.
+fn http_get(host_port: &str, path: &str) -> Result<String, String> {
+    use std::io::{BufRead, BufReader};
+    let mut stream = TcpStream::connect(host_port).map_err(|e| format!("connect {host_port}: {e}"))?;
+    stream.set_read_timeout(Some(Duration::from_secs(5))).ok();
+    let req = format!("GET {path} HTTP/1.1\r\nHost: {host_port}\r\nConnection: close\r\n\r\n");
+    stream.write_all(req.as_bytes()).map_err(|e| e.to_string())?;
+    let mut reader = BufReader::new(stream);
+    let mut status_line = String::new();
+    reader.read_line(&mut status_line).map_err(|e| e.to_string())?;
+    if !status_line.contains("200") {
+        return Err(format!("indexer returned: {}", status_line.trim()));
+    }
+    let mut line = String::new();
+    loop {
+        line.clear();
+        let n = reader.read_line(&mut line).map_err(|e| e.to_string())?;
+        if n == 0 || line == "\r\n" {
+            break;
+        }
+    }
+    let mut body = String::new();
+    use std::io::Read as _;
+    reader.read_to_string(&mut body).map_err(|e| e.to_string())?;
+    Ok(body)
+}
+
 fn write_json_response<T: Serialize>(
     stream: &mut TcpStream,
     status_code: u16,
@@ -2016,6 +2235,49 @@ impl RpcError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // --- /buildAssetTx request parsing ---
+
+    #[test]
+    fn build_asset_tx_request_parses_issue() {
+        let body = r#"{"op":"issue","from":"txm1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqve9p38","ticker":"GOLD","decimals":0,"supply":1000000,"name":"Gold Token"}"#;
+        let req: BuildAssetTxRequest = serde_json::from_str(body).unwrap();
+        match req {
+            BuildAssetTxRequest::Issue { from, ticker, decimals, supply, name } => {
+                assert_eq!(from, "txm1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqve9p38");
+                assert_eq!(ticker, "GOLD");
+                assert_eq!(decimals, 0);
+                assert_eq!(supply, 1_000_000);
+                assert_eq!(name, "Gold Token");
+            }
+            _ => panic!("expected Issue variant"),
+        }
+    }
+
+    #[test]
+    fn build_asset_tx_request_parses_transfer() {
+        let body = r#"{"op":"transfer","from":"txm1a","to":"txm1b","asset_id":"0707070707070707070707070707070707070707070707070707070707070707","amount":50}"#;
+        // asset_id above is 32 bytes hex (64 chars).
+        let req: BuildAssetTxRequest = serde_json::from_str(body).unwrap();
+        match req {
+            BuildAssetTxRequest::Transfer { from, to, asset_id, amount } => {
+                assert_eq!(from, "txm1a");
+                assert_eq!(to, "txm1b");
+                assert_eq!(amount, 50);
+                // 32 bytes of hex decodes fine; the actual length check (must be 32 bytes)
+                // happens in the handler, not at parse time.
+                assert_eq!(hex::decode(&asset_id).unwrap().len(), 32);
+            }
+            _ => panic!("expected Transfer variant"),
+        }
+    }
+
+    #[test]
+    fn build_asset_tx_request_rejects_unknown_op() {
+        let body = r#"{"op":"frobnicate","from":"txm1a"}"#;
+        let result: Result<BuildAssetTxRequest, _> = serde_json::from_str(body);
+        assert!(result.is_err());
+    }
 
     // --- RPC bind guard ---
 
