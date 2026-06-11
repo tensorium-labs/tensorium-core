@@ -377,9 +377,15 @@ impl ChainState {
     /// Computes the consensus-required `leading_zero_bits` for the block that
     /// would extend `parent` (or for genesis when `parent` is `None`).
     ///
-    /// Below `params.difficulty_retarget_activation_height` (or when no prior
-    /// adjustment window has completed yet) this returns the network's fixed
-    /// `initial_leading_zero_bits` — see `difficulty::expected_leading_zero_bits`.
+    /// Below `params.difficulty_retarget_activation_height` this returns the
+    /// network's fixed `initial_leading_zero_bits` — see
+    /// `difficulty::expected_leading_zero_bits`.
+    ///
+    /// Fresh chains that activate retargeting at genesis are allowed to use a
+    /// partial bootstrap sample before the first full adjustment window
+    /// completes. Without this, an over-hard launch difficulty can trap the
+    /// network at its initial target for dozens of blocks before difficulty is
+    /// allowed to fall.
     ///
     /// Crucially, when a completed window's sample is needed, this walks
     /// **`parent`'s own ancestry** via `previous_hash` rather than indexing
@@ -397,8 +403,37 @@ impl ChainState {
             let window = params.difficulty_adjustment_window.max(1);
             let epoch = (height - activation) / window;
             if epoch == 0 {
-                // No completed window since activation yet — keep fixed difficulty.
-                None
+                // Fresh chain bootstrap: activation at genesis has no
+                // backward-compat constraints, so allow difficulty to react
+                // using the chain seen so far instead of waiting for the first
+                // full window to complete.
+                if activation == 0 && height >= 2 {
+                    let mut first = None;
+                    let mut last = None;
+                    let mut cur = parent.cloned();
+                    while let Some(b) = cur {
+                        let h = b.header.height;
+                        if h == height - 1 && last.is_none() {
+                            last = Some(b.clone());
+                        }
+                        if h == activation {
+                            first = Some(b.clone());
+                            break;
+                        }
+                        cur = self.get_block_by_hash(b.header.previous_hash);
+                    }
+                    match (first, last) {
+                        (Some(first), Some(last)) => Some(DifficultySample {
+                            first_timestamp_seconds: first.header.timestamp_seconds,
+                            last_timestamp_seconds: last.header.timestamp_seconds,
+                            current_leading_zero_bits: last.header.leading_zero_bits,
+                            block_count: last.header.height.saturating_sub(first.header.height) + 1,
+                        }),
+                        _ => None,
+                    }
+                } else {
+                    None
+                }
             } else {
                 let window_start = activation + (epoch - 1) * window;
                 let window_end = window_start + window - 1;
@@ -420,6 +455,7 @@ impl ChainState {
                         // difficulty by construction — the window's last block
                         // carries the value the next retarget adjusts from.
                         current_leading_zero_bits: last.header.leading_zero_bits,
+                        block_count: window_end.saturating_sub(window_start) + 1,
                     }),
                     _ => None,
                 }
@@ -1699,6 +1735,29 @@ mod tests {
             state.expected_leading_zero_bits_for(&params, Some(&b3)),
             params.initial_leading_zero_bits - 1,
             "branch B's own too-slow window must lower ITS next difficulty, independent of canonical chain A"
+        );
+    }
+
+    #[test]
+    fn genesis_activated_retargeting_can_drop_difficulty_during_bootstrap() {
+        let params = ConsensusParams {
+            difficulty_retarget_activation_height: 0,
+            difficulty_adjustment_window: 60,
+            ..TEST_PARAMS
+        };
+        let mut state = ChainState::new();
+        state.init_genesis(&params, 1_700_000_000, 1_000_000).unwrap();
+
+        // First post-genesis block arrives very late versus the 60s target.
+        state
+            .mine_next_block(&params, 1_700_001_000, "miner", 1_000_000)
+            .unwrap();
+
+        let parent = state.tip().unwrap().clone();
+        assert_eq!(
+            state.expected_leading_zero_bits_for(&params, Some(&parent)),
+            params.initial_leading_zero_bits - 1,
+            "bootstrap retarget should already ease difficulty after a very slow first interval"
         );
     }
 }

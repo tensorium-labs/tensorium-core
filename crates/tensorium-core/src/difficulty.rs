@@ -5,12 +5,19 @@ pub struct DifficultySample {
     pub first_timestamp_seconds: u64,
     pub last_timestamp_seconds: u64,
     pub current_leading_zero_bits: u8,
+    /// Number of blocks represented by this timing sample.
+    ///
+    /// For a completed retarget window this equals the configured adjustment
+    /// window (e.g. 60). During fresh-chain bootstrap we may use a partial
+    /// sample smaller than the full window so difficulty can react before the
+    /// first 60 blocks have elapsed.
+    pub block_count: u64,
 }
 
 pub fn next_leading_zero_bits(params: &ConsensusParams, sample: DifficultySample) -> u8 {
     let expected = params
         .target_block_seconds
-        .saturating_mul(params.difficulty_adjustment_window);
+        .saturating_mul(sample.block_count.max(1));
     let actual = sample
         .last_timestamp_seconds
         .saturating_sub(sample.first_timestamp_seconds)
@@ -66,6 +73,7 @@ mod tests {
             first_timestamp_seconds: 0,
             last_timestamp_seconds: 1,
             current_leading_zero_bits: TESTNET.max_leading_zero_bits,
+            block_count: TESTNET.difficulty_adjustment_window,
         };
         assert_eq!(
             next_leading_zero_bits(&TESTNET, sample),
@@ -79,6 +87,7 @@ mod tests {
             first_timestamp_seconds: 0,
             last_timestamp_seconds: 10,
             current_leading_zero_bits: TESTNET.initial_leading_zero_bits,
+            block_count: TESTNET.difficulty_adjustment_window,
         };
         assert_eq!(
             next_leading_zero_bits(&TESTNET, sample),
@@ -95,6 +104,7 @@ mod tests {
             first_timestamp_seconds: 0,
             last_timestamp_seconds: expected * 3,
             current_leading_zero_bits: TESTNET.initial_leading_zero_bits,
+            block_count: TESTNET.difficulty_adjustment_window,
         };
 
         assert_eq!(
@@ -112,6 +122,7 @@ mod tests {
             first_timestamp_seconds: 0,
             last_timestamp_seconds: expected,
             current_leading_zero_bits: TESTNET.initial_leading_zero_bits,
+            block_count: TESTNET.difficulty_adjustment_window,
         };
 
         assert_eq!(
@@ -126,6 +137,7 @@ mod tests {
             first_timestamp_seconds: 0,
             last_timestamp_seconds: 1,
             current_leading_zero_bits: MAINNET.max_leading_zero_bits,
+            block_count: MAINNET.difficulty_adjustment_window,
         };
         assert_eq!(
             next_leading_zero_bits(&MAINNET, fast_sample),
@@ -136,6 +148,7 @@ mod tests {
             first_timestamp_seconds: 0,
             last_timestamp_seconds: u64::MAX,
             current_leading_zero_bits: MAINNET.min_leading_zero_bits,
+            block_count: MAINNET.difficulty_adjustment_window,
         };
         assert_eq!(
             next_leading_zero_bits(&MAINNET, slow_sample),
@@ -159,6 +172,7 @@ mod tests {
             first_timestamp_seconds: 0,
             last_timestamp_seconds: 1,
             current_leading_zero_bits: TESTNET.initial_leading_zero_bits,
+            block_count: TESTNET.difficulty_adjustment_window,
         };
         assert_eq!(
             expected_leading_zero_bits(&params, 0, None),
@@ -178,6 +192,7 @@ mod tests {
             first_timestamp_seconds: 0,
             last_timestamp_seconds: 1,
             current_leading_zero_bits: TESTNET.initial_leading_zero_bits,
+            block_count: TESTNET.difficulty_adjustment_window,
         };
         assert_eq!(
             expected_leading_zero_bits(&params, 1_000_000, Some(fast_sample)),
@@ -202,6 +217,7 @@ mod tests {
             first_timestamp_seconds: 0,
             last_timestamp_seconds: 1,
             current_leading_zero_bits: params.initial_leading_zero_bits,
+            block_count: params.difficulty_adjustment_window,
         };
         assert_eq!(
             expected_leading_zero_bits(&params, 1_000, Some(fast_sample)),
@@ -212,6 +228,7 @@ mod tests {
             first_timestamp_seconds: 0,
             last_timestamp_seconds: params.target_block_seconds * params.difficulty_adjustment_window * 3,
             current_leading_zero_bits: params.initial_leading_zero_bits,
+            block_count: params.difficulty_adjustment_window,
         };
         assert_eq!(
             expected_leading_zero_bits(&params, 1_500, Some(slow_sample)),
@@ -233,6 +250,7 @@ mod tests {
             first_timestamp_seconds: 0,
             last_timestamp_seconds: 1,
             current_leading_zero_bits: MAINNET.initial_leading_zero_bits,
+            block_count: MAINNET.difficulty_adjustment_window,
         };
         assert_eq!(
             expected_leading_zero_bits(&MAINNET, MAINNET.difficulty_adjustment_window, Some(fast_sample)),
@@ -243,9 +261,24 @@ mod tests {
             first_timestamp_seconds: 0,
             last_timestamp_seconds: MAINNET.target_block_seconds * MAINNET.difficulty_adjustment_window * 3,
             current_leading_zero_bits: MAINNET.initial_leading_zero_bits,
+            block_count: MAINNET.difficulty_adjustment_window,
         };
         assert_eq!(
             expected_leading_zero_bits(&MAINNET, MAINNET.difficulty_adjustment_window, Some(slow_sample)),
+            MAINNET.initial_leading_zero_bits - 1
+        );
+    }
+
+    #[test]
+    fn partial_bootstrap_sample_can_lower_difficulty_before_first_full_window() {
+        let sample = DifficultySample {
+            first_timestamp_seconds: 0,
+            last_timestamp_seconds: 1_000,
+            current_leading_zero_bits: MAINNET.initial_leading_zero_bits,
+            block_count: 2,
+        };
+        assert_eq!(
+            next_leading_zero_bits(&MAINNET, sample),
             MAINNET.initial_leading_zero_bits - 1
         );
     }
