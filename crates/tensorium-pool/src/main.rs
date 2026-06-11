@@ -148,6 +148,10 @@ fn serve() -> Result<(), String> {
 
     let stratum_bind = std::env::var("TENSORIUM_STRATUM_BIND")
         .unwrap_or_else(|_| "0.0.0.0:3333".to_string());
+    // Fallback stratum listener for miners on networks that block port 3333
+    // (e.g. some GPU rental providers). Set to an empty string to disable.
+    let stratum_bind_alt = std::env::var("TENSORIUM_STRATUM_BIND_ALT")
+        .unwrap_or_else(|_| "0.0.0.0:443".to_string());
     let share_diff: u64 = std::env::var("TENSORIUM_POOL_SHARE_DIFF")
         .ok()
         .and_then(|s| s.parse().ok())
@@ -172,12 +176,18 @@ fn serve() -> Result<(), String> {
     println!("  ledger       = {}", ledger_path.display());
     println!("  pool_fee     = {}%", accounting::POOL_FEE_BPS / 100);
     println!("  stratum      = {stratum_bind}");
+    if !stratum_bind_alt.is_empty() {
+        println!("  stratum_alt  = {stratum_bind_alt} (fallback for blocked-3333 networks)");
+    }
     println!("  share_diff   = {} ({}bits, vardiff 16–40bits target {}-{}/min)",
              share_diff, stratum::diff_to_bits(share_diff),
              stratum::VARDIFF_TARGET_MIN, stratum::VARDIFF_TARGET_MAX);
     println!();
     println!("Miners connect to {bind} using the same RPC interface as the node.");
     println!("Stratum miners connect to {stratum_bind}.");
+    if !stratum_bind_alt.is_empty() {
+        println!("If port 3333 is blocked, use {stratum_bind_alt} instead.");
+    }
     println!("Press Ctrl+C to stop.\n");
 
     // Shared ledger — same instance for HTTP pool and Stratum so all found blocks
@@ -208,6 +218,12 @@ fn serve() -> Result<(), String> {
     {
         let ss   = stratum_state.clone();
         let bind_str = stratum_bind.clone();
+        std::thread::spawn(move || stratum::run_stratum_server(ss, &bind_str));
+    }
+
+    if !stratum_bind_alt.is_empty() {
+        let ss   = stratum_state.clone();
+        let bind_str = stratum_bind_alt.clone();
         std::thread::spawn(move || stratum::run_stratum_server(ss, &bind_str));
     }
 
@@ -647,6 +663,9 @@ fn print_help() {
     println!("  TENSORIUM_POOL_PAYOUT_HOT_WALLET   operational payout hot wallet address");
     println!("  TENSORIUM_POOL_PAYOUT_HOT_MAX_ATOMS  soft cap for payout hot wallet balance");
     println!("  TENSORIUM_POOL_LEDGER    payout ledger JSON path, default {DEFAULT_LEDGER_PATH}");
+    println!("  TENSORIUM_STRATUM_BIND      stratum listen address, default 0.0.0.0:3333");
+    println!("  TENSORIUM_STRATUM_BIND_ALT  fallback stratum listen address for networks that block 3333,");
+    println!("                              default 0.0.0.0:443 (set to empty string to disable)");
     println!();
     println!("pool fee: {}%  ({} bps)", accounting::POOL_FEE_BPS / 100, accounting::POOL_FEE_BPS);
     println!();
