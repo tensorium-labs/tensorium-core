@@ -146,6 +146,41 @@ fn run() -> Result<(), String> {
                 })?;
             sync_from_peer(peer, &state_path, &mempool_path_from_env(), &MAINNET)?;
         }
+        "daemon" => {
+            // Run RPC + P2P in one process so they share the same DB path without
+            // fighting over the RocksDB exclusive lock (open_rocksdb retries handle
+            // the brief simultaneous-open window).
+            let rpc_bind = args.get(2).map(String::as_str).unwrap_or(DEFAULT_RPC_BIND).to_owned();
+            let p2p_bind = args.get(3).map(String::as_str).unwrap_or(DEFAULT_P2P_BIND).to_owned();
+            let mempool_path = mempool_path_from_env();
+            let ban_path = ban_path_from_env();
+
+            println!("tensorium mainnet daemon  rpc={rpc_bind}  p2p={p2p_bind}");
+
+            let rpc_state = state_path.clone();
+            let rpc_mempool = mempool_path.clone();
+            let rpc_handle = thread::spawn(move || {
+                serve_rpc(&rpc_bind, rpc_state, rpc_mempool, &MAINNET)
+            });
+
+            serve_p2p(&p2p_bind, state_path, mempool_path, ban_path, &MAINNET)?;
+            rpc_handle.join().map_err(|_| "RPC thread panicked".to_owned())??;
+        }
+        "mine-genesis" => {
+            let threads = args
+                .get(2)
+                .and_then(|s| s.parse::<usize>().ok())
+                .unwrap_or_else(|| thread::available_parallelism().map(|n| n.get()).unwrap_or(4));
+            println!(
+                "Mining mainnet genesis: diff={} bits, threads={}, timestamp={}",
+                MAINNET.initial_leading_zero_bits, threads, MAINNET_GENESIS_TIMESTAMP
+            );
+            println!("This may take hours — use tensorium-miner for GPU acceleration.");
+            let nonce = mine_genesis_multithreaded(threads)?;
+            let state = init_mainnet_candidate_state(&state_path, nonce)?;
+            println!("GENESIS NONCE: {nonce}  (hardcode this in node binary for v1 release)");
+            print_status(&state, &MAINNET);
+        }
         "peers" => print_manual_peers(),
         "banlist" => print_banlist(),
         "unban" => {
@@ -792,6 +827,8 @@ fn print_help() {
     println!("  p2p-listen [bind]    listen for mainnet peer connections and messages");
     println!("  p2p-connect <peer>   connect to a peer for diagnostics");
     println!("  sync [peer]          pull missing mainnet blocks from a peer");
+    println!("  daemon [rpc_bind] [p2p_bind]  start RPC + P2P in one process (recommended)");
+    println!("  mine-genesis [threads]      CPU-mine the genesis nonce (prefer tensorium-miner GPU)");
     println!("  peers                print manual peers from TENSORIUM_PEERS");
     println!("  banlist              show peer ban list");
     println!("  unban <ip>           remove a peer from the ban list");
