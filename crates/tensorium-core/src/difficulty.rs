@@ -238,9 +238,9 @@ mod tests {
 
     #[test]
     fn mainnet_retargets_starting_from_the_first_completed_window() {
-        // MAINNET ships with difficulty_retarget_activation_height = 0, so
-        // retargeting applies from the very first completed adjustment window
-        // (no legacy fixed-difficulty period, unlike TESTNET/old MAINNET_CANDIDATE).
+        // MAINNET activates retargeting early, but not from genesis: launch
+        // blocks 0-3 stay at the fixed difficulty, then height 4 can use the
+        // first completed bootstrap sample from heights 2-3.
         assert_eq!(
             expected_leading_zero_bits(&MAINNET, 0, None),
             MAINNET.initial_leading_zero_bits

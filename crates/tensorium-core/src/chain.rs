@@ -98,9 +98,11 @@ impl ConsensusParams {
             min_leading_zero_bits: 34,
             max_leading_zero_bits: 58,
             difficulty_adjustment_window: 60,
-            // Active from genesis: this is a fresh chain with no blocks mined
-            // under fixed difficulty, so there is no backward-compat concern.
-            difficulty_retarget_activation_height: 0,
+            // Retargeting activates early on the fresh chain, but not from
+            // genesis itself: blocks 0-3 were already mined at the launch
+            // fixed difficulty, so activation starts from height 2 and the
+            // first bootstrap sample can adjust the candidate for height 4.
+            difficulty_retarget_activation_height: 2,
             coinbase_maturity_blocks: 10,
             max_future_block_time_seconds: 2 * 60 * 60,
             max_block_bytes: 1_000_000,
@@ -198,9 +200,9 @@ mod tests {
 
     #[test]
     fn mainnet_retargeting_is_active_from_genesis() {
-        // Fresh chain — retargeting is enabled from block 0, unlike the old
+        // Fresh chain — retargeting is enabled early, unlike the old
         // MAINNET_CANDIDATE which kept it disabled (u64::MAX).
-        assert_eq!(MAINNET.difficulty_retarget_activation_height, 0);
+        assert_eq!(MAINNET.difficulty_retarget_activation_height, 2);
         assert_eq!(MAINNET.difficulty_adjustment_window, 60);
         assert_eq!(MAINNET.initial_leading_zero_bits, 42);
     }

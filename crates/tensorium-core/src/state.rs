@@ -407,7 +407,7 @@ impl ChainState {
                 // backward-compat constraints, so allow difficulty to react
                 // using the chain seen so far instead of waiting for the first
                 // full window to complete.
-                if activation == 0 && height >= 2 {
+                if height >= activation.saturating_add(2) {
                     let mut first = None;
                     let mut last = None;
                     let mut cur = parent.cloned();
@@ -1741,16 +1741,22 @@ mod tests {
     #[test]
     fn genesis_activated_retargeting_can_drop_difficulty_during_bootstrap() {
         let params = ConsensusParams {
-            difficulty_retarget_activation_height: 0,
+            difficulty_retarget_activation_height: 2,
             difficulty_adjustment_window: 60,
             ..TEST_PARAMS
         };
         let mut state = ChainState::new();
         state.init_genesis(&params, 1_700_000_000, 1_000_000).unwrap();
 
-        // First post-genesis block arrives very late versus the 60s target.
+        // Heights 1-3 stay on the fixed launch difficulty.
+        state
+            .mine_next_block(&params, 1_700_000_100, "miner", 1_000_000)
+            .unwrap();
         state
             .mine_next_block(&params, 1_700_001_000, "miner", 1_000_000)
+            .unwrap();
+        state
+            .mine_next_block(&params, 1_700_002_000, "miner", 1_000_000)
             .unwrap();
 
         let parent = state.tip().unwrap().clone();
