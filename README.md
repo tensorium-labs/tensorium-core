@@ -99,20 +99,19 @@ Treasury: `txm1px2nmtp087mz8dv3lplqadwzxawk0c5kg0mt24`
 
 **Solo mining**
 
-For public solo mining, use the miner-compatible HTTP endpoint:
+For public solo mining, use the canonical public RPC:
 
 ```bash
 tensorium-miner \
   --mode solo \
-  --rpc http://mc-rpc.tensoriumlabs.com \
+  --rpc https://rpc.tensoriumlabs.com \
   --wallet YOUR_TXM_ADDRESS \
   --gpu all
 ```
 
-`rpc.tensoriumlabs.com` remains the canonical public HTTPS endpoint for wallets,
-SDKs, and integrations. `tensorium-miner` currently uses plain HTTP and does
-not follow HTTPS redirects, so use `http://mc-rpc.tensoriumlabs.com` for solo
-mining until miner-side HTTPS/redirect support is added.
+`tensorium-miner` now supports HTTPS and follows HTTP→HTTPS redirects for the
+public RPC path. `https://rpc.tensoriumlabs.com` is the canonical endpoint for
+wallets, SDKs, integrations, and public solo mining.
 
 Or point to your own local node if you run one:
 ```bash
@@ -149,7 +148,7 @@ sudo make install
 tensorium-miner --mode pool --pool stratum+tcp://pooltxm.tensoriumlabs.com:3333 --wallet YOUR_ADDRESS --worker rig1 --gpu all
 
 # Run (solo, public endpoint):
-tensorium-miner --mode solo --rpc http://mc-rpc.tensoriumlabs.com --wallet YOUR_ADDRESS --gpu all
+tensorium-miner --mode solo --rpc https://rpc.tensoriumlabs.com --wallet YOUR_ADDRESS --gpu all
 ```
 
 **Prebuilt miner binaries**
@@ -280,7 +279,7 @@ tensorium-miner --mode pool \
 
 # Or: Solo mining — 0% fee, uses public node (no local node required)
 tensorium-miner --mode solo \
-  --rpc http://mc-rpc.tensoriumlabs.com \
+  --rpc https://rpc.tensoriumlabs.com \
   --wallet YOUR_TXM_ADDRESS \
   --gpu all
 ```
@@ -527,7 +526,7 @@ HTLCs across chains, enabling **trustless atomic swaps** (e.g. TXM ⇄ wTXM on O
 | Service | Primary | Backup |
 |---|---|---|
 | P2P seed | `seed.tensoriumlabs.com:33333` | — |
-| Public RPC | `https://rpc.tensoriumlabs.com` | Miner-compatible HTTP: `http://mc-rpc.tensoriumlabs.com` |
+| Public RPC | `https://rpc.tensoriumlabs.com` | Compatibility alias: `http://mc-rpc.tensoriumlabs.com` |
 | Stratum pool | `pooltxm.tensoriumlabs.com:3333` | — |
 | Explorer | [explorer.tensoriumlabs.com](https://explorer.tensoriumlabs.com) | — |
 | Pool stats | [pooltxm.tensoriumlabs.com](https://pooltxm.tensoriumlabs.com) | — |

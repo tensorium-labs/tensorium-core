@@ -22,6 +22,12 @@ typedef struct {
     SSL_CTX *ctx;
 } Conn;
 
+typedef struct {
+    int  status_code;
+    int  header_len;
+    char location[512];
+} HttpMeta;
+
 static int tcp_connect(const char *host, const char *port) {
     struct addrinfo hints, *res;
     memset(&hints, 0, sizeof(hints));
@@ -78,15 +84,113 @@ static void conn_close(Conn *c) {
     if (c->sock >= 0) close(c->sock);
 }
 
-static int http_get(const char *host, const char *port, int use_tls,
-                    const char *path, char *buf, int buf_len) {
+static int parse_http_meta(char *buf, HttpMeta *meta) {
+    memset(meta, 0, sizeof(*meta));
+    char *header_end = strstr(buf, "\r\n\r\n");
+    if (!header_end) return 0;
+    meta->header_len = (int)((header_end + 4) - buf);
+
+    if (sscanf(buf, "HTTP/%*d.%*d %d", &meta->status_code) != 1) {
+        meta->status_code = 0;
+    }
+
+    const char *needle = "\r\nLocation:";
+    char *loc = strstr(buf, needle);
+    if (!loc && strncmp(buf, "Location:", 9) == 0) loc = buf;
+    if (loc) {
+        loc += (loc == buf) ? 9 : (int)strlen(needle);
+        while (*loc == ' ' || *loc == '\t') loc++;
+        int i = 0;
+        while (*loc && *loc != '\r' && *loc != '\n' && i < (int)sizeof(meta->location) - 1) {
+            meta->location[i++] = *loc++;
+        }
+        meta->location[i] = '\0';
+    }
+    return 1;
+}
+
+static int parse_redirect_url(const char *location,
+                              char *host_out, int host_len,
+                              char *port_out, int port_len,
+                              char *path_out, int path_len,
+                              int *use_tls_out) {
+    if (!location || !*location) return 0;
+
+    if (strncmp(location, "https://", 8) == 0 || strncmp(location, "http://", 7) == 0) {
+        const int use_tls = (strncmp(location, "https://", 8) == 0);
+        const char *url = location + (use_tls ? 8 : 7);
+        const char *slash = strchr(url, '/');
+        const char *host_end = slash ? slash : url + strlen(url);
+        const char *colon = NULL;
+        for (const char *p = url; p < host_end; ++p) {
+            if (*p == ':') colon = p;
+        }
+
+        int host_chars = (int)((colon ? colon : host_end) - url);
+        if (host_chars <= 0 || host_chars >= host_len) return 0;
+        memcpy(host_out, url, host_chars);
+        host_out[host_chars] = '\0';
+
+        if (colon) {
+            int port_chars = (int)(host_end - colon - 1);
+            if (port_chars <= 0 || port_chars >= port_len) return 0;
+            memcpy(port_out, colon + 1, port_chars);
+            port_out[port_chars] = '\0';
+        } else {
+            strncpy(port_out, use_tls ? "443" : "80", port_len - 1);
+            port_out[port_len - 1] = '\0';
+        }
+
+        if (slash) {
+            strncpy(path_out, slash, path_len - 1);
+            path_out[path_len - 1] = '\0';
+        } else {
+            strncpy(path_out, "/", path_len - 1);
+            path_out[path_len - 1] = '\0';
+        }
+
+        *use_tls_out = use_tls;
+        return 1;
+    }
+
+    if (location[0] == '/') {
+        strncpy(path_out, location, path_len - 1);
+        path_out[path_len - 1] = '\0';
+        return 2; /* relative redirect */
+    }
+
+    return 0;
+}
+
+static int http_request(const char *method,
+                        const char *host, const char *port, int use_tls,
+                        const char *path, const char *body,
+                        char *buf, int buf_len, HttpMeta *meta) {
     Conn c;
     if (!conn_open(host, port, use_tls, &c)) return 0;
-    char req[512];
-    int rlen = snprintf(req, sizeof(req),
-        "GET %s HTTP/1.1\r\nHost: %s\r\nConnection: close\r\n\r\n",
-        path, host);
-    conn_send(&c, req, rlen);
+
+    char req[1024];
+    int rlen;
+    if (body) {
+        rlen = snprintf(req, sizeof(req),
+            "%s %s HTTP/1.1\r\nHost: %s\r\nContent-Type: application/json\r\n"
+            "Content-Length: %zu\r\nConnection: close\r\n\r\n",
+            method, path, host, strlen(body));
+    } else {
+        rlen = snprintf(req, sizeof(req),
+            "%s %s HTTP/1.1\r\nHost: %s\r\nConnection: close\r\n\r\n",
+            method, path, host);
+    }
+
+    if (conn_send(&c, req, rlen) < 0) {
+        conn_close(&c);
+        return 0;
+    }
+    if (body && conn_send(&c, body, (int)strlen(body)) < 0) {
+        conn_close(&c);
+        return 0;
+    }
+
     int total = 0, n;
     char tmp[4096];
     while ((n = conn_recv(&c, tmp, sizeof(tmp))) > 0) {
@@ -94,11 +198,51 @@ static int http_get(const char *host, const char *port, int use_tls,
     }
     conn_close(&c);
     buf[total] = '\0';
-    char *body = strstr(buf, "\r\n\r\n");
-    if (!body) return 0;
-    body += 4;
-    memmove(buf, body, strlen(body) + 1);
-    return buf[0] == '{' ? 1 : 0;
+
+    return parse_http_meta(buf, meta);
+}
+
+static int http_get(const char *host, const char *port, int use_tls,
+                    const char *path, char *buf, int buf_len) {
+    char host_cur[128], port_cur[16], path_cur[512];
+    strncpy(host_cur, host, sizeof(host_cur) - 1); host_cur[sizeof(host_cur) - 1] = '\0';
+    strncpy(port_cur, port, sizeof(port_cur) - 1); port_cur[sizeof(port_cur) - 1] = '\0';
+    strncpy(path_cur, path, sizeof(path_cur) - 1); path_cur[sizeof(path_cur) - 1] = '\0';
+    int tls_cur = use_tls;
+
+    for (int redirects = 0; redirects < 5; redirects++) {
+        HttpMeta meta;
+        if (!http_request("GET", host_cur, port_cur, tls_cur, path_cur, NULL, buf, buf_len, &meta)) {
+            return 0;
+        }
+        if (meta.status_code >= 300 && meta.status_code < 400 && meta.location[0] != '\0') {
+            char next_host[128], next_port[16], next_path[512];
+            int next_tls = tls_cur;
+            int rc = parse_redirect_url(meta.location,
+                                        next_host, sizeof(next_host),
+                                        next_port, sizeof(next_port),
+                                        next_path, sizeof(next_path),
+                                        &next_tls);
+            if (rc == 1) {
+                strncpy(host_cur, next_host, sizeof(host_cur) - 1); host_cur[sizeof(host_cur) - 1] = '\0';
+                strncpy(port_cur, next_port, sizeof(port_cur) - 1); port_cur[sizeof(port_cur) - 1] = '\0';
+                strncpy(path_cur, next_path, sizeof(path_cur) - 1); path_cur[sizeof(path_cur) - 1] = '\0';
+                tls_cur = next_tls;
+                continue;
+            }
+            if (rc == 2) {
+                strncpy(path_cur, next_path, sizeof(path_cur) - 1); path_cur[sizeof(path_cur) - 1] = '\0';
+                continue;
+            }
+            return 0;
+        }
+        char *body = strstr(buf, "\r\n\r\n");
+        if (!body) return 0;
+        body += 4;
+        memmove(buf, body, strlen(body) + 1);
+        return buf[0] == '{' ? 1 : 0;
+    }
+    return 0;
 }
 
 // ── JSON helpers ──────────────────────────────────────────────────────────────
@@ -243,35 +387,46 @@ static int replace_header_nonce(const char *block_json, uint64_t nonce,
 static int http_post_json(const char *host, const char *port, int use_tls,
                           const char *path, const char *body,
                           char *buf, int buf_len) {
-    Conn c;
-    if (!conn_open(host, port, use_tls, &c)) return 0;
+    char host_cur[128], port_cur[16], path_cur[512];
+    strncpy(host_cur, host, sizeof(host_cur) - 1); host_cur[sizeof(host_cur) - 1] = '\0';
+    strncpy(port_cur, port, sizeof(port_cur) - 1); port_cur[sizeof(port_cur) - 1] = '\0';
+    strncpy(path_cur, path, sizeof(path_cur) - 1); path_cur[sizeof(path_cur) - 1] = '\0';
+    int tls_cur = use_tls;
 
-    char head[512];
-    int hlen = snprintf(head, sizeof(head),
-        "POST %s HTTP/1.1\r\nHost: %s\r\nContent-Type: application/json\r\n"
-        "Content-Length: %zu\r\nConnection: close\r\n\r\n",
-        path, host, strlen(body));
-    if (conn_send(&c, head, hlen) < 0 || conn_send(&c, body, (int)strlen(body)) < 0) {
-        conn_close(&c);
-        return 0;
-    }
-
-    int total = 0, n;
-    char tmp[4096];
-    while ((n = conn_recv(&c, tmp, sizeof(tmp))) > 0) {
-        if (total + n < buf_len) {
-            memcpy(buf + total, tmp, n);
-            total += n;
+    for (int redirects = 0; redirects < 5; redirects++) {
+        HttpMeta meta;
+        if (!http_request("POST", host_cur, port_cur, tls_cur, path_cur, body, buf, buf_len, &meta)) {
+            return 0;
         }
-    }
-    conn_close(&c);
-    buf[total] = '\0';
+        if (meta.status_code >= 300 && meta.status_code < 400 && meta.location[0] != '\0') {
+            char next_host[128], next_port[16], next_path[512];
+            int next_tls = tls_cur;
+            int rc = parse_redirect_url(meta.location,
+                                        next_host, sizeof(next_host),
+                                        next_port, sizeof(next_port),
+                                        next_path, sizeof(next_path),
+                                        &next_tls);
+            if (rc == 1) {
+                strncpy(host_cur, next_host, sizeof(host_cur) - 1); host_cur[sizeof(host_cur) - 1] = '\0';
+                strncpy(port_cur, next_port, sizeof(port_cur) - 1); port_cur[sizeof(port_cur) - 1] = '\0';
+                strncpy(path_cur, next_path, sizeof(path_cur) - 1); path_cur[sizeof(path_cur) - 1] = '\0';
+                tls_cur = next_tls;
+                continue;
+            }
+            if (rc == 2) {
+                strncpy(path_cur, next_path, sizeof(path_cur) - 1); path_cur[sizeof(path_cur) - 1] = '\0';
+                continue;
+            }
+            return 0;
+        }
 
-    char *body_start = strstr(buf, "\r\n\r\n");
-    if (!body_start) return 0;
-    body_start += 4;
-    memmove(buf, body_start, strlen(body_start) + 1);
-    return 1;
+        char *body_start = strstr(buf, "\r\n\r\n");
+        if (!body_start) return 0;
+        body_start += 4;
+        memmove(buf, body_start, strlen(body_start) + 1);
+        return 1;
+    }
+    return 0;
 }
 
 // ── Template fetch ─────────────────────────────────────────────────────────────

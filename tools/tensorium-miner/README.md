@@ -70,8 +70,8 @@ make test-host
 # Solo mining against your own node
 ./tensorium-miner --mode solo --rpc http://127.0.0.1:33332 --wallet txm1youraddress
 
-# Solo mining against the public miner-compatible endpoint
-./tensorium-miner --mode solo --rpc http://mc-rpc.tensoriumlabs.com --wallet txm1youraddress
+# Solo mining against the canonical public RPC
+./tensorium-miner --mode solo --rpc https://rpc.tensoriumlabs.com --wallet txm1youraddress
 
 # Pool mining
 ./tensorium-miner --mode pool --pool stratum+tcp://pooltxm.tensoriumlabs.com:3333 \
@@ -91,10 +91,10 @@ make test-host
 #   --start-nonce N     genesis mode: nonce search start offset
 ```
 
-> `rpc.tensoriumlabs.com` is the canonical public HTTPS RPC for wallets and
-> integrations. The miner currently uses plain HTTP and does not follow HTTPS
-> redirects, so public solo mining must use `http://mc-rpc.tensoriumlabs.com`
-> for now.
+> `rpc.tensoriumlabs.com` is the canonical public RPC for wallets,
+> integrations, and public solo mining. The miner now supports HTTPS and
+> follows HTTP→HTTPS redirects. The legacy compatibility alias
+> `http://mc-rpc.tensoriumlabs.com` still points to the same backend.
 
 ## Genesis mining workflow
 
