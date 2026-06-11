@@ -6,7 +6,7 @@
 <title>Tensorium Marketplace — Native On-Chain Assets (TXM20 + NFT)</title>
 <meta name="description" content="The native Tensorium asset marketplace. Issue TXM20 tokens and NFTs as an on-chain OP_RETURN overlay, browse balances and ownership reconstructed by an open indexer, and trade them trustlessly with atomic co-signed settlement.">
 <link rel="stylesheet" href="assets/core.css?v=3">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 3l11 6.4v13L16 29 5 22.4v-13z' fill='none' stroke='%23E05C0B' stroke-width='1.5'/%3E%3Ccircle cx='16' cy='16' r='3' fill='%23E05C0B'/%3E%3C/svg%3E">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 3l11 6.4v13L16 29 5 22.4v-13z' fill='none' stroke='%234C88FF' stroke-width='1.5'/%3E%3Ccircle cx='16' cy='16' r='3' fill='%234C88FF'/%3E%3C/svg%3E">
 <style>
 /* ── Marketplace-specific (built on core.css design tokens) ─────────────── */
 .mk-hero { padding-top: clamp(44px,6vw,76px); padding-bottom: clamp(36px,5vw,60px); }
@@ -40,10 +40,10 @@
 .steps { counter-reset: s; list-style: none; padding: 0; margin: 26px 0 0; display: grid; gap: 0; }
 .steps li { display: grid; grid-template-columns: 34px 1fr; gap: 16px; padding: 16px 0; border-bottom: 1px solid var(--line); align-items: start; }
 .steps li:last-child { border-bottom: none; }
-.steps li::before { counter-increment: s; content: counter(s); font-family: var(--font-mono); font-size: .78rem; font-weight: 700; color: var(--orange); border: 1px solid rgba(224,92,11,.25); border-radius: 8px; width: 30px; height: 30px; display: grid; place-items: center; background: var(--orange-dim); }
+.steps li::before { counter-increment: s; content: counter(s); font-family: var(--font-mono); font-size: .78rem; font-weight: 700; color: var(--orange); border: 1px solid var(--line-2); border-radius: 8px; width: 30px; height: 30px; display: grid; place-items: center; background: var(--orange-dim); }
 .steps h4 { margin: 4px 0 8px; font-size: .98rem; }
 .steps p { margin: 0 0 8px; color: var(--chrome-2); font-size: .9rem; }
-.steps code, .cmd { font-family: var(--font-mono); font-size: .78rem; background: var(--chrome-0); color: #F5F0E8; padding: 10px 14px; border-radius: var(--radius-sm); display: block; overflow-x: auto; white-space: pre; }
+.steps code, .cmd { font-family: var(--font-mono); font-size: .78rem; background: rgba(0,0,0,.35); border: 1px solid var(--line); color: var(--chrome-0); padding: 10px 14px; border-radius: var(--radius-sm); display: block; overflow-x: auto; white-space: pre; }
 .steps code.inline { display: inline; padding: 2px 6px; background: var(--orange-dim); color: var(--cyan-deep); }
 
 .feat-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 16px; margin-top: 26px; }
@@ -75,9 +75,9 @@ footer.mk .copy { font-family: var(--font-mono); font-size: .72rem; color: var(-
   <div class="nav-inner">
     <a class="brand" href="https://tensoriumlabs.com">
       <svg width="30" height="30" viewBox="0 0 32 32" fill="none" aria-hidden="true">
-        <path d="M16 3l11 6.4v13L16 29 5 22.4v-13z" stroke="#E05C0B" stroke-width="1.6"/>
-        <path d="M16 3v13M16 16l11-6.6M16 16L5 9.4" stroke="rgba(224,92,11,.35)" stroke-width="1"/>
-        <circle cx="16" cy="16" r="3.2" fill="#E05C0B"/>
+        <path d="M16 3l11 6.4v13L16 29 5 22.4v-13z" stroke="#4C88FF" stroke-width="1.6"/>
+        <path d="M16 3v13M16 16l11-6.6M16 16L5 9.4" stroke="rgba(76,136,255,.35)" stroke-width="1"/>
+        <circle cx="16" cy="16" r="3.2" fill="#4C88FF"/>
       </svg>
       <span class="brand-name">Tensorium<span class="sub">·</span></span>
     </a>
