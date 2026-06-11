@@ -11,7 +11,7 @@ VERSION="v0.4.0-mainnet"
 SEED_NODE="seed.tensoriumlabs.com"
 RPC_PORT="33332"
 P2P_PORT="33333"
-CHAIN_ID="tensorium-mainnet-candidate-0"
+CHAIN_ID="tensorium-mainnet"
 INSTALL_DIR="/usr/local/bin"
 DATA_DIR="$HOME/tensorium-mainnet-node"
 
@@ -166,18 +166,18 @@ setup_node() {
     if [[ -f "$state" || -d "$state_db" ]]; then
         warn "Existing chain state detected ($state or $state_db) — skipping init"
     else
-        info "Initializing mainnet-candidate chain (genesis block)..."
-        TENSORIUM_MC_STATE="$state" \
-        TENSORIUM_MC_MEMPOOL="$mempool" \
-        TENSORIUM_MC_BANS="$bans" \
-            tensorium-node mainnet-candidate init
+        info "Initializing mainnet chain (genesis block)..."
+        TENSORIUM_STATE="$state" \
+        TENSORIUM_MEMPOOL="$mempool" \
+        TENSORIUM_BANS="$bans" \
+            tensorium-node init
 
         info "Syncing from seed node ${SEED_NODE}..."
-        TENSORIUM_MC_STATE="$state" \
-        TENSORIUM_MC_MEMPOOL="$mempool" \
-        TENSORIUM_MC_BANS="$bans" \
-        TENSORIUM_MC_PEERS="${SEED_NODE}:${P2P_PORT}" \
-            tensorium-node mainnet-candidate sync "${SEED_NODE}:${P2P_PORT}" || warn "Sync failed — you can run 'tensorium-node mainnet-candidate sync ${SEED_NODE}:${P2P_PORT}' manually later"
+        TENSORIUM_STATE="$state" \
+        TENSORIUM_MEMPOOL="$mempool" \
+        TENSORIUM_BANS="$bans" \
+        TENSORIUM_PEERS="${SEED_NODE}:${P2P_PORT}" \
+            tensorium-node sync "${SEED_NODE}:${P2P_PORT}" || warn "Sync failed — you can run 'tensorium-node sync ${SEED_NODE}:${P2P_PORT}' manually later"
     fi
 }
 
@@ -213,11 +213,11 @@ After=network.target
 Type=simple
 User=${user}
 WorkingDirectory=${DATA_DIR}
-Environment=TENSORIUM_MC_STATE=${state}
-Environment=TENSORIUM_MC_MEMPOOL=${mempool}
-Environment=TENSORIUM_MC_BANS=${bans}
-Environment=TENSORIUM_MC_PEERS=${SEED_NODE}:${P2P_PORT}
-ExecStart=${INSTALL_DIR}/tensorium-node mainnet-candidate rpc 127.0.0.1:${RPC_PORT}
+Environment=TENSORIUM_STATE=${state}
+Environment=TENSORIUM_MEMPOOL=${mempool}
+Environment=TENSORIUM_BANS=${bans}
+Environment=TENSORIUM_PEERS=${SEED_NODE}:${P2P_PORT}
+ExecStart=${INSTALL_DIR}/tensorium-node rpc 127.0.0.1:${RPC_PORT}
 Restart=always
 RestartSec=10
 StandardOutput=journal
@@ -236,10 +236,10 @@ After=network.target
 Type=simple
 User=${user}
 WorkingDirectory=${DATA_DIR}
-Environment=TENSORIUM_MC_STATE=${state}
-Environment=TENSORIUM_MC_MEMPOOL=${mempool}
-Environment=TENSORIUM_MC_BANS=${bans}
-ExecStart=${INSTALL_DIR}/tensorium-node mainnet-candidate p2p-listen 0.0.0.0:${P2P_PORT}
+Environment=TENSORIUM_STATE=${state}
+Environment=TENSORIUM_MEMPOOL=${mempool}
+Environment=TENSORIUM_BANS=${bans}
+ExecStart=${INSTALL_DIR}/tensorium-node p2p-listen 0.0.0.0:${P2P_PORT}
 Restart=always
 RestartSec=10
 StandardOutput=journal
@@ -277,8 +277,8 @@ print_summary() {
     echo -e "${BOLD}Useful commands:${NC}"
     echo ""
     echo -e "  Start node (manual):"
-    echo -e "    ${CYAN}TENSORIUM_MC_STATE=${DATA_DIR}/state.json TENSORIUM_MC_MEMPOOL=${DATA_DIR}/mempool.json TENSORIUM_MC_BANS=${DATA_DIR}/banlist.json tensorium-node mainnet-candidate rpc 127.0.0.1:${RPC_PORT} &${NC}"
-    echo -e "    ${CYAN}TENSORIUM_MC_STATE=${DATA_DIR}/state.json TENSORIUM_MC_MEMPOOL=${DATA_DIR}/mempool.json TENSORIUM_MC_BANS=${DATA_DIR}/banlist.json tensorium-node mainnet-candidate p2p-listen 0.0.0.0:${P2P_PORT} &${NC}"
+    echo -e "    ${CYAN}TENSORIUM_STATE=${DATA_DIR}/state.json TENSORIUM_MEMPOOL=${DATA_DIR}/mempool.json TENSORIUM_BANS=${DATA_DIR}/banlist.json tensorium-node rpc 127.0.0.1:${RPC_PORT} &${NC}"
+    echo -e "    ${CYAN}TENSORIUM_STATE=${DATA_DIR}/state.json TENSORIUM_MEMPOOL=${DATA_DIR}/mempool.json TENSORIUM_BANS=${DATA_DIR}/banlist.json tensorium-node p2p-listen 0.0.0.0:${P2P_PORT} &${NC}"
     echo -e "    ${CYAN}# put nginx in front before exposing RPC publicly${NC}"
     echo ""
     echo -e "  Start mining (GPU — NVIDIA RTX 3000/4000/5000 required):"
