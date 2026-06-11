@@ -1,7 +1,7 @@
 # Risk Disclosure
 
-**Tensorium (TXM) — Mainnet-Candidate Release v0.3.1**
-**Published: 2026-06-01**
+**Tensorium (TXM) — Mainnet v1 Risk Disclosure**
+**Updated: 2026-06-11**
 
 Please read this document carefully before running a node, mining, or acquiring TXM tokens.
 
@@ -9,30 +9,20 @@ Please read this document carefully before running a node, mining, or acquiring 
 
 ## 1. Project Status
 
-Tensorium mainnet (`tensorium-mainnet-candidate-0`) is **live** as of 2026-06-02. Mining is active. TXM tokens on the mainnet chain may carry monetary value — participants assume full risk.
+Tensorium mainnet v1 (`tensorium-mainnet`) is **live** as of 2026-06-11. Mining is active. TXM tokens on the mainnet chain may carry monetary value — participants assume full risk.
 
-- **Mainnet genesis:** nonce `114_103_168_481`, hash `000000000063ab6f057a16376b1712e709719126ad977a3d4be23f83b89f0392`, timestamp `2026-06-01 00:00:00 UTC`
+- **Mainnet v1 genesis:** nonce `9_223_372_445_780_809_059`, timestamp `2026-06-11 04:14:52 UTC`
 - **Bridge live:** TXM ↔ wTXM (Optimism) at https://bridge.tensoriumlabs.com
 - No external security audit has been completed. Use at your own risk.
 
 ---
 
-## 2. Founder Allocation
+## 2. Supply and Launch Model
 
-- **Founder address:** `txm18c3t652j0x0sanux3dhse8fqgrqpsdzx97358d`
-- **Founder allocation:** 1,000,000 TXM out of 33,000,000 TXM total supply (~3.03%)
-- This allocation is included in the **genesis block** (block 0) and is **not earned through mining**.
-- This is **not a fair launch**. Community members must evaluate this allocation and decide whether it is acceptable.
-
-### Founder Lock Policy
-
-The founder commits to a **voluntary 24-month lock** starting from mainnet genesis:
-
-- No more than **10% of the allocation (100,000 TXM)** may be moved per calendar month for the first 24 months.
-- After month 24, the remaining balance is fully movable at founder discretion.
-- This policy is **social/reputational only** — it is **not enforced by L1 consensus**. The network does not technically prevent the founder from moving funds before the lock period ends.
-- All movements from the founder address are visible on-chain via the public explorer (`explorer.tensoriumlabs.com`).
-- Community members must decide whether they trust this voluntary lock.
+- **Mainnet v1 uses a zero-premine launch.**
+- **Founder allocation in genesis:** `0 TXM`
+- The full 33,000,000 TXM max supply is emitted through mining according to the halving schedule.
+- Community members should treat this as a fresh-chain relaunch under new consensus parameters (`TensorHash v1`).
 
 ---
 
@@ -59,14 +49,14 @@ The founder commits to a **voluntary 24-month lock** starting from mainnet genes
 - Users should maintain chain state backups.
 
 ### Mining
-- Mainnet-candidate requires GPU mining (initial difficulty: 40 leading zero bits, ~2^40 hashes per block).
-- CPU mining at mainnet-candidate difficulty is not practical.
-- GPU mining requires an NVIDIA RTX 3060 or equivalent (sm86 CUDA architecture) for the included `tensorium-miner` binary.
+- Mainnet v1 requires TensorHash v1 GPU mining (initial difficulty: 42 leading zero bits, ~2^42 work target at launch).
+- CPU mining at mainnet v1 difficulty is not practical.
+- GPU mining requires an NVIDIA GPU with 24 GB+ VRAM for the included `tensorium-miner` binary.
 - Other GPU architectures may require compiling from source.
 
 ### Network
-- Peer discovery uses built-in DNS/static mainnet seeds (`seed.tensoriumlabs.com:33333`, `seed2.tensoriumlabs.com:33333`). If all seed nodes go offline, new nodes cannot auto-connect without manually specifying a peer.
-- A backup seed node (`139.180.137.144`, Vultr) is operational for the mainnet-candidate. Network decentralization still requires broader community participation.
+- Peer discovery uses the built-in mainnet seed `seed.tensoriumlabs.com:33333`. If the seed node goes offline, new nodes may need a manually specified peer.
+- Public RPC is exposed at `https://rpc.tensoriumlabs.com`. Legacy alias `https://mc-rpc.tensoriumlabs.com` currently points to the same backend.
 
 ---
 

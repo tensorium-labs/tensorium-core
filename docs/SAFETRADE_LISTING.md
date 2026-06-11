@@ -17,12 +17,12 @@ Submission материals for listing **native TXM** on SafeTrade (safetrade.co
 | Name | Tensorium |
 | Ticker | TXM |
 | Type | Layer-1, Proof-of-Work, UTXO |
-| Algorithm | SHA-256d (double SHA-256), GPU-first |
+| Algorithm | TensorHash v1, GPU-first |
 | Max supply | 33,000,000 TXM |
 | Emission | 8M pre-mint + 25M mining over 10 halving eras |
 | Target block time | 60 s |
 | Decimals | 8 (1 TXM = 100,000,000 atoms) |
-| Status | **Mainnet live** (chain_id `tensorium-mainnet-candidate-0`) |
+| Status | **Mainnet v1 live** (chain_id `tensorium-mainnet`) |
 | Address format | bech32, prefix `txm1…` |
 
 ## Links

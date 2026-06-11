@@ -2,8 +2,8 @@
 
 A Proof-of-Work blockchain built in Rust — live mainnet and CUDA mining.
 
-> **Status:** Mainnet live (declared 2026-06-02). GPU mining active on `tensorium-mainnet-candidate-0`.
-> Mainnet chain: `tensorium-mainnet-candidate-0` | Ticker: `TXM` | P2P: `33333` | RPC: `33332`
+> **Status:** TensorHash v1 mainnet live. GPU mining active on `tensorium-mainnet`.
+> Mainnet chain: `tensorium-mainnet` | Ticker: `TXM` | P2P: `33333` | RPC: `33332`
 
 [![Discord](https://img.shields.io/badge/Discord-Join-5865F2?logo=discord&logoColor=white)](https://discord.gg/KkgGSZKVZw)
 [![npm](https://img.shields.io/badge/npm-%40tensorium%2Fsdk-red?logo=npm)](https://www.npmjs.com/package/@tensorium/sdk)
@@ -11,7 +11,7 @@ A Proof-of-Work blockchain built in Rust — live mainnet and CUDA mining.
 [![Website](https://img.shields.io/badge/Website-tensoriumlabs.com-black)](https://tensoriumlabs.com)
 [![Docs](https://img.shields.io/badge/Docs-docs.tensoriumlabs.com-7c3aed)](https://docs.tensoriumlabs.com)
 [![Explorer](https://img.shields.io/badge/Explorer-Live-green)](https://explorer.tensoriumlabs.com)
-[![Release](https://img.shields.io/badge/Release-v0.4.0--mainnet-orange)](https://github.com/tensorium-labs/tensorium-core/releases/tag/v0.4.0-mainnet)
+[![Release](https://img.shields.io/badge/Release-Mainnet%20v1-orange)](https://github.com/tensorium-labs/tensorium-core/releases/latest)
 
 ## Install (Linux x86_64)
 
@@ -19,7 +19,36 @@ A Proof-of-Work blockchain built in Rust — live mainnet and CUDA mining.
 curl -fsSL https://raw.githubusercontent.com/tensorium-labs/tensorium-core/main/install.sh | bash
 ```
 
-The installer is now mainnet-first: it downloads binaries, creates a wallet, initializes `mainnet-candidate`, syncs from the seed node, and optionally sets up systemd services.
+The installer is now mainnet-first: it downloads binaries, creates a wallet, initializes `tensorium-mainnet`, syncs from the seed node, and optionally sets up systemd services.
+
+### GitHub Install Paths
+
+**One-liner node + wallet install:**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/tensorium-labs/tensorium-core/main/install.sh | bash
+```
+
+**Clone from GitHub and build the Rust binaries manually:**
+
+```bash
+git clone https://github.com/tensorium-labs/tensorium-core.git
+cd tensorium-core
+cargo build --release
+
+# binaries:
+# target/release/tensorium-node
+# target/release/txmwallet
+```
+
+**One-liner miner build from GitHub on a CUDA box:**
+
+```bash
+git clone https://github.com/tensorium-labs/tensorium-core.git && \
+cd tensorium-core/tools/tensorium-miner && \
+make && \
+./tensorium-miner --selftest
+```
 
 | Binary | Role |
 | --- | --- |
@@ -31,7 +60,7 @@ Or download directly from [Releases](https://github.com/tensorium-labs/tensorium
 
 ### Mining Topology
 
-`tensorium-miner` (v2) is the recommended production miner for mainnet. Mainnet initial difficulty (40 leading zero bits) requires a GPU; CPU cannot mine at this difficulty.
+`tensorium-miner` (v2) is the recommended production miner for mainnet. Mainnet v1 initial difficulty (42 leading zero bits) requires a GPU; CPU cannot mine at this difficulty.
 
 **Pool mining (Stratum — recommended, 5% fee, PPLNS, no node needed):**
 
@@ -48,8 +77,6 @@ Pool stats and payout history: https://pooltxm.tensoriumlabs.com
 Fee: **5%** of block reward. Reward method: **PPLNS** (last 4096 shares, difficulty-weighted).  
 Treasury: `txm13vgxzj5ulrfhe7x0mlzxg0q6veq42tkku4g3jr`
 
-Backup pool: `stratum+tcp://pool-alt.tensoriumlabs.com:3333`
-
 **Solo mining (0% fee — full block reward to your address):**
 
 No local node needed — connect directly to the public RPC:
@@ -57,12 +84,10 @@ No local node needed — connect directly to the public RPC:
 ```bash
 tensorium-miner \
   --mode solo \
-  --rpc http://mc-rpc.tensoriumlabs.com \
+  --rpc http://rpc.tensoriumlabs.com \
   --wallet YOUR_TXM_ADDRESS \
   --gpu all
 ```
-
-Backup RPC: `http://mc-rpc2.tensoriumlabs.com`
 
 Or point to your own local node if you run one:
 ```bash
@@ -136,12 +161,12 @@ Pool mining (PPLNS) smooths payouts across participants — rewards are split pr
 
 Tensorium is a Proof-of-Work Layer 1 blockchain focused on open mining, transparent tokenomics, and a GPU-first live mainnet direction.
 
-- Max supply: 33,000,000 TXM total (8,000,000 pre-mint + 25,000,000 mining)
+- Max supply: 33,000,000 TXM total (zero premine, 33,000,000 mining allocation)
 - Block time: 60 seconds
 - Initial reward: 11.9027 TXM/block (1,190,279,581 atoms)
 - Halving: every 1,051,200 blocks (~2 years), 10 eras over 20 years
-- Mainnet PoW: SHA256d, GPU-first (40-bit initial difficulty)
-- Current phase: post-launch operations; mainnet is live and Phase 10 operational hardening is complete
+- Mainnet PoW: TensorHash v1, GPU-first (42-bit initial difficulty)
+- Current phase: Mainnet v1 live on `tensorium-mainnet`
 
 ### Pool Fee Policy Draft
 
@@ -215,10 +240,9 @@ tensorium-miner --mode pool \
   --gpu all
 # Or: Solo mining — 0% fee, uses public node (no local node required)
 tensorium-miner --mode solo \
-  --rpc http://mc-rpc.tensoriumlabs.com \
+  --rpc http://rpc.tensoriumlabs.com \
   --wallet YOUR_TXM_ADDRESS \
   --gpu all
-# Backup RPC: http://mc-rpc2.tensoriumlabs.com
 ```
 
 ### Option B — Run your own full node + mine
@@ -228,8 +252,8 @@ tensorium-miner --mode solo \
 curl -fsSL https://raw.githubusercontent.com/tensorium-labs/tensorium-core/main/install.sh | bash
 
 # 2. Initialize and start mainnet node (RPC + P2P in one process)
-tensorium-node mainnet-candidate init
-tensorium-node mainnet-candidate daemon          # default: RPC 127.0.0.1:33332, P2P 0.0.0.0:33333
+tensorium-node init
+tensorium-node daemon          # default: RPC 127.0.0.1:33332, P2P 0.0.0.0:33333
 
 # 3. Create a wallet
 TENSORIUM_WALLET_PASSPHRASE=yourpass txmwallet create
@@ -242,27 +266,26 @@ tensorium-miner --mode solo --rpc http://127.0.0.1:33332 --wallet YOUR_ADDRESS -
 txmwallet balance
 ```
 
-> **Sync from seed:** `tensorium-node mainnet-candidate sync seed.tensoriumlabs.com:33333`  
-> Backup: `tensorium-node mainnet-candidate sync mc-rpc2.tensoriumlabs.com:33333`
+> **Sync from seed:** `tensorium-node sync seed.tensoriumlabs.com:33333`
 
 ---
 
 ## Node Commands
 
-All mainnet commands use the `mainnet-candidate` subcommand:
+All mainnet commands use the top-level command set:
 
 ```
-tensorium-node mainnet-candidate init                     initialize mainnet chain state
-tensorium-node mainnet-candidate status                   show chain tip and height
-tensorium-node mainnet-candidate daemon [rpc_bind] [p2p_bind]  start RPC + P2P in one process (recommended)
-tensorium-node mainnet-candidate rpc [bind]               start HTTP RPC only (default 127.0.0.1:33332)
-tensorium-node mainnet-candidate p2p-listen [bind]        start P2P server only (default 0.0.0.0:33333)
-tensorium-node mainnet-candidate sync [host:port]         sync blocks from a peer
-tensorium-node mainnet-candidate p2p-connect <host:port>  test handshake to a peer
-tensorium-node mainnet-candidate peers                    print known peers
-tensorium-node mainnet-candidate banlist                  show peer ban list
-tensorium-node mainnet-candidate unban <ip>               remove a ban
-tensorium-node mainnet-candidate mine-once [addr]         mine one block (diagnostic only)
+tensorium-node init                     initialize mainnet chain state
+tensorium-node status                   show chain tip and height
+tensorium-node daemon [rpc_bind] [p2p_bind]  start RPC + P2P in one process (recommended)
+tensorium-node rpc [bind]               start HTTP RPC only (default 127.0.0.1:33332)
+tensorium-node p2p-listen [bind]        start P2P server only (default 0.0.0.0:33333)
+tensorium-node sync [host:port]         sync blocks from a peer
+tensorium-node p2p-connect <host:port>  test handshake to a peer
+tensorium-node peers                    print known peers
+tensorium-node banlist                  show peer ban list
+tensorium-node unban <ip>               remove a ban
+tensorium-node mine-once [addr]         mine one block (diagnostic only)
 ```
 
 ## RPC Endpoints
@@ -310,7 +333,7 @@ The node **rejects transactions below the minimum relay fee**. The fee is automa
 
 Check current fee recommendations:
 ```bash
-curl https://mc-rpc.tensoriumlabs.com/estimatefee
+curl https://rpc.tensoriumlabs.com/estimatefee
 ```
 
 **Multisig (m-of-n) — see Scripting below:**
@@ -373,7 +396,7 @@ All messages are newline-delimited JSON over TCP.
 
 **Handshake** (both sides send first):
 ```json
-{"protocol":"tensorium-p2p","version":1,"chain_id":"tensorium-mainnet-candidate-0",
+{"protocol":"tensorium-p2p","version":1,"chain_id":"tensorium-mainnet",
  "node_id":"node-1","height":100,"tip_hash":"..."}
 ```
 
@@ -422,9 +445,11 @@ Ban duration: 1 hour. Persisted to `tensorium-mainnet-banlist.json`.
 
 | Parameter | Value |
 | --- | --- |
-| Chain ID | `tensorium-mainnet-candidate-0` |
+| Chain ID | `tensorium-mainnet` |
 | Target block time | 60 seconds |
-| Initial PoW difficulty | 40 leading zero bits |
+| Initial PoW difficulty | 42 leading zero bits |
+| Min difficulty | 34 leading zero bits |
+| Max difficulty | 58 leading zero bits |
 | Difficulty window | 60 blocks |
 | Max adjustment per window | ±1 bit |
 | Coinbase maturity | 10 blocks |
@@ -459,9 +484,9 @@ HTLCs across chains, enabling **trustless atomic swaps** (e.g. TXM ⇄ wTXM on O
 
 | Service | Primary | Backup |
 |---|---|---|
-| P2P seed | `seed.tensoriumlabs.com:33333` | `mc-rpc2.tensoriumlabs.com:33333` |
-| Public RPC | `https://mc-rpc.tensoriumlabs.com` | `https://mc-rpc2.tensoriumlabs.com` |
-| Stratum pool | `pooltxm.tensoriumlabs.com:3333` | `pool-alt.tensoriumlabs.com:3333` |
+| P2P seed | `seed.tensoriumlabs.com:33333` | — |
+| Public RPC | `https://rpc.tensoriumlabs.com` | Legacy alias: `https://mc-rpc.tensoriumlabs.com` |
+| Stratum pool | `pooltxm.tensoriumlabs.com:3333` | — |
 | Explorer | [explorer.tensoriumlabs.com](https://explorer.tensoriumlabs.com) | — |
 | Pool stats | [pooltxm.tensoriumlabs.com](https://pooltxm.tensoriumlabs.com) | — |
 

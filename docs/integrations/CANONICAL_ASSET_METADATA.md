@@ -30,16 +30,16 @@ If another document disagrees with this file, update the other document.
 | Field | Value |
 | --- | --- |
 | Chain name | Tensorium Mainnet |
-| Chain ID | `tensorium-mainnet-candidate-0` |
+| Chain ID | `tensorium-mainnet` |
 | Native asset | TXM |
-| Consensus | SHA256d Nakamoto PoW |
+| Consensus | TensorHash v1 Nakamoto PoW |
 | State model | UTXO |
 | Block time target | 60 seconds |
 | P2P seed | `seed.tensoriumlabs.com:33333` |
-| Public RPC | `https://mc-rpc.tensoriumlabs.com` |
+| Public RPC | `https://rpc.tensoriumlabs.com` |
 | Public explorer | https://explorer.tensoriumlabs.com |
-| Backup seed | `mc-rpc2.tensoriumlabs.com:33333` |
-| Backup RPC | `https://mc-rpc2.tensoriumlabs.com` |
+| Backup seed | none published |
+| Backup RPC | legacy alias `https://mc-rpc.tensoriumlabs.com` |
 
 ## Wrapped Asset Metadata
 

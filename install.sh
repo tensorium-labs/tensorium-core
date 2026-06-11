@@ -2,12 +2,13 @@
 set -euo pipefail
 
 # ---------------------------------------------------------------------------
-# Tensorium Mainnet Installer
+# Tensorium Mainnet v1 Installer
 # Usage:  curl -fsSL https://raw.githubusercontent.com/tensorium-labs/tensorium-core/main/install.sh | bash
 # ---------------------------------------------------------------------------
 
 REPO="tensorium-labs/tensorium-core"
-VERSION="v0.4.0-mainnet"
+RELEASE_TAG="v0.4.0-mainnet"
+DISPLAY_VERSION="Mainnet v1"
 SEED_NODE="seed.tensoriumlabs.com"
 RPC_PORT="33332"
 P2P_PORT="33333"
@@ -73,9 +74,9 @@ download_binaries() {
     local os arch base_url
     os="$(detect_os)"
     arch="$(detect_arch)"
-    base_url="https://github.com/${REPO}/releases/download/${VERSION}"
+    base_url="https://github.com/${REPO}/releases/download/${RELEASE_TAG}"
 
-    info "Downloading Tensorium ${VERSION} for ${os}-${arch}..."
+    info "Downloading Tensorium ${DISPLAY_VERSION} for ${os}-${arch}..."
 
     # txmminer (CPU) is dev-only and not distributed to end users
     local bins=("tensorium-node" "txmwallet")
@@ -266,7 +267,7 @@ print_summary() {
 
     echo ""
     echo -e "${GREEN}${BOLD}══════════════════════════════════════════════${NC}"
-    echo -e "${GREEN}${BOLD}  Tensorium ${VERSION} installed successfully!${NC}"
+    echo -e "${GREEN}${BOLD}  Tensorium ${DISPLAY_VERSION} installed successfully!${NC}"
     echo -e "${GREEN}${BOLD}══════════════════════════════════════════════${NC}"
     echo ""
     echo -e "  ${BOLD}Network:${NC}      ${CHAIN_ID}"
@@ -288,7 +289,7 @@ print_summary() {
     echo -e "    ${CYAN}# Solo mining (0% fee — full reward to your address):${NC}"
     echo -e "    ${CYAN}tensorium-miner --mode solo --rpc http://127.0.0.1:${RPC_PORT} --wallet ${miner_addr}${NC}"
     echo -e "    ${CYAN}# Pool mining (5% fee — smoothed payouts, no node required):${NC}"
-    echo -e "    ${CYAN}tensorium-miner --mode pool --pool stratum+tcp://pooltxm.tensoriumlabs.com:23336 --wallet ${miner_addr}${NC}"
+    echo -e "    ${CYAN}tensorium-miner --mode pool --pool stratum+tcp://pooltxm.tensoriumlabs.com:3333 --wallet ${miner_addr}${NC}"
     echo ""
     echo -e "  Check chain height:"
     echo -e "    ${CYAN}curl -s http://localhost:${RPC_PORT}/getblockcount${NC}"
@@ -309,8 +310,8 @@ print_summary() {
 
 main() {
     echo ""
-    echo -e "${BOLD}Tensorium Mainnet Installer${NC}"
-    echo -e "Version: ${VERSION} | Chain: ${CHAIN_ID}"
+    echo -e "${BOLD}Tensorium Mainnet v1 Installer${NC}"
+    echo -e "Version: ${DISPLAY_VERSION} | Chain: ${CHAIN_ID}"
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo ""
 

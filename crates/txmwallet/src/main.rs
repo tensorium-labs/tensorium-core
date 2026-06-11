@@ -15,7 +15,7 @@ use tensorium_core::{
     block::{Transaction, TxInput, TxOutput},
     chain::MAINNET,
     script::standard::{
-        cltv_p2pkh_script, extract_multisig, extract_p2sh_hash, htlc_claim_script_sig,
+        cltv_p2pkh_script, extract_p2sh_hash, htlc_claim_script_sig,
         htlc_refund_script_sig, htlc_script, multisig_script, multisig_script_sig,
         p2pkh_from_address, p2pkh_from_pubkey, p2pkh_script_sig, p2sh_address_from_redeem,
         p2sh_multisig_script_sig, p2sh_script_from_redeem,
@@ -1489,6 +1489,7 @@ fn build_signed_payment_via_rpc(
         txid_bytes: Vec<u8>,
         output_index: u32,
         value_atoms: u64,
+        #[allow(dead_code)]
         coinbase: bool,
         mature: bool,
     }

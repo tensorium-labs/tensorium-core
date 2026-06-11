@@ -71,7 +71,7 @@ make test-host
 ./tensorium-miner --mode solo --rpc http://127.0.0.1:33332 --wallet txm1youraddress
 
 # Pool mining
-./tensorium-miner --mode pool --pool stratum+tcp://pool.tensoriumlabs.com:3333 \
+./tensorium-miner --mode pool --pool stratum+tcp://pooltxm.tensoriumlabs.com:3333 \
                   --wallet txm1youraddress --worker rig1
 
 # Standalone modes

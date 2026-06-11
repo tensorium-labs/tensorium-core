@@ -1260,7 +1260,6 @@ fn broadcast_tx_to_peers(tx: &Transaction, state: &ChainState, params: &Consensu
 /// TENSORIUM_NO_DEFAULT_SEEDS is not set.
 const DEFAULT_SEEDS: &[&str] = &[
     "seed.tensoriumlabs.com:33333",
-    "seed2.tensoriumlabs.com:33333",
 ];
 
 fn configured_peers() -> Vec<String> {

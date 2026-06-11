@@ -1,6 +1,6 @@
 # Tensorium (TXM) — CEX/CMC/CoinGecko Listing Package
 
-Last updated: 2026-06-02
+Last updated: 2026-06-11
 
 Canonical source for integrator-facing fields:
 
@@ -19,14 +19,14 @@ Canonical source for integrator-facing fields:
 | **wTXM contract** | `0x2e71FD45530FAe75B6b427F3e71A0CDEB146C20e` (Optimism mainnet, chainId 10) |
 | **Decimals** | 18 |
 | **Max supply** | 33,000,000 TXM |
-| **Circulating supply** | Mined from genesis (public mining, no pre-mine beyond founder 1M) |
-| **Founder allocation** | 1,000,000 TXM (3.03%) — voluntary 24-month lock, max 10%/month |
-| **Mining allocation** | 32,000,000 TXM — block rewards over 10 halving eras (~20 years) |
-| **Block reward** | 15.23557865 TXM/block (Era 1) |
+| **Circulating supply** | Mined from genesis (public mining, zero premine) |
+| **Founder allocation** | 0 TXM in genesis |
+| **Mining allocation** | 33,000,000 TXM — block rewards over 10 halving eras (~20 years) |
+| **Block reward** | 11.90279581 TXM/block (Era 1) |
 | **Halving interval** | 1,051,200 blocks (~2 years) |
-| **Mining algorithm** | SHA256d Proof-of-Work |
+| **Mining algorithm** | TensorHash v1 Proof-of-Work |
 | **Consensus** | Nakamoto PoW, UTXO model |
-| **Launch date** | 2026-06-02 (mainnet genesis: 2026-06-01 00:00:00 UTC) |
+| **Launch date** | 2026-06-11 (mainnet v1 relaunch) |
 | **License** | Apache-2.0 |
 
 ---
@@ -37,13 +37,13 @@ Canonical source for integrator-facing fields:
 Tensorium (TXM) is a GPU-first Proof-of-Work Layer 1 blockchain with transparent tokenomics and open mining.
 
 **Medium (300 chars):**
-Tensorium is a GPU-first Proof-of-Work Layer 1 blockchain — SHA256d consensus, UTXO model, 33M TXM fixed supply. Open to any miner. No pre-sale. No VC allocation. 1M TXM (3%) founder allocation with voluntary 24-month lock. wTXM bridged to Optimism for DEX access.
+Tensorium is a GPU-first Proof-of-Work Layer 1 blockchain — TensorHash v1 consensus, UTXO model, 33M TXM fixed supply. Open to any miner. No pre-sale. No VC allocation. Zero premine on mainnet v1. wTXM bridged to Optimism for DEX access.
 
 **Full:**
-Tensorium is a Proof-of-Work Layer 1 blockchain focused on GPU-first mining, transparent tokenomics, and open infrastructure. Built in Rust, it uses SHA256d hashing, a UTXO transaction model, and a fixed supply of 33,000,000 TXM distributed entirely through mining (minus a 3% founder allocation with voluntary lock).
+Tensorium is a Proof-of-Work Layer 1 blockchain focused on GPU-first mining, transparent tokenomics, and open infrastructure. Built in Rust, it uses TensorHash v1 hashing, a UTXO transaction model, and a fixed supply of 33,000,000 TXM distributed entirely through mining on the relaunched mainnet v1 chain.
 
 Key characteristics:
-- GPU-first: mainnet difficulty is 40 bits — requires RTX 3060+ to mine practically
+- GPU-first: mainnet v1 difficulty starts at 42 bits — requires a modern high-VRAM NVIDIA GPU to mine practically
 - Open mining: no mining pool required — solo mining is fee-free at the protocol level
 - Transparent supply: all emission is on-chain, no hidden minting
 - Bridge: wTXM ERC-20 on Optimism — 2-of-3 multisig operated bridge, enables DEX liquidity
@@ -74,11 +74,11 @@ For wallets, indexers, and listing forms that need one concise reference packet,
 
 | Field | Value |
 |---|---|
-| Mainnet chain ID | `tensorium-mainnet-candidate-0` |
-| RPC endpoint | `https://mc-rpc.tensoriumlabs.com` |
+| Mainnet chain ID | `tensorium-mainnet` |
+| RPC endpoint | `https://rpc.tensoriumlabs.com` |
 | P2P port | 33333 |
 | Seed node | `seed.tensoriumlabs.com:33333` |
-| Backup seed | `139.180.137.144:33333` |
+| Backup seed | same public seed policy; canonical entrypoint is `seed.tensoriumlabs.com:33333` |
 | Node software | `tensorium-node` (Rust, open source) |
 | Wallet | `txmwallet` CLI + Chrome extension |
 | Mining software | `txmminer` (CPU diagnostic/dev), `tensorium-miner` (NVIDIA CUDA, practical mainnet mining) |
@@ -101,20 +101,14 @@ For wallets, indexers, and listing forms that need one concise reference packet,
 
 ```
 Max supply:           33,000,000 TXM (hard cap — no inflation beyond this)
-Founder allocation:    1,000,000 TXM (genesis, 3.03%)
-Mining allocation:    32,000,000 TXM (open PoW mining)
+Founder allocation:            0 TXM (zero premine)
+Mining allocation:    33,000,000 TXM (open PoW mining)
 
-Block reward schedule (SHA256d, 40-bit difficulty):
-  Era 1:  15.23557865 TXM/block  (blocks       0 – 1,051,200)
-  Era 2:   7.61778932 TXM/block  (blocks 1,051,201 – 2,102,400)
-  Era 3:   3.80889466 TXM/block  ...
+Block reward schedule (TensorHash v1, 42-bit launch difficulty):
+  Era 1:  11.90279581 TXM/block  (blocks       0 – 1,051,200)
+  Era 2:   5.95139790 TXM/block  (blocks 1,051,201 – 2,102,400)
+  Era 3:   2.97569895 TXM/block  ...
   (halving every 1,051,200 blocks ≈ 2 years, 10 eras total)
-
-Founder lock:
-  - Voluntary 24-month social lock from genesis
-  - Max 10% of allocation (100,000 TXM) per calendar month
-  - NOT protocol-enforced — social/reputational commitment
-  - All movements visible on-chain at explorer.tensoriumlabs.com
 ```
 
 ---
