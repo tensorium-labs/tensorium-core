@@ -20,7 +20,7 @@ use tensorium_core::{
         p2pkh_from_address, p2pkh_from_pubkey, p2pkh_script_sig, p2sh_address_from_redeem,
         p2sh_multisig_script_sig, p2sh_script_from_redeem,
     },
-    assets::{encode_op, op_return_script, AssetOp},
+    assets::AssetOp,
     settlement::{build_settlement_tx, verify_settlement, SettlementTerms, CARRIER_ATOMS},
     ChainState, UtxoSet, WalletKeypair,
 };
@@ -1372,35 +1372,7 @@ fn build_asset_outputs(
     total_in: u64,
     fee_atoms: u64,
 ) -> Result<Vec<TxOutput>, String> {
-    let dest_atoms = dest.map(|(_, a)| a).unwrap_or(0);
-    let spent = dest_atoms.saturating_add(fee_atoms);
-    if total_in < spent {
-        return Err(format!(
-            "insufficient mature balance: have {total_in}, need {spent} (carrier {dest_atoms} + fee {fee_atoms})"
-        ));
-    }
-
-    let mut outputs = Vec::new();
-    if let Some((addr, atoms)) = dest {
-        outputs.push(TxOutput {
-            value_atoms: atoms,
-            script_pubkey: p2pkh_from_address(addr)
-                .map_err(|_| format!("invalid recipient address: {addr}"))?,
-        });
-    }
-    outputs.push(TxOutput {
-        value_atoms: 0,
-        script_pubkey: op_return_script(&encode_op(op)),
-    });
-    let change = total_in - dest_atoms - fee_atoms;
-    if change > 0 {
-        outputs.push(TxOutput {
-            value_atoms: change,
-            script_pubkey: p2pkh_from_address(change_addr)
-                .map_err(|_| "invalid wallet address".to_owned())?,
-        });
-    }
-    Ok(outputs)
+    tensorium_core::assets::build_outputs(op, dest, change_addr, total_in, fee_atoms)
 }
 
 /// Fund an asset tx from the wallet's own mature UTXOs (so `inputs[0]` is the
