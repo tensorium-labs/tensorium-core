@@ -7,10 +7,20 @@
 #include <sys/socket.h>
 #include <netdb.h>
 #include <time.h>
+#include <openssl/ssl.h>
+#include <openssl/err.h>
 
 #define RPC_BUF (1 << 20)   /* 1 MB */
 
-// ── TCP helpers ──────────────────────────────────────────────────────────────
+// ── TCP / TLS helpers ───────────────────────────────────────────────────────
+
+/* Either a plain TCP socket (ssl == NULL) or a TLS connection (ssl != NULL,
+   sock still owns the underlying fd for cleanup). */
+typedef struct {
+    int  sock;
+    SSL *ssl;
+    SSL_CTX *ctx;
+} Conn;
 
 static int tcp_connect(const char *host, const char *port) {
     struct addrinfo hints, *res;
@@ -30,21 +40,59 @@ static int tcp_connect(const char *host, const char *port) {
     return s;
 }
 
-static int http_get(const char *host, const char *port, const char *path,
-                    char *buf, int buf_len) {
-    int s = tcp_connect(host, port);
-    if (s < 0) return 0;
+/* Opens a connection, performing a TLS handshake (with SNI) when use_tls. */
+static int conn_open(const char *host, const char *port, int use_tls, Conn *c) {
+    memset(c, 0, sizeof(*c));
+    c->sock = tcp_connect(host, port);
+    if (c->sock < 0) return 0;
+    if (!use_tls) return 1;
+
+    c->ctx = SSL_CTX_new(TLS_client_method());
+    if (!c->ctx) { close(c->sock); return 0; }
+    SSL_CTX_set_verify(c->ctx, SSL_VERIFY_NONE, NULL);
+
+    c->ssl = SSL_new(c->ctx);
+    if (!c->ssl) { SSL_CTX_free(c->ctx); close(c->sock); return 0; }
+    SSL_set_tlsext_host_name(c->ssl, host); /* SNI */
+    SSL_set_fd(c->ssl, c->sock);
+    if (SSL_connect(c->ssl) != 1) {
+        SSL_free(c->ssl); SSL_CTX_free(c->ctx); close(c->sock);
+        return 0;
+    }
+    return 1;
+}
+
+static int conn_send(Conn *c, const char *buf, int len) {
+    if (c->ssl) return SSL_write(c->ssl, buf, len);
+    return (int)send(c->sock, buf, len, 0);
+}
+
+static int conn_recv(Conn *c, char *buf, int len) {
+    if (c->ssl) return SSL_read(c->ssl, buf, len);
+    return (int)recv(c->sock, buf, len, 0);
+}
+
+static void conn_close(Conn *c) {
+    if (c->ssl) { SSL_shutdown(c->ssl); SSL_free(c->ssl); }
+    if (c->ctx) SSL_CTX_free(c->ctx);
+    if (c->sock >= 0) close(c->sock);
+}
+
+static int http_get(const char *host, const char *port, int use_tls,
+                    const char *path, char *buf, int buf_len) {
+    Conn c;
+    if (!conn_open(host, port, use_tls, &c)) return 0;
     char req[512];
     int rlen = snprintf(req, sizeof(req),
-        "GET %s HTTP/1.1\r\nHost: %s:%s\r\nConnection: close\r\n\r\n",
-        path, host, port);
-    send(s, req, rlen, 0);
+        "GET %s HTTP/1.1\r\nHost: %s\r\nConnection: close\r\n\r\n",
+        path, host);
+    conn_send(&c, req, rlen);
     int total = 0, n;
     char tmp[4096];
-    while ((n = recv(s, tmp, sizeof(tmp), 0)) > 0) {
+    while ((n = conn_recv(&c, tmp, sizeof(tmp))) > 0) {
         if (total + n < buf_len) { memcpy(buf + total, tmp, n); total += n; }
     }
-    close(s);
+    conn_close(&c);
     buf[total] = '\0';
     char *body = strstr(buf, "\r\n\r\n");
     if (!body) return 0;
@@ -192,30 +240,31 @@ static int replace_header_nonce(const char *block_json, uint64_t nonce,
     return written > 0 && written < out_len;
 }
 
-static int http_post_json(const char *host, const char *port, const char *path,
-                          const char *body, char *buf, int buf_len) {
-    int s = tcp_connect(host, port);
-    if (s < 0) return 0;
+static int http_post_json(const char *host, const char *port, int use_tls,
+                          const char *path, const char *body,
+                          char *buf, int buf_len) {
+    Conn c;
+    if (!conn_open(host, port, use_tls, &c)) return 0;
 
     char head[512];
     int hlen = snprintf(head, sizeof(head),
-        "POST %s HTTP/1.1\r\nHost: %s:%s\r\nContent-Type: application/json\r\n"
+        "POST %s HTTP/1.1\r\nHost: %s\r\nContent-Type: application/json\r\n"
         "Content-Length: %zu\r\nConnection: close\r\n\r\n",
-        path, host, port, strlen(body));
-    if (send(s, head, hlen, 0) < 0 || send(s, body, strlen(body), 0) < 0) {
-        close(s);
+        path, host, strlen(body));
+    if (conn_send(&c, head, hlen) < 0 || conn_send(&c, body, (int)strlen(body)) < 0) {
+        conn_close(&c);
         return 0;
     }
 
     int total = 0, n;
     char tmp[4096];
-    while ((n = recv(s, tmp, sizeof(tmp), 0)) > 0) {
+    while ((n = conn_recv(&c, tmp, sizeof(tmp))) > 0) {
         if (total + n < buf_len) {
             memcpy(buf + total, tmp, n);
             total += n;
         }
     }
-    close(s);
+    conn_close(&c);
     buf[total] = '\0';
 
     char *body_start = strstr(buf, "\r\n\r\n");
@@ -232,11 +281,11 @@ static char s_rpc_buf[RPC_BUF];
 /* Stores raw template JSON: {"header":{...},"transactions":[...]} for submitblock */
 static char s_template_json[RPC_BUF];
 
-static int fetch_template(const char *host, const char *port,
+static int fetch_template(const char *host, const char *port, int use_tls,
                            const char *wallet, JobDesc *job) {
     char path[256];
     snprintf(path, sizeof(path), "/getblocktemplate/%s", wallet);
-    if (!http_get(host, port, path, s_rpc_buf, sizeof(s_rpc_buf))) return 0;
+    if (!http_get(host, port, use_tls, path, s_rpc_buf, sizeof(s_rpc_buf))) return 0;
 
     /* Navigate into template.header */
     const char *hdr = strstr(s_rpc_buf, "\"header\"");
@@ -280,7 +329,7 @@ static int fetch_template(const char *host, const char *port,
 
 // ── Block submit ───────────────────────────────────────────────────────────────
 
-static int submit_block(const char *host, const char *port,
+static int submit_block(const char *host, const char *port, int use_tls,
                         const JobDesc *job, uint64_t nonce) {
     /* Submit the cached template JSON with nonce replaced.
        s_template_json = {"header":{...,"nonce":0,...},"transactions":[...]}
@@ -297,7 +346,7 @@ static int submit_block(const char *host, const char *port,
     }
 
     char resp[1024] = {0};
-    if (!http_post_json(host, port, "/submitblock", submit_json, resp, sizeof(resp))) {
+    if (!http_post_json(host, port, use_tls, "/submitblock", submit_json, resp, sizeof(resp))) {
         fprintf(stderr, "[solo] submitblock HTTP request failed\n");
         return 0;
     }
@@ -338,6 +387,7 @@ int build_header(const JobDesc *job, uint64_t nonce, uint8_t out[HEADER_MAX]) {
 void solo_client_run(const MinerConfig *cfg, SharedState *state) {
     const char *host = cfg->rpc_host;
     const char *port = cfg->rpc_port;
+    int use_tls = cfg->rpc_use_tls;
 
     JobDesc job;
     memset(&job, 0, sizeof(job));
@@ -345,7 +395,7 @@ void solo_client_run(const MinerConfig *cfg, SharedState *state) {
     job.share_bits = 0; /* will be set from difficulty_bits after fetch */
 
     /* Fetch first template with retries */
-    while (state->running && !fetch_template(host, port, cfg->wallet, &job)) {
+    while (state->running && !fetch_template(host, port, use_tls, cfg->wallet, &job)) {
         fprintf(stderr, "[solo] failed to get template — retrying in 3s\n");
         fflush(stderr);
         sleep(3);
@@ -379,7 +429,7 @@ void solo_client_run(const MinerConfig *cfg, SharedState *state) {
                        (unsigned long long)job.height,
                        (unsigned long long)share.nonce, share.gpu_id);
                 fflush(stdout);
-                if (submit_block(host, port, &job, share.nonce))
+                if (submit_block(host, port, use_tls, &job, share.nonce))
                     printf("[solo] block submitted OK — fetching new template\n");
                 else
                     fprintf(stderr, "[solo] block submission failed\n");
@@ -389,7 +439,7 @@ void solo_client_run(const MinerConfig *cfg, SharedState *state) {
                 JobDesc fresh;
                 memset(&fresh, 0, sizeof(fresh));
                 for (int r = 0; r < 5 && state->running; r++) {
-                    if (fetch_template(host, port, cfg->wallet, &fresh)) {
+                    if (fetch_template(host, port, use_tls, cfg->wallet, &fresh)) {
                         fresh.share_bits = fresh.difficulty_bits;
                         job = fresh;
                         last_height = job.height;
@@ -418,7 +468,7 @@ void solo_client_run(const MinerConfig *cfg, SharedState *state) {
                case so job and template stay in lockstep. */
             static char tmpl_backup[RPC_BUF];
             memcpy(tmpl_backup, s_template_json, sizeof(tmpl_backup));
-            if (fetch_template(host, port, cfg->wallet, &fresh)) {
+            if (fetch_template(host, port, use_tls, cfg->wallet, &fresh)) {
                 if (fresh.height != last_height ||
                     memcmp(fresh.previous_hash, job.previous_hash, 32) != 0) {
                     fresh.share_bits = fresh.difficulty_bits;

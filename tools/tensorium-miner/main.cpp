@@ -21,7 +21,8 @@ static void print_usage(const char *prog) {
     fprintf(stderr,
         "Tensorium Miner v" TENSORIUM_MINER_VERSION "\n\n"
         "Solo mode:\n"
-        "  %s --mode solo --rpc http://HOST:PORT --wallet ADDR [options]\n\n"
+        "  %s --mode solo --rpc http://HOST:PORT --wallet ADDR [options]\n"
+        "  %s --mode solo --rpc https://HOST --wallet ADDR [options]  (TLS, default port 443)\n\n"
         "Pool mode:\n"
         "  %s --mode pool --pool stratum+tcp://HOST:PORT --wallet ADDR [options]\n\n"
         "Standalone modes:\n"
@@ -36,7 +37,7 @@ static void print_usage(const char *prog) {
         "  --share-diff N       pool share difficulty (default: %llu)\n\n"
         "Backward-compat (legacy positional syntax):\n"
         "  %s HOST:PORT ADDR [device_id] [cuda_blocks] [cuda_threads]\n",
-        prog, prog, prog, prog, prog, (unsigned long long)DEFAULT_SHARE_DIFF, prog);
+        prog, prog, prog, prog, prog, prog, (unsigned long long)DEFAULT_SHARE_DIFF, prog);
 }
 
 /* intensity 1-10 → cuda_blocks, cuda_threads */
@@ -173,7 +174,13 @@ int main(int argc, char *argv[]) {
         }
         else if (strcmp(argv[i], "--rpc") == 0) {
             const char *url = NEXTARG();
-            if (strncmp(url, "http://", 7) == 0) url += 7;
+            cfg.rpc_use_tls = 0;
+            if (strncmp(url, "https://", 8) == 0) {
+                url += 8;
+                cfg.rpc_use_tls = 1;
+            } else if (strncmp(url, "http://", 7) == 0) {
+                url += 7;
+            }
             const char *c = strrchr(url, ':');
             if (c) {
                 int hl = (int)(c - url);
@@ -183,10 +190,11 @@ int main(int argc, char *argv[]) {
                 }
                 strncpy(cfg.rpc_port, c + 1, sizeof(cfg.rpc_port) - 1);
             } else {
-                /* No port in URL (e.g. http://mc-rpc.tensoriumlabs.com) — use port 80 */
+                /* No port in URL — use 443 for https://, 80 for http:// */
                 strncpy(cfg.rpc_host, url, sizeof(cfg.rpc_host) - 1);
                 cfg.rpc_host[sizeof(cfg.rpc_host) - 1] = '\0';
-                strncpy(cfg.rpc_port, "80", sizeof(cfg.rpc_port) - 1);
+                strncpy(cfg.rpc_port, cfg.rpc_use_tls ? "443" : "80",
+                        sizeof(cfg.rpc_port) - 1);
             }
         }
         else if (strcmp(argv[i], "--pool") == 0) {
@@ -308,7 +316,8 @@ run:;
     /* ── Print banner ── */
     printf("tensorium-miner v" TENSORIUM_MINER_VERSION " — %d GPU(s)\n\n", gpu_count);
     if (cfg.mode == MODE_SOLO) {
-        printf("mode=solo  rpc=%s:%s  wallet=%.24s...\n\n",
+        printf("mode=solo  rpc=%s://%s:%s  wallet=%.24s...\n\n",
+               cfg.rpc_use_tls ? "https" : "http",
                cfg.rpc_host, cfg.rpc_port, cfg.wallet);
     } else {
         printf("mode=pool  pool=%s:%s  worker=%s  share_diff=%llu\n\n",

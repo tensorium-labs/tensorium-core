@@ -16,6 +16,7 @@ endif
 NVCCFLAGS := -arch=$(ARCH) -O3 -Xcompiler "-O3 -pthread" \
              -Xptxas -O3,--warn-on-spills
 CXXFLAGS  := -O3 -Wall -std=c++11 -pthread
+LDLIBS    += -lssl -lcrypto
 
 SRCS_CU  := gpu_worker.cu tensorhash_kernel.cu
 SRCS_CPP := main.cpp solo_client.cpp stratum_client.cpp modes.cpp host_tensorhash.cpp

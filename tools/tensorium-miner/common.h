@@ -23,6 +23,7 @@ typedef struct {
     MiningMode  mode;
     char        rpc_host[128];
     char        rpc_port[16];
+    int         rpc_use_tls;  /* 1 if --rpc was https:// (or default port 443) */
     char        pool_host[128];
     char        pool_port[16];
     char        wallet[ADDR_LEN];
