@@ -28,8 +28,8 @@ cd tools/tensorium-miner
 make
 
 # Or specify GPU architecture explicitly
-make ARCH=sm_86    # RTX 3090 (Ampere)
-make ARCH=sm_89    # RTX 4090 (Ada)
+make ARCH=sm_86    # RTX 3090 / 3090 Ti
+make ARCH=sm_89    # RTX 4090
 make ARCH=sm_80    # A100 80GB
 make ARCH=sm_90    # H100 / H200
 make ARCH=sm_120   # RTX 5090 (Blackwell, CUDA 12+/13+)
@@ -67,8 +67,11 @@ make test-host
 ## Usage
 
 ```bash
-# Solo mining (full network difficulty)
+# Solo mining against your own node
 ./tensorium-miner --mode solo --rpc http://127.0.0.1:33332 --wallet txm1youraddress
+
+# Solo mining against the public miner-compatible endpoint
+./tensorium-miner --mode solo --rpc http://mc-rpc.tensoriumlabs.com --wallet txm1youraddress
 
 # Pool mining
 ./tensorium-miner --mode pool --pool stratum+tcp://pooltxm.tensoriumlabs.com:3333 \
@@ -87,6 +90,11 @@ make test-host
 #   --share-diff N      pool share difficulty
 #   --start-nonce N     genesis mode: nonce search start offset
 ```
+
+> `rpc.tensoriumlabs.com` is the canonical public HTTPS RPC for wallets and
+> integrations. The miner currently uses plain HTTP and does not follow HTTPS
+> redirects, so public solo mining must use `http://mc-rpc.tensoriumlabs.com`
+> for now.
 
 ## Genesis mining workflow
 

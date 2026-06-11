@@ -13,23 +13,41 @@ A Proof-of-Work blockchain built in Rust — live mainnet and CUDA mining.
 [![Explorer](https://img.shields.io/badge/Explorer-Live-green)](https://explorer.tensoriumlabs.com)
 [![Release](https://img.shields.io/badge/Release-Mainnet%20v1-orange)](https://github.com/tensorium-labs/tensorium-core/releases/latest)
 
-## Install (Linux x86_64)
+## Install
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/tensorium-labs/tensorium-core/main/install.sh | bash
 ```
 
-The installer is now mainnet-first: it downloads binaries, creates a wallet, initializes `tensorium-mainnet`, syncs from the seed node, and optionally sets up systemd services.
+The installer is mainnet-first: it downloads `tensorium-node` + `txmwallet`,
+creates a wallet, initializes `tensorium-mainnet`, syncs from
+`seed.tensoriumlabs.com:33333`, and can install systemd services.
+
+Supported targets:
+
+- Linux `x86_64`
+- Linux `aarch64`
+- macOS `x86_64`
+- macOS `aarch64`
 
 ### GitHub Install Paths
 
-**One-liner node + wallet install:**
+**1. One-liner node + wallet install**
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/tensorium-labs/tensorium-core/main/install.sh | bash
 ```
 
-**Clone from GitHub and build the Rust binaries manually:**
+After the installer finishes, the essential checks are:
+
+```bash
+curl -s http://127.0.0.1:33332/getblockcount
+TENSORIUM_WALLET="$HOME/tensorium-mainnet-node/wallet.json" \
+TENSORIUM_WALLET_PASSPHRASE='<your-passphrase>' \
+txmwallet getnewaddress
+```
+
+**2. Build node + wallet manually from GitHub**
 
 ```bash
 git clone https://github.com/tensorium-labs/tensorium-core.git
@@ -41,7 +59,7 @@ cargo build --release
 # target/release/txmwallet
 ```
 
-**One-liner miner build from GitHub on a CUDA box:**
+**3. Build the GPU miner on a CUDA box**
 
 ```bash
 git clone https://github.com/tensorium-labs/tensorium-core.git && \
@@ -53,16 +71,18 @@ make && \
 | Binary | Role |
 | --- | --- |
 | `tensorium-node` | Full node (RPC + P2P) |
-| `tensorium-miner` | **GPU miner v2** — NVIDIA CUDA, RTX 3000/4000/5000+, Stratum pool + solo |
+| `tensorium-miner` | **GPU miner** — NVIDIA CUDA, RTX 3090+/A100/H100 class, Stratum pool + solo |
 | `txmwallet` | Wallet CLI |
 
 Or download directly from [Releases](https://github.com/tensorium-labs/tensorium-core/releases).
 
 ### Mining Topology
 
-`tensorium-miner` (v2) is the recommended production miner for mainnet. Mainnet v1 initial difficulty (42 leading zero bits) requires a GPU; CPU cannot mine at this difficulty.
+`tensorium-miner` is the recommended production miner for mainnet. Mainnet v1 initial difficulty (42 leading zero bits) requires a GPU; CPU cannot mine at this difficulty.
 
-**Pool mining (Stratum — recommended, 5% fee, PPLNS, no node needed):**
+**Pool mining (recommended)**
+
+Use this when you want the fastest working path. No local node required.
 
 ```bash
 tensorium-miner \
@@ -77,9 +97,9 @@ Pool stats and payout history: https://pooltxm.tensoriumlabs.com
 Fee: **5%** of block reward. Reward method: **PPLNS** (last 4096 shares, difficulty-weighted).  
 Treasury: `txm1px2nmtp087mz8dv3lplqadwzxawk0c5kg0mt24`
 
-**Solo mining (0% fee — full block reward to your address):**
+**Solo mining**
 
-No local node needed — connect directly to the public miner-compatible RPC:
+For public solo mining, use the miner-compatible HTTP endpoint:
 
 ```bash
 tensorium-miner \
@@ -101,7 +121,7 @@ tensorium-miner --mode solo --rpc http://127.0.0.1:33332 --wallet YOUR_TXM_ADDRE
 
 ### GPU Miner — Architecture Guide
 
-**Build from source (recommended — takes ~2 min on any machine with CUDA + gcc):**
+**Build from source (recommended)**
 
 ```bash
 # Prerequisites: CUDA toolkit + gcc (standard on Vast.ai, RunPod, etc.)
@@ -112,9 +132,9 @@ cd tensorium-core/tools/tensorium-miner
 make
 
 # Or specify manually:
-make ARCH=sm_86    # RTX 3060 / 3070 / 3080 / 3090
-make ARCH=sm_89    # RTX 4060 / 4070 / 4080 / 4090
-make ARCH=sm_120   # RTX 5060 Ti / 5070 / 5080 / 5090 (Blackwell)
+make ARCH=sm_86    # RTX 3090 / 3090 Ti
+make ARCH=sm_89    # RTX 4090
+make ARCH=sm_120   # RTX 5090
 make ARCH=sm_90    # H100 / H200
 make ARCH=sm_80    # A100
 
@@ -122,41 +142,48 @@ make ARCH=sm_80    # A100
 sudo make install
 # Or manually: sudo mv tensorium-miner /usr/local/bin/
 
+# Self-check before mining:
+./tensorium-miner --selftest
+
 # Run (pool):
-tensorium-miner --mode pool --pool stratum+tcp://pooltxm.tensoriumlabs.com:3333 --wallet YOUR_ADDRESS --gpu all
+tensorium-miner --mode pool --pool stratum+tcp://pooltxm.tensoriumlabs.com:3333 --wallet YOUR_ADDRESS --worker rig1 --gpu all
+
+# Run (solo, public endpoint):
+tensorium-miner --mode solo --rpc http://mc-rpc.tensoriumlabs.com --wallet YOUR_ADDRESS --gpu all
 ```
 
-**Download pre-built binary:**
+**Prebuilt miner binaries**
 
 ```bash
 # Find your GPU architecture:
 nvidia-smi --query-gpu=compute_cap --format=csv,noheader
 # Output like "8.6" → sm_86, "8.9" → sm_89, "12.0" → sm_120
 
-# RTX 3060/3070/3080/3090 (sm_86):
+# RTX 3090 / 3090 Ti (sm_86):
 curl -fsSL -o tensorium-miner \
   https://github.com/tensorium-labs/tensorium-core/releases/latest/download/tensorium-miner-linux-x86_64-sm86
 chmod +x tensorium-miner && sudo mv tensorium-miner /usr/local/bin/
 
-# RTX 4060/4070/4080/4090 (sm_89):
+# RTX 4090 (sm_89):
 curl -fsSL -o tensorium-miner \
   https://github.com/tensorium-labs/tensorium-core/releases/latest/download/tensorium-miner-linux-x86_64-sm89
 chmod +x tensorium-miner && sudo mv tensorium-miner /usr/local/bin/
 
-# RTX 5060 Ti / 5070 / 5080 / 5090 / Blackwell (sm_120):
+# RTX 5090 (sm_120):
 curl -fsSL -o tensorium-miner \
   https://github.com/tensorium-labs/tensorium-core/releases/latest/download/tensorium-miner-linux-x86_64-sm120
 chmod +x tensorium-miner && sudo mv tensorium-miner /usr/local/bin/
+
+# Always selftest after install:
+tensorium-miner --selftest
 ```
 
 | GPU | Arch | Hashrate | Avg Block Time (diff 40) |
 | --- | --- | --- | --- |
-| RTX 3060 | sm_86 | ~380 MH/s | ~48 min |
-| RTX 3080 | sm_86 | ~1.2 GH/s | ~15 min |
+| RTX 3090 | sm_86 | TBD | TBD |
 | RTX 4090 | sm_89 | ~2.5 GH/s | ~7 min |
-| RTX 5060 Ti | sm_120 | ~1.6 GH/s | ~11 min |
-| RTX 5090 | sm_120 | ~8 GH/s | ~2.3 min |
-| H100 SXM | sm_90 | ~2 GH/s | ~9 min |
+| RTX 5090 | sm_120 | ~220.31 MH/s (measured) | hardware/network dependent |
+| H100 SXM | sm_90 | TBD | TBD |
 
 Pool mining (PPLNS) smooths payouts across participants — rewards are split proportionally by share contribution in the last 4096 shares. Recommended for GPUs with longer solo block times.
 
@@ -228,21 +255,29 @@ cargo test
 ### Option A — Mine without running a node (fastest)
 
 ```bash
-# 1. Download and install the miner (build from source — see GPU Miner section below)
+# 1. Build and install the miner
 git clone https://github.com/tensorium-labs/tensorium-core.git
 cd tensorium-core/tools/tensorium-miner && make && sudo mv tensorium-miner /usr/local/bin/
 
 # 2. Create a wallet
 curl -fsSL https://raw.githubusercontent.com/tensorium-labs/tensorium-core/main/install.sh | bash
-# (install.sh also installs txmwallet and tensorium-node)
-TENSORIUM_WALLET_PASSPHRASE=yourpass txmwallet create
-txmwallet getnewaddress   # copy your TXM address
+# (this installs txmwallet and creates $HOME/tensorium-mainnet-node/wallet.json)
 
-# 3. Pool mining — Stratum, 5% fee, no node required
+# 3. Check the wallet address
+TENSORIUM_WALLET="$HOME/tensorium-mainnet-node/wallet.json" \
+TENSORIUM_WALLET_PASSPHRASE='<your-passphrase>' \
+txmwallet getnewaddress
+
+# 4. Run the miner selftest
+tensorium-miner --selftest
+
+# 5. Pool mining — Stratum, 5% fee, no node required
 tensorium-miner --mode pool \
   --pool stratum+tcp://pooltxm.tensoriumlabs.com:3333 \
   --wallet YOUR_TXM_ADDRESS \
+  --worker rig1 \
   --gpu all
+
 # Or: Solo mining — 0% fee, uses public node (no local node required)
 tensorium-miner --mode solo \
   --rpc http://mc-rpc.tensoriumlabs.com \
@@ -256,18 +291,20 @@ tensorium-miner --mode solo \
 # 1. Install all binaries
 curl -fsSL https://raw.githubusercontent.com/tensorium-labs/tensorium-core/main/install.sh | bash
 
-# 2. Initialize and start mainnet node (RPC + P2P in one process)
-tensorium-node init
+# 2. Start the node (RPC + P2P in one process)
 tensorium-node daemon          # default: RPC 127.0.0.1:33332, P2P 0.0.0.0:33333
 
-# 3. Create a wallet
-TENSORIUM_WALLET_PASSPHRASE=yourpass txmwallet create
+# 3. Show the wallet address created by install.sh
+TENSORIUM_WALLET="$HOME/tensorium-mainnet-node/wallet.json" \
+TENSORIUM_WALLET_PASSPHRASE='<your-passphrase>' \
 txmwallet getnewaddress
 
 # 4. Mine against your own node (0% fee)
 tensorium-miner --mode solo --rpc http://127.0.0.1:33332 --wallet YOUR_ADDRESS --gpu all
 
 # Check balance (coinbase matures after 10 confirmations)
+TENSORIUM_WALLET="$HOME/tensorium-mainnet-node/wallet.json" \
+TENSORIUM_WALLET_PASSPHRASE='<your-passphrase>' \
 txmwallet balance
 ```
 
@@ -490,7 +527,7 @@ HTLCs across chains, enabling **trustless atomic swaps** (e.g. TXM ⇄ wTXM on O
 | Service | Primary | Backup |
 |---|---|---|
 | P2P seed | `seed.tensoriumlabs.com:33333` | — |
-| Public RPC | `https://rpc.tensoriumlabs.com` | Legacy alias: `https://mc-rpc.tensoriumlabs.com` |
+| Public RPC | `https://rpc.tensoriumlabs.com` | Miner-compatible HTTP: `http://mc-rpc.tensoriumlabs.com` |
 | Stratum pool | `pooltxm.tensoriumlabs.com:3333` | — |
 | Explorer | [explorer.tensoriumlabs.com](https://explorer.tensoriumlabs.com) | — |
 | Pool stats | [pooltxm.tensoriumlabs.com](https://pooltxm.tensoriumlabs.com) | — |
