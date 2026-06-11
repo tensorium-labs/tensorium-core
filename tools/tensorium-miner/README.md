@@ -32,7 +32,7 @@ make ARCH=sm_86    # RTX 3090 (Ampere)
 make ARCH=sm_89    # RTX 4090 (Ada)
 make ARCH=sm_80    # A100 80GB
 make ARCH=sm_90    # H100 / H200
-make ARCH=sm_100   # RTX 5090 (Blackwell, needs CUDA 12.8+)
+make ARCH=sm_120   # RTX 5090 (Blackwell, CUDA 12+/13+)
 ```
 
 | GPU | VRAM | `ARCH` |
@@ -41,7 +41,7 @@ make ARCH=sm_100   # RTX 5090 (Blackwell, needs CUDA 12.8+)
 | RTX 4090 | 24 GB | `sm_89` |
 | A100 | 80 GB | `sm_80` |
 | H100 / H200 | 80/141 GB | `sm_90` |
-| RTX 5090 | 32 GB | `sm_100` |
+| RTX 5090 | 32 GB | `sm_120` |
 
 ## First run — selftest
 
