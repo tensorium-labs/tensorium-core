@@ -1303,20 +1303,20 @@ mod tests {
     fn normalize_bare_host_port_gets_http_scheme() {
         assert_eq!(normalize_rpc_url("127.0.0.1:33332"), "http://127.0.0.1:33332");
         assert_eq!(
-            normalize_rpc_url("mc-rpc.tensoriumlabs.com:80"),
-            "http://mc-rpc.tensoriumlabs.com:80"
+            normalize_rpc_url("rpc.tensoriumlabs.com:80"),
+            "http://rpc.tensoriumlabs.com:80"
         );
     }
 
     #[test]
     fn normalize_keeps_explicit_scheme_and_trims_trailing_slash() {
         assert_eq!(
-            normalize_rpc_url("https://mc-rpc.tensoriumlabs.com"),
-            "https://mc-rpc.tensoriumlabs.com"
+            normalize_rpc_url("https://rpc.tensoriumlabs.com"),
+            "https://rpc.tensoriumlabs.com"
         );
         assert_eq!(
-            normalize_rpc_url("https://mc-rpc.tensoriumlabs.com/"),
-            "https://mc-rpc.tensoriumlabs.com"
+            normalize_rpc_url("https://rpc.tensoriumlabs.com/"),
+            "https://rpc.tensoriumlabs.com"
         );
         assert_eq!(normalize_rpc_url("http://host:8080"), "http://host:8080");
     }
