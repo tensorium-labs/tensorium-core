@@ -70,6 +70,16 @@ pub fn route(idx: &Indexer, method: &str, path: &str) -> (u16, Value) {
                 .collect();
             (200, json!({ "assets": list }))
         }
+        ("GET", ["outpoint", txid, vout]) => match vout.parse::<u32>() {
+            Ok(v) => {
+                let key = format!("{txid}:{v}");
+                match idx.outpoints.get(&key) {
+                    Some(addr) => (200, json!({ "outpoint": key, "address": addr })),
+                    None => (404, json!({ "error": "outpoint not indexed" })),
+                }
+            }
+            Err(_) => (400, json!({ "error": "bad vout" })),
+        },
         _ => (404, json!({ "error": "not found" })),
     }
 }
@@ -198,6 +208,26 @@ mod tests {
         let (code, body) = route(&idx, "GET", &format!("/nft/{nft}/owner"));
         assert_eq!(code, 200);
         assert_eq!(body["owner"], "txm1alice");
+    }
+
+    #[test]
+    fn outpoint_route_resolves_owner_and_404s() {
+        use crate::index::Indexer;
+        let mut idx = Indexer::default();
+        // Seed the outpoints map directly: output "<64 hex>:0" owned by alice.
+        let txid_hex = "aa".repeat(32);
+        idx.outpoints.insert(format!("{txid_hex}:0"), "txm1alice".to_string());
+
+        let (code, body) = route(&idx, "GET", &format!("/outpoint/{txid_hex}/0"));
+        assert_eq!(code, 200);
+        assert_eq!(body["address"], "txm1alice");
+        assert_eq!(body["outpoint"], format!("{txid_hex}:0"));
+
+        let (code404, _) = route(&idx, "GET", &format!("/outpoint/{txid_hex}/9"));
+        assert_eq!(code404, 404);
+
+        let (code400, _) = route(&idx, "GET", &format!("/outpoint/{txid_hex}/notanumber"));
+        assert_eq!(code400, 400);
     }
 
     #[test]
