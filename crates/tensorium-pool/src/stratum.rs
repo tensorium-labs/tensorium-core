@@ -435,13 +435,23 @@ fn handle_stratum_conn(
     let peer_addr = stream.peer_addr()
         .map(|a| a.to_string()).unwrap_or_else(|_| "unknown".to_string());
 
+    let cleanup = |state: &Arc<Mutex<StratumState>>, connection_id: &str, peer_addr: &str| {
+        let mut s = state.lock().unwrap();
+        s.workers.remove(connection_id);
+        s.job_senders.remove(connection_id);
+        eprintln!("[stratum] disconnected {}", peer_addr);
+    };
+
     // Short read timeout so we can send proactive pings between shares.
     stream.set_read_timeout(Some(Duration::from_secs(5))).ok();
     stream.set_write_timeout(Some(Duration::from_secs(10))).ok();
 
     let mut writer = match stream.try_clone() {
         Ok(w) => w,
-        Err(_) => { state.lock().unwrap().job_senders.remove(&connection_id); return; }
+        Err(_) => {
+            cleanup(&state, &connection_id, &peer_addr);
+            return;
+        }
     };
     let reader = BufReader::new(stream);
 
@@ -461,7 +471,7 @@ fn handle_stratum_conn(
                         .unwrap_or(bits_to_diff(s.share_diff_bits))
                 };
                 if !send_line(&mut writer, &notify_msg(&job, diff)) {
-                    state.lock().unwrap().job_senders.remove(&connection_id);
+                    cleanup(&state, &connection_id, &peer_addr);
                     return;
                 }
                 last_job_id = job.job_id.clone();
@@ -474,7 +484,7 @@ fn handle_stratum_conn(
                    || e.kind() == std::io::ErrorKind::TimedOut => {
                 if authorized && last_ping.elapsed().as_secs() >= 5 {
                     if !send_line(&mut writer, &json!({"id":null,"method":"mining.ping","params":[]})) {
-                        state.lock().unwrap().job_senders.remove(&connection_id);
+                        cleanup(&state, &connection_id, &peer_addr);
                         return;
                     }
                     last_ping = Instant::now();
@@ -707,7 +717,7 @@ fn handle_stratum_conn(
                                     "method": "mining.set_difficulty",
                                     "params": [new_diff],
                                 })) {
-                                    state.lock().unwrap().job_senders.remove(&connection_id);
+                                    cleanup(&state, &connection_id, &peer_addr);
                                     return;
                                 }
 
@@ -718,7 +728,7 @@ fn handle_stratum_conn(
                                 let maybe_job = state.lock().unwrap().current_job.clone();
                                 if let Some(ref job) = maybe_job {
                                     if !send_line(&mut writer, &notify_msg(job, new_diff)) {
-                                        state.lock().unwrap().job_senders.remove(&connection_id);
+                                        cleanup(&state, &connection_id, &peer_addr);
                                         return;
                                     }
                                     // Don't update last_job_id — same job_id, only diff changed.
@@ -745,16 +755,16 @@ fn handle_stratum_conn(
                 if !send_line(&mut writer, &json!({"id":id,"result":result,"error":null})) { break; }
             }
 
-            "mining.pong" => { /* keep-alive response — no action needed */ }
+            "mining.pong" => {
+                if let Some(w) = state.lock().unwrap().workers.get_mut(&connection_id) {
+                    w.last_seen_at_unix = unix_now();
+                }
+            }
             _ => {}
         }
     }
 
-    // Clean up on disconnect.
-    let mut s = state.lock().unwrap();
-    s.workers.remove(&connection_id);
-    s.job_senders.remove(&connection_id);
-    eprintln!("[stratum] disconnected {}", peer_addr);
+    cleanup(&state, &connection_id, &peer_addr);
 }
 
 // ── Job poller + broadcaster ───────────────────────────────────────────────────
