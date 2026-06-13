@@ -37,14 +37,31 @@
 .lookup input:focus { outline: none; border-color: var(--orange); }
 .lookup-out { margin-top: 14px; font-family: var(--font-mono); font-size: .8rem; color: var(--chrome-1); white-space: pre-wrap; word-break: break-all; min-height: 1.2em; }
 
-.steps { counter-reset: s; list-style: none; padding: 0; margin: 26px 0 0; display: grid; gap: 0; }
-.steps li { display: grid; grid-template-columns: 34px 1fr; gap: 16px; padding: 16px 0; border-bottom: 1px solid var(--line); align-items: start; }
-.steps li:last-child { border-bottom: none; }
-.steps li::before { counter-increment: s; content: counter(s); font-family: var(--font-mono); font-size: .78rem; font-weight: 700; color: var(--orange); border: 1px solid var(--line-2); border-radius: 8px; width: 30px; height: 30px; display: grid; place-items: center; background: var(--orange-dim); }
-.steps h4 { margin: 4px 0 8px; font-size: .98rem; }
-.steps p { margin: 0 0 8px; color: var(--chrome-2); font-size: .9rem; }
-.steps code, .cmd { font-family: var(--font-mono); font-size: .78rem; background: rgba(0,0,0,.35); border: 1px solid var(--line); color: var(--chrome-0); padding: 10px 14px; border-radius: var(--radius-sm); display: block; overflow-x: auto; white-space: pre; }
-.steps code.inline { display: inline; padding: 2px 6px; background: var(--orange-dim); color: var(--cyan-deep); }
+.steps code.inline, code.inline { display: inline; padding: 2px 6px; background: var(--orange-dim); color: var(--cyan-deep); font-family: var(--font-mono); border-radius: 4px; }
+
+/* ── Wallet-native UI ─────────────────────────────────────────────────── */
+.wallet-stack { display: grid; gap: 16px; margin-top: 26px; }
+.wallet-surface { padding: 24px; }
+.wallet-row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; }
+.wallet-addr { font-family: var(--font-mono); font-size: .8rem; color: var(--chrome-1); word-break: break-all; }
+.wallet-btn { font-family: var(--font-mono); font-size: .8rem; font-weight: 700; letter-spacing: .03em; padding: 10px 18px; border-radius: var(--radius-sm); border: 1px solid var(--line-2); background: var(--orange); color: #1a0f00; cursor: pointer; }
+.wallet-btn:hover { filter: brightness(1.08); }
+.wallet-btn:disabled { opacity: .45; cursor: not-allowed; }
+.wallet-btn.ghost { background: transparent; color: var(--chrome-0); }
+.wallet-btn.danger { background: transparent; color: #ff6b6b; border-color: #ff6b6b55; }
+.wallet-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px,1fr)); gap: 12px; margin-top: 14px; }
+.wallet-form label { font-family: var(--font-mono); font-size: .68rem; letter-spacing: .1em; text-transform: uppercase; color: var(--chrome-3); display: block; margin-bottom: 8px; }
+.wallet-form input, .wallet-form select { width: 100%; font-family: var(--font-mono); font-size: .82rem; padding: 10px 12px; border: 1px solid var(--line-2); border-radius: var(--radius-sm); background: var(--surface-2); color: var(--chrome-0); }
+.wallet-form input:focus, .wallet-form select:focus { outline: none; border-color: var(--orange); }
+.wallet-form .full { grid-column: 1 / -1; }
+.wallet-status { font-family: var(--font-mono); font-size: .8rem; color: var(--chrome-2); min-height: 1.4em; margin-top: 12px; }
+.wallet-status.err { color: #ff6b6b; }
+.wallet-status.ok { color: var(--cyan-deep, #4fd1c5); }
+.my-sale-card { padding: 18px 22px; display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; justify-content: space-between; }
+.my-sale-card .meta { font-family: var(--font-mono); font-size: .78rem; color: var(--chrome-2); }
+.my-sale-card .actions { display: flex; gap: 8px; }
+.notice { padding: 16px 20px; border: 1px dashed var(--line-2); border-radius: var(--radius); color: var(--chrome-2); font-size: .88rem; }
+.notice a { color: var(--orange); }
 
 .feat-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 16px; margin-top: 26px; }
 .feat { padding: 26px 24px; }
@@ -158,39 +175,76 @@ footer.mk .copy { font-family: var(--font-mono); font-size: .72rem; color: var(-
 <section class="section" id="create">
   <div class="wrap">
     <div class="sec-head">
-      <div class="eyebrow">Self-custody · CLI</div>
-      <h2>Create &amp; trade</h2>
-      <p>All custody and movement stay on-chain and in your own keys. The marketplace never holds funds or assets.</p>
+      <div class="eyebrow">Self-custody · Wallet-native</div>
+      <h2>Connect, list, and trade</h2>
+      <p>All custody and movement stay on-chain and in your own keys. The marketplace never holds funds or assets — every list, buy, accept and cancel is signed by your wallet (<code class="inline">window.tensorium</code>).</p>
     </div>
-    <ol class="steps">
-      <li><div></div><div>
-        <h4>Issue a fungible token (TXM20)</h4>
-        <p>Mint a fixed supply credited entirely to your address.</p>
-        <code class="cmd">txmwallet asset-issue GOLD 8 21000000 "Gold Token"
-txmwallet broadcast</code>
-      </div></li>
-      <li><div></div><div>
-        <h4>Mint an NFT</h4>
-        <p>Bind off-chain media by hash, with an immutable creator royalty.</p>
-        <code class="cmd">txmwallet asset-mint 500 &lt;royalty_addr&gt; &lt;content_sha256&gt; ipfs://Qm…
-txmwallet broadcast</code>
-      </div></li>
-      <li><div></div><div>
-        <h4>Sell — list it</h4>
-        <p>Produces <code class="inline">asset-order.json</code> to hand to a buyer.</p>
-        <code class="cmd">txmwallet asset-sell &lt;asset_id&gt; 100 5000000</code>
-      </div></li>
-      <li><div></div><div>
-        <h4>Buy — build &amp; verify</h4>
-        <p>The buyer builds the settlement, verifies the fee + royalty, and signs their side → <code class="inline">asset-settlement.json</code>.</p>
-        <code class="cmd">txmwallet asset-buy asset-order.json</code>
-      </div></li>
-      <li><div></div><div>
-        <h4>Settle — atomic</h4>
-        <p>The seller verifies and signs, broadcasting one transaction that moves the asset, pays the seller, the 2.5% platform fee, and the royalty — all or nothing.</p>
-        <code class="cmd">txmwallet asset-accept asset-settlement.json</code>
-      </div></li>
-    </ol>
+
+    <div class="wallet-stack">
+      <!-- CONNECT -->
+      <div class="card wallet-surface" id="connectCard">
+        <div class="wallet-row">
+          <div>
+            <div class="eyebrow" style="margin-bottom:6px">Wallet</div>
+            <div class="wallet-addr" id="walletAddr">Not connected</div>
+          </div>
+          <button class="wallet-btn" id="connectBtn">Connect Wallet</button>
+        </div>
+        <div class="wallet-status" id="connectStatus"></div>
+      </div>
+
+      <!-- BROWSE -->
+      <div class="card wallet-surface" id="browseCard">
+        <div class="wallet-row">
+          <div class="eyebrow" style="margin-bottom:0">Browse listings</div>
+          <button class="wallet-btn ghost" id="refreshListingsBtn">Refresh</button>
+        </div>
+        <div id="listingGrid" class="asset-grid" style="margin-top:18px"></div>
+        <div id="listingEmpty" class="empty" hidden><b>No active listings</b>List an asset above to be the first.</div>
+        <div class="wallet-status" id="buyStatus"></div>
+      </div>
+
+      <!-- LIST AN ASSET -->
+      <div class="card wallet-surface" id="listCard">
+        <div class="eyebrow" style="margin-bottom:6px">List an asset</div>
+        <form id="listForm" class="wallet-form">
+          <div class="full">
+            <label for="listAssetId">Asset ID (64-hex)</label>
+            <input id="listAssetId" required pattern="[0-9a-fA-F]{64}" placeholder="asset_id_hex" spellcheck="false">
+          </div>
+          <div>
+            <label for="listKind">Kind</label>
+            <select id="listKind">
+              <option value="txm20">TXM20 (fungible)</option>
+              <option value="nft">NFT</option>
+            </select>
+          </div>
+          <div>
+            <label for="listAmount">Amount</label>
+            <input id="listAmount" type="number" min="1" step="1" required value="1">
+          </div>
+          <div>
+            <label for="listPrice">Price (TXM)</label>
+            <input id="listPrice" type="number" min="0" step="0.00000001" required placeholder="0.00000000">
+          </div>
+          <div class="full">
+            <button class="wallet-btn" type="submit" id="listSubmitBtn">Create Listing</button>
+          </div>
+        </form>
+        <div class="wallet-status" id="listStatus"></div>
+      </div>
+
+      <!-- MY SALES -->
+      <div class="card wallet-surface" id="mySalesCard">
+        <div class="wallet-row">
+          <div class="eyebrow" style="margin-bottom:0">My Sales</div>
+          <button class="wallet-btn ghost" id="refreshMySalesBtn">Refresh</button>
+        </div>
+        <div id="mySalesList" class="wallet-stack" style="margin-top:14px"></div>
+        <div id="mySalesEmpty" class="empty" hidden><b>No pending sales</b>Accepted offers on your listings will appear here.</div>
+        <div class="wallet-status" id="mySalesStatus"></div>
+      </div>
+    </div>
   </div>
 </section>
 
@@ -292,6 +346,131 @@ async function lookupAsset(){
 
 loadStats(); loadAssets();
 setInterval(loadStats, 15000);
+</script>
+
+<script type="module">
+// Wallet-native trading: connect/browse/list/buy/my-sales, wired to the
+// order-relay (/relay/*) + the wallet (window.tensorium). Pure helpers + flows
+// live in ./marketplace.js (unit-tested).
+import {
+  renderListingCard, fmtAtoms, esc,
+  connectWallet, createListing, buyListing, acceptSale, cancelListing,
+} from './marketplace.js';
+
+const $ = (id) => document.getElementById(id);
+const wallet = window.tensorium || null;
+let connected = null;
+
+// The relay flows call api('/relay/...', body?) — same-origin proxied POST/GET.
+const api = async (path, body) => {
+  const r = await fetch(path, body
+    ? { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }
+    : undefined);
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
+  return j;
+};
+const setStatus = (id, msg, kind = '') => { const e = $(id); if (e) { e.textContent = msg; e.className = 'wallet-status' + (kind ? ' ' + kind : ''); } };
+
+if (!wallet) {
+  setStatus('connectStatus', 'No Tensorium wallet detected — install the extension to trade.', 'err');
+  ['connectBtn', 'listSubmitBtn', 'refreshMySalesBtn'].forEach((id) => { const b = $(id); if (b) b.disabled = true; });
+}
+
+async function refreshListings() {
+  try {
+    const { listings } = await api('/relay/listings');
+    const grid = $('listingGrid'), empty = $('listingEmpty');
+    if (!listings.length) { grid.innerHTML = ''; empty.hidden = false; return; }
+    empty.hidden = true;
+    grid.innerHTML = listings.map(renderListingCard).join('');
+  } catch (e) { setStatus('buyStatus', 'Could not load listings: ' + e.message, 'err'); }
+}
+
+async function refreshMySales() {
+  if (!connected) { setStatus('mySalesStatus', 'Connect your wallet to see pending sales.'); return; }
+  try {
+    const { listings } = await api('/relay/pending?seller=' + encodeURIComponent(connected));
+    const box = $('mySalesList'), empty = $('mySalesEmpty');
+    box._listings = listings;
+    if (!listings.length) { box.innerHTML = ''; empty.hidden = false; return; }
+    empty.hidden = true;
+    box.innerHTML = listings.map((l) => `
+      <div class="card my-sale-card">
+        <div class="meta">${esc(l.listing_id)} · ${fmtAtoms(l.price_atoms)} TXM · buyer ${esc(((l.settlement && l.settlement.buyer_addr) || '').slice(0, 12))}…</div>
+        <div class="actions">
+          <button class="wallet-btn accept-btn" data-listing="${esc(l.listing_id)}">Accept &amp; settle</button>
+          <button class="wallet-btn danger cancel-btn" data-listing="${esc(l.listing_id)}">Cancel</button>
+        </div>
+      </div>`).join('');
+  } catch (e) { setStatus('mySalesStatus', 'Could not load: ' + e.message, 'err'); }
+}
+
+$('connectBtn')?.addEventListener('click', async () => {
+  if (!wallet) return;
+  try {
+    connected = await connectWallet({ wallet });
+    $('walletAddr').textContent = connected;
+    setStatus('connectStatus', 'Connected.', 'ok');
+    refreshMySales();
+  } catch (e) { setStatus('connectStatus', 'Connect failed: ' + e.message, 'err'); }
+});
+
+$('refreshListingsBtn')?.addEventListener('click', refreshListings);
+$('refreshMySalesBtn')?.addEventListener('click', refreshMySales);
+
+$('listingGrid')?.addEventListener('click', async (ev) => {
+  const btn = ev.target.closest('.buy-btn'); if (!btn) return;
+  if (!wallet) { setStatus('buyStatus', 'Install the Tensorium wallet to buy.', 'err'); return; }
+  btn.disabled = true;
+  try {
+    setStatus('buyStatus', 'Quoting & awaiting your wallet signature…');
+    await buyListing(btn.dataset.listing, { wallet, api });
+    setStatus('buyStatus', 'Submitted — awaiting the seller to accept and settle.', 'ok');
+    refreshListings();
+  } catch (e) { setStatus('buyStatus', 'Buy failed: ' + e.message, 'err'); btn.disabled = false; }
+});
+
+$('listForm')?.addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  if (!wallet) { setStatus('listStatus', 'Install the Tensorium wallet to list.', 'err'); return; }
+  const asset_id_hex = $('listAssetId').value.trim().toLowerCase();
+  const kind = $('listKind').value;
+  const amount = $('listAmount').value;
+  const priceTxm = parseFloat($('listPrice').value);
+  if (!(priceTxm > 0)) { setStatus('listStatus', 'Enter a price greater than 0.', 'err'); return; }
+  const price_atoms = Math.round(priceTxm * 1e8);
+  $('listSubmitBtn').disabled = true;
+  try {
+    setStatus('listStatus', 'Awaiting your wallet signature…');
+    const out = await createListing({ asset_id_hex, amount, price_atoms, kind }, { wallet, api });
+    setStatus('listStatus', 'Listed ✓ (' + out.listing_id + ')', 'ok');
+    ev.target.reset(); $('listAmount').value = '1';
+    refreshListings();
+  } catch (e) { setStatus('listStatus', 'List failed: ' + e.message, 'err'); }
+  finally { $('listSubmitBtn').disabled = false; }
+});
+
+$('mySalesList')?.addEventListener('click', async (ev) => {
+  const acc = ev.target.closest('.accept-btn'), can = ev.target.closest('.cancel-btn');
+  if (!acc && !can) return;
+  const id = (acc || can).dataset.listing;
+  const listing = ($('mySalesList')._listings || []).find((l) => l.listing_id === id);
+  (acc || can).disabled = true;
+  try {
+    if (acc) {
+      setStatus('mySalesStatus', 'Awaiting your wallet signature…');
+      const out = await acceptSale(listing, { wallet, api });
+      setStatus('mySalesStatus', 'Settled ✓ — tx ' + (out.broadcast_txid || ''), 'ok');
+    } else {
+      await cancelListing(id, { wallet, api });
+      setStatus('mySalesStatus', 'Listing cancelled ✓', 'ok');
+    }
+    refreshMySales(); refreshListings();
+  } catch (e) { setStatus('mySalesStatus', 'Failed: ' + e.message, 'err'); (acc || can).disabled = false; }
+});
+
+refreshListings();
 </script>
 </body>
 </html>
