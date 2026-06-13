@@ -448,6 +448,39 @@ fn run() -> Result<(), String> {
             println!("order_written={}", path.display());
             println!("send asset-order.json to the buyer; they run: txmwallet asset-buy asset-order.json");
         }
+        "asset-build-issue" => {
+            // usage: txmwallet asset-build-issue <ticker> <decimals> <supply> <name> <creator_addr>  (KEYLESS)
+            let ticker = args.get(2).ok_or("usage: txmwallet asset-build-issue <ticker> <decimals> <supply> <name> <creator_addr>")?.to_string();
+            let decimals: u8 = args.get(3).ok_or("missing decimals")?.parse().map_err(|_| "decimals must be 0-18")?;
+            let supply: u64 = args.get(4).ok_or("missing supply")?.parse().map_err(|_| "supply must be a positive integer")?;
+            let name = args.get(5).ok_or("missing name")?.to_string();
+            let creator_addr = args.get(6).ok_or("missing creator_addr")?.to_string();
+            let op = AssetOp::Issue(tensorium_core::assets::IssueData { ticker: ticker.clone(), decimals, supply, name: name.clone(), flags: 0 });
+            let rpc = env::var("TENSORIUM_RPC").unwrap_or_else(|_| DEFAULT_RPC.to_owned());
+            let fee_atoms = tensorium_core::mempool::MIN_RELAY_FEE_ATOMS;
+            let utxos = fetch_mature_utxos(&rpc, &creator_addr)?;
+            let tx = build_unsigned_asset_tx(&op, &creator_addr, &utxos, fee_atoms)?;
+            let out = serde_json::json!({ "tx": tx, "summary": { "action": "issue", "ticker": ticker, "decimals": decimals, "supply": supply, "name": name, "fee_atoms": fee_atoms } });
+            println!("{}", serde_json::to_string(&out).map_err(|e| format!("serialize: {e}"))?);
+        }
+        "asset-build-mint" => {
+            // usage: txmwallet asset-build-mint <royalty_bps> <royalty_addr> <content_hash_hex> <uri> <creator_addr>  (KEYLESS)
+            let royalty_bps: u16 = args.get(2).ok_or("usage: txmwallet asset-build-mint <royalty_bps> <royalty_addr> <content_hash_hex> <uri> <creator_addr>")?.parse().map_err(|_| "royalty_bps must be 0-10000")?;
+            if royalty_bps > 10_000 { return Err("royalty_bps must be 0-10000".to_owned()); }
+            let royalty_addr = args.get(3).ok_or("missing royalty_addr")?.to_string();
+            let content_hash_hex = args.get(4).ok_or("missing content_hash_hex")?.to_string();
+            let hash_bytes = hex::decode(&content_hash_hex).map_err(|_| "content_hash_hex must be hex".to_owned())?;
+            let content_hash: [u8; 32] = hash_bytes.as_slice().try_into().map_err(|_| "content_hash must be 32 bytes (64 hex chars)".to_owned())?;
+            let uri = args.get(5).ok_or("missing uri")?.to_string();
+            let creator_addr = args.get(6).ok_or("missing creator_addr")?.to_string();
+            let op = AssetOp::NftMint(tensorium_core::assets::NftMintData { collection_id: [0u8; 32], royalty_bps, royalty_addr: royalty_addr.clone(), uri: uri.clone(), content_hash });
+            let rpc = env::var("TENSORIUM_RPC").unwrap_or_else(|_| DEFAULT_RPC.to_owned());
+            let fee_atoms = tensorium_core::mempool::MIN_RELAY_FEE_ATOMS;
+            let utxos = fetch_mature_utxos(&rpc, &creator_addr)?;
+            let tx = build_unsigned_asset_tx(&op, &creator_addr, &utxos, fee_atoms)?;
+            let out = serde_json::json!({ "tx": tx, "summary": { "action": "mint", "royalty_bps": royalty_bps, "royalty_addr": royalty_addr, "content_hash": content_hash_hex, "uri": uri, "fee_atoms": fee_atoms } });
+            println!("{}", serde_json::to_string(&out).map_err(|e| format!("serialize: {e}"))?);
+        }
         "asset-build-settlement" => {
             // usage: txmwallet asset-build-settlement <order.json> <buyer_addr>   (KEYLESS)
             let order_path = args.get(2).map(PathBuf::from).ok_or("usage: txmwallet asset-build-settlement <order.json> <buyer_addr>")?;
@@ -1321,6 +1354,8 @@ fn print_help() {
     println!("  asset-mint <royalty_bps> <royalty_addr> <content_hash_hex> <uri...>  mint a standalone NFT");
     println!("  asset-transfer <asset_id_hex> <amount> <to_address>   transfer a TXM20/NFT to an address");
     println!("  asset-sell <asset_id_hex> <amount> <price_atoms>      list an asset for sale → asset-order.json");
+    println!("  asset-build-issue <ticker> <decimals> <supply> <name> <creator_addr>   build UNSIGNED token issue (keyless)");
+    println!("  asset-build-mint <royalty_bps> <royalty_addr> <hash_hex> <uri> <creator_addr>  build UNSIGNED NFT mint (keyless)");
     println!("  asset-build-settlement <order.json> <buyer_addr>      build UNSIGNED settlement (keyless, for relay)");
     println!("  asset-buy <asset-order.json>                          build+sign the buyer side → asset-settlement.json");
     println!("  asset-accept <asset-settlement.json>                  verify+sign the seller side and broadcast");
@@ -1403,6 +1438,22 @@ mod tests {
             "https://rpc.tensoriumlabs.com"
         );
         assert_eq!(normalize_rpc_url("http://host:8080"), "http://host:8080");
+    }
+
+    #[test]
+    fn build_unsigned_asset_tx_is_unsigned_and_roundtrips_codec() {
+        use super::build_unsigned_asset_tx;
+        use tensorium_core::assets::{extract_asset_op, AssetOp, IssueData};
+        use tensorium_core::block::OutPoint;
+        use tensorium_core::hash::Hash256;
+        let op = AssetOp::Issue(IssueData { ticker: "GOLD".into(), decimals: 8, supply: 1000, name: "Gold".into(), flags: 0 });
+        let utxos = vec![(OutPoint { txid: Hash256([5u8; 32]), output_index: 0 }, 1_000_000u64)];
+        let tx = build_unsigned_asset_tx(&op, "txm1uyy0sfm07p47f8dy0mvdtwfefya8w5y2qr0q8p", &utxos, 10_000).expect("build ok");
+        assert!(tx.inputs.iter().all(|i| i.signature_script.is_empty()), "must be unsigned");
+        match extract_asset_op(&tx).expect("has asset op") {
+            AssetOp::Issue(d) => { assert_eq!(d.ticker, "GOLD"); assert_eq!(d.supply, 1000); }
+            _ => panic!("expected Issue op"),
+        }
     }
 
     #[test]
@@ -1550,6 +1601,29 @@ fn build_asset_tx_via_rpc(
     let mut tx = Transaction::payment(inputs, outputs);
     keypair.sign_transaction(&mut tx).map_err(|e| e.to_string())?;
     Ok(tx)
+}
+
+/// Keyless: build the UNSIGNED asset-op tx (issue / mint) from a creator address
+/// and its UTXOs. Reuses `build_asset_outputs` so the OP_RETURN encoding can never
+/// drift from the signed path. No wallet, no signing — the creator's wallet signs
+/// + broadcasts it (via window.tensorium.signAssetTx). Powers /relay/build-issue
+/// and /relay/build-mint for the wallet-native "Create Asset" flow.
+fn build_unsigned_asset_tx(
+    op: &AssetOp,
+    creator_addr: &str,
+    utxos: &[(tensorium_core::block::OutPoint, u64)],
+    fee_atoms: u64,
+) -> Result<Transaction, String> {
+    let total_in: u64 = utxos.iter().map(|(_, v)| *v).sum();
+    if total_in < fee_atoms {
+        return Err(format!("insufficient mature balance: have {total_in}, need {fee_atoms}"));
+    }
+    let inputs: Vec<TxInput> = utxos
+        .iter()
+        .map(|(o, _)| TxInput { previous_output: *o, signature_script: Vec::new() })
+        .collect();
+    let outputs = build_asset_outputs(op, None, creator_addr, total_in, fee_atoms)?;
+    Ok(Transaction::payment(inputs, outputs))
 }
 
 /// Build a signed payment transaction using UTXOs fetched from the node RPC.
