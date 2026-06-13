@@ -199,6 +199,63 @@ Tensorium is a Proof-of-Work Layer 1 blockchain focused on open mining, transpar
 - Mainnet PoW: TensorHash v1, GPU-first (42-bit initial difficulty)
 - Current phase: Mainnet v1 live on `tensorium-mainnet`
 
+### How It Works (Architecture)
+
+Tensorium is a **UTXO blockchain** (Bitcoin-style accounting) secured by a
+custom, GPU-friendly memory-hard Proof-of-Work called **TensorHash v1**. Here is
+how the pieces fit together — read this first if you are new to the project.
+
+**1. Consensus & PoW.** Blocks are chained by `double-SHA256` header hashes. Each
+hash attempt samples 32 random 64-byte elements from a **17.9 GiB dataset** held
+in GPU VRAM. That dataset is derived from an *epoch seed* that rotates every
+**8,192 blocks** (~5.7 days), so a miner must keep the whole dataset in memory —
+this is what makes the chain GPU-first and ASIC-resistant. Crucially,
+*verification stays cheap*: a full node only re-checks the 32 sampled elements,
+never the whole dataset. A block is valid when its PoW hash has at least the
+required number of **leading-zero bits**.
+
+**2. Difficulty (auto, both directions).** Target block time is **60 s**.
+Difficulty is a whole number of leading-zero bits and **retargets every 60
+blocks**: if the window was mined more than 2× too fast → **+1 bit**, more than
+2× too slow → **−1 bit**, otherwise unchanged. It is clamped to **[34, 58]** bits
+on mainnet (initial 42). No manual tuning — it rises and falls with hashrate.
+
+**3. Emission.** Zero premine; all 33,000,000 TXM are mined. Reward starts at
+7.85584523 TXM/block and halves every 2,102,400 blocks (~4 years) across 10 eras.
+Coinbase outputs mature after **10 confirmations** before they can be spent.
+
+**4. Accounting (UTXO).** State is the set of unspent transaction outputs. A
+transaction spends inputs and creates outputs; `fee = sum(inputs) − sum(outputs)`
+and can never be negative (enforced — no value is created out of thin air).
+Outputs are locked by a small **Script VM** that supports P2PKH, P2SH, multisig,
+and HTLC (hash/time-locked) contracts.
+
+**5. The binaries, and how they talk to each other.**
+
+```
+ GPU miner (solo) ──getblocktemplate / submitblock──▶  tensorium-node  (RPC :33332)
+                                                              │
+                                                              │  P2P :33333
+ GPU miner (pool) ──Stratum :3333 (or :465)──▶ tensorium-pool ┘  (block gossip +
+                                               (shares → PPLNS)    node↔node sync)
+
+ txmwallet / SDKs ──HTTPS──▶ rpc.tensoriumlabs.com ─────────▶  tensorium-node
+```
+
+- **`tensorium-node`** is the source of truth: validates blocks/txs, holds the
+  UTXO set, serves the RPC, and gossips blocks to peers over P2P (`:33333`).
+  Miners never touch `:33333` — that port is node-to-node only.
+- **`tensorium-miner`** does the hashing. *Solo* talks straight to a node's RPC
+  (`getblocktemplate` → mine → `submitblock`). *Pool* speaks Stratum to
+  `tensorium-pool`, which hands out jobs and submits the winning block to a node
+  on the miners' behalf.
+- **`tensorium-pool`** tracks each miner's shares and pays PPLNS (last 4096
+  shares, difficulty-weighted) minus the transparent 5% fee. It listens on
+  `:3333` and a fallback `:465` for networks (e.g. some cloud GPU hosts) that
+  block non-standard outbound ports.
+- **`txmwallet`** builds and signs transactions, then broadcasts them via
+  `sendrawtransaction`.
+
 ### Pool Fee Policy Draft
 
 Tensorium consensus does not include a hidden miner tax.
@@ -234,7 +291,7 @@ A self-custody browser wallet for TXM is available as a Chrome extension.
 | `tensorium-node` | binary | Full node: HTTP RPC + P2P server |
 | `tensorium-pool` | binary | Stratum + RPC mining pool (5% fee accounting, payout ledger) |
 | `txmwallet` | binary | CLI wallet (P2PKH, multisig, HTLC) |
-| `tensorium-miner` | tool (`tools/tensorium-miner`) | NVIDIA CUDA GPU miner v2 — Stratum pool + solo, multi-GPU |
+| `tensorium-miner` | tool (`tools/tensorium-miner`) | NVIDIA CUDA GPU miner — TensorHash v1, Stratum pool + solo, multi-GPU |
 
 ---
 
