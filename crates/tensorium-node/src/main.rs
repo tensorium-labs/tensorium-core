@@ -1845,6 +1845,15 @@ fn handle_rpc_stream(
         }
 
         ("GET", path) if path.starts_with("/unban/") => {
+            if !admin_authorized(&request) {
+                return write_json_response(
+                    stream,
+                    403,
+                    &RpcError::new(
+                        "admin endpoint: set TENSORIUM_RPC_ADMIN_TOKEN and send a matching X-Admin-Token header",
+                    ),
+                );
+            }
             let ip = path.trim_start_matches("/unban/");
             if ip.is_empty() {
                 return write_json_response(stream, 404, &RpcError::new("missing ip"));
@@ -2143,6 +2152,44 @@ fn parse_http_request(request: &str) -> Option<ParsedHttpRequest<'_>> {
     Some(ParsedHttpRequest { method, path, body })
 }
 
+/// Extract a header value (case-insensitive name) from a raw HTTP request.
+fn header_value<'a>(request: &'a str, name: &str) -> Option<&'a str> {
+    let head = request.split_once("\r\n\r\n").map_or(request, |(h, _)| h);
+    // skip(1): the request line is not a header
+    head.lines().skip(1).find_map(|line| {
+        let (k, v) = line.split_once(':')?;
+        k.trim().eq_ignore_ascii_case(name).then(|| v.trim())
+    })
+}
+
+/// Constant-time byte comparison — avoids leaking token contents/length via timing.
+fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut diff = 0u8;
+    for (x, y) in a.iter().zip(b.iter()) {
+        diff |= x ^ y;
+    }
+    diff == 0
+}
+
+/// Authorization gate for mutating/admin RPC endpoints (e.g. `/unban`).
+/// Requires `TENSORIUM_RPC_ADMIN_TOKEN` to be set AND the request to carry a
+/// matching `X-Admin-Token` header. If the env var is unset/empty the endpoint
+/// is disabled (returns `false`), so a node is never exposed by default — even
+/// without a reverse-proxy ACL in front of it.
+fn admin_authorized(request: &str) -> bool {
+    let expected = match env::var("TENSORIUM_RPC_ADMIN_TOKEN") {
+        Ok(t) if !t.is_empty() => t,
+        _ => return false,
+    };
+    match header_value(request, "x-admin-token") {
+        Some(provided) => constant_time_eq(provided.as_bytes(), expected.as_bytes()),
+        None => false,
+    }
+}
+
 /// Query the local read-only asset indexer to check whether `from` can
 /// perform a transfer of `amount` of `asset_id` (fungible balance, or NFT
 /// ownership when `amount == 1` and the asset is non-fungible).
@@ -2235,6 +2282,37 @@ impl RpcError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // --- admin endpoint auth helpers ---
+
+    #[test]
+    fn header_value_is_case_insensitive_and_trims() {
+        let req = "GET /unban/1.2.3.4 HTTP/1.1\r\nHost: x\r\nX-Admin-Token:  s3cret \r\n\r\n";
+        assert_eq!(header_value(req, "x-admin-token"), Some("s3cret"));
+        assert_eq!(header_value(req, "X-ADMIN-TOKEN"), Some("s3cret"));
+        assert_eq!(header_value(req, "missing"), None);
+        // the request line must not be mistaken for a header
+        assert_eq!(header_value(req, "GET"), None);
+    }
+
+    #[test]
+    fn constant_time_eq_matches_only_identical_bytes() {
+        assert!(constant_time_eq(b"abc", b"abc"));
+        assert!(!constant_time_eq(b"abc", b"abd"));
+        assert!(!constant_time_eq(b"abc", b"ab"));
+        assert!(!constant_time_eq(b"", b"x"));
+        assert!(constant_time_eq(b"", b""));
+    }
+
+    #[test]
+    fn admin_authorized_denies_when_token_unset() {
+        // Pure-function path: no token configured ⇒ endpoint disabled regardless
+        // of header. (Uses a header-bearing request to prove the header alone is
+        // never sufficient.) Guarded so it doesn't race other tests on the env.
+        std::env::remove_var("TENSORIUM_RPC_ADMIN_TOKEN");
+        let req = "GET /unban/1.2.3.4 HTTP/1.1\r\nX-Admin-Token: anything\r\n\r\n";
+        assert!(!admin_authorized(req));
+    }
 
     // --- /buildAssetTx request parsing ---
 
