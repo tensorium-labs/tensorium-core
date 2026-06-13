@@ -1,0 +1,48 @@
+<svg width="1200" height="1200" viewBox="0 0 1200 1200" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <radialGradient id="bgGlow" cx="0.5" cy="0.40" r="0.72">
+      <stop offset="0" stop-color="#0D2638"></stop>
+      <stop offset="0.55" stop-color="#071120"></stop>
+      <stop offset="1" stop-color="#05070D"></stop>
+    </radialGradient>
+    <linearGradient id="ringGrad" x1="0.15" y1="0" x2="0.85" y2="1">
+      <stop offset="0" stop-color="#7DEEFF"></stop>
+      <stop offset="0.5" stop-color="#22D3EE"></stop>
+      <stop offset="1" stop-color="#0E7490"></stop>
+    </linearGradient>
+    <linearGradient id="teeGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF"></stop>
+      <stop offset="0.62" stop-color="#D8FAFF"></stop>
+      <stop offset="1" stop-color="#67E8F9"></stop>
+    </linearGradient>
+    <filter id="softGlow" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="26" result="b"></feGaussianBlur>
+      <feMerge>
+        <feMergeNode in="b"></feMergeNode>
+        <feMergeNode in="SourceGraphic"></feMergeNode>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <rect width="1200" height="1200" rx="260" fill="url(#bgGlow)"></rect>
+
+  
+  <circle cx="600" cy="600" r="505" fill="none" stroke="#22D3EE" stroke-opacity="0.22" stroke-width="6" stroke-dasharray="4 38" stroke-linecap="round"></circle>
+
+  
+  <circle cx="600" cy="600" r="430" fill="none" stroke="url(#ringGrad)" stroke-width="30" filter="url(#softGlow)"></circle>
+
+  
+  <circle cx="600" cy="95" r="16" fill="#7DEEFF"></circle>
+  <circle cx="1043" cy="780" r="11" fill="#22D3EE" fill-opacity="0.85"></circle>
+  <circle cx="160" cy="790" r="9" fill="#22D3EE" fill-opacity="0.6"></circle>
+
+  
+  <rect x="538" y="282" width="28" height="72" rx="4" fill="#9BF2FF"></rect>
+  <rect x="634" y="282" width="28" height="72" rx="4" fill="#9BF2FF"></rect>
+
+  
+  <path fill="url(#teeGrad)" filter="url(#softGlow)" d="M 346 412 L 854 412 L 828 462 L 654 462 L 654 858 L 610 896 L 590 896 L 546 858 L 546 462 L 372 462 Z"></path>
+  <path fill="#05070D" d="M 404 480 L 796 480 L 772 512 L 628 512 L 628 850 L 600 874 L 572 850 L 572 512 L 428 512 Z"></path>
+  <path fill="url(#teeGrad)" d="M 572 512 L 628 512 L 628 842 L 600 868 L 572 842 Z"></path>
+</svg>

@@ -99,3 +99,29 @@ describe("cancelListing", () => {
     assert.equal(c.listing_id, "lst_1");
   });
 });
+
+import { royaltyPctToBps, createTokenFlow, createNftFlow } from "../marketplace.js";
+describe("create-asset flows", () => {
+  const wallet = { getAddress: async () => "txm1creator00000000000000000000000000000000", signAssetTx: async () => "deadbeefTXID" };
+  describe("royaltyPctToBps", () => {
+    it("converts percent to basis points, clamped to 0..10000", () => {
+      assert.equal(royaltyPctToBps(5), 500);
+      assert.equal(royaltyPctToBps(2.5), 250);
+      assert.equal(royaltyPctToBps(200), 10000);
+      assert.equal(royaltyPctToBps(-1), 0);
+    });
+  });
+  it("createTokenFlow posts build-issue with creator addr and signs", async () => {
+    let body; const api = async (p, b) => { body = b; return { unsignedTx: { inputs: [] }, summary: { action: "issue" } }; };
+    const out = await createTokenFlow({ ticker: "GOLD", decimals: 8, supply: 1000, name: "Gold" }, { wallet, api });
+    assert.equal(body.ticker, "GOLD"); assert.equal(body.creator_addr, "txm1creator00000000000000000000000000000000");
+    assert.equal(out.asset_id, "deadbeefTXID");
+  });
+  it("createNftFlow converts royalty% to bps, defaults royalty addr to creator, signs", async () => {
+    let body; const api = async (p, b) => { body = b; return { unsignedTx: {}, summary: { action: "mint" } }; };
+    const out = await createNftFlow({ name: "Art", uri: "ipfs://x", content_hash: "ab".repeat(32), royalty_pct: 7.5 }, { wallet, api });
+    assert.equal(body.royalty_bps, 750);
+    assert.equal(body.royalty_addr, "txm1creator00000000000000000000000000000000");
+    assert.equal(out.txid, "deadbeefTXID");
+  });
+});

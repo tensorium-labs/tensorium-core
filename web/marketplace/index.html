@@ -9,6 +9,10 @@
 <link rel="icon" href="assets/tensorium-mark-v2.svg" type="image/svg+xml">
 <style>
 /* ── Marketplace-specific (built on core.css design tokens) ─────────────── */
+.mk-tabs { display:flex; gap:8px; margin-bottom:14px; }
+.mk-tab { font-family:var(--font-mono); font-size:.78rem; letter-spacing:.02em; padding:9px 18px; border-radius:var(--radius-sm); border:1px solid var(--line-2); background:transparent; color:var(--chrome-2); cursor:pointer; }
+.mk-tab:hover { color:var(--chrome-0); }
+.mk-tab.is-active { background:var(--orange); color:#04060c; font-weight:700; border-color:transparent; }
 .mk-hero { padding-top: clamp(44px,6vw,76px); padding-bottom: clamp(36px,5vw,60px); }
 .mk-hero .eyebrow { margin-bottom: 18px; }
 .mk-hero h1 { margin: 0 0 18px; max-width: 16ch; }
@@ -204,6 +208,32 @@ footer.mk .copy { font-family: var(--font-mono); font-size: .72rem; color: var(-
         <div class="wallet-status" id="buyStatus"></div>
       </div>
 
+      <!-- CREATE ASSET -->
+      <div class="card wallet-surface" id="createCard">
+        <div class="eyebrow" style="margin-bottom:6px">Create an asset</div>
+        <p class="wallet-note" style="margin-bottom:14px">Issue a <b>TXM20 token</b> or mint an <b>NFT</b> — minted on-chain by your own wallet, then it appears in Browse. TXM20 is Tensorium's on-chain asset layer: no separate contract, your token/NFT rides directly on TXM.</p>
+        <div class="mk-tabs" id="createTabs">
+          <button type="button" class="mk-tab is-active" data-tab="token">Token (TXM20)</button>
+          <button type="button" class="mk-tab" data-tab="nft">NFT</button>
+        </div>
+        <form id="tokenForm" class="wallet-form mk-pane" data-pane="token">
+          <div><label for="tkTicker">Ticker</label><input id="tkTicker" maxlength="16" required placeholder="GOLD" spellcheck="false"></div>
+          <div><label for="tkDecimals">Decimals</label><input id="tkDecimals" type="number" min="0" max="18" value="8" required></div>
+          <div><label for="tkSupply">Total supply</label><input id="tkSupply" type="number" min="1" step="1" required placeholder="1000000"></div>
+          <div class="full"><label for="tkName">Name</label><input id="tkName" maxlength="64" required placeholder="Gold Token"></div>
+          <div class="full"><button class="wallet-btn" type="submit" id="tkSubmit">Create Token</button></div>
+        </form>
+        <form id="nftForm" class="wallet-form mk-pane" data-pane="nft" hidden>
+          <div class="full"><label for="nfName">Name</label><input id="nfName" maxlength="64" required placeholder="My Artwork #1"></div>
+          <div class="full"><label for="nfUri">Media URI (ipfs:// or https://)</label><input id="nfUri" maxlength="256" required placeholder="ipfs://Qm…" spellcheck="false"></div>
+          <div class="full"><label for="nfFile">Content file <span style="color:var(--chrome-3)">(hashed locally to bind authenticity — the file is not uploaded)</span></label><input id="nfFile" type="file"><div class="wallet-status" id="nfHashOut"></div></div>
+          <div><label for="nfRoyalty">Creator royalty %</label><input id="nfRoyalty" type="number" min="0" max="100" step="0.1" value="5"></div>
+          <div><label for="nfRoyaltyAddr">Royalty address <span style="color:var(--chrome-3)">(default: you)</span></label><input id="nfRoyaltyAddr" placeholder="txm1… (optional)" spellcheck="false"></div>
+          <div class="full"><button class="wallet-btn" type="submit" id="nfSubmit">Mint NFT</button></div>
+        </form>
+        <div class="wallet-status" id="createStatus"></div>
+      </div>
+
       <!-- LIST AN ASSET -->
       <div class="card wallet-surface" id="listCard">
         <div class="eyebrow" style="margin-bottom:6px">List an asset</div>
@@ -305,7 +335,7 @@ async function loadStats(){
   }
 }
 
-async function loadAssets(){
+window.loadAssets = async function loadAssets(){
   try{
     const d = await jget('/assets');
     const list = d.assets || [];
@@ -355,6 +385,7 @@ setInterval(loadStats, 15000);
 import {
   renderListingCard, fmtAtoms, esc,
   connectWallet, createListing, buyListing, acceptSale, cancelListing,
+  createTokenFlow, createNftFlow,
 } from './marketplace.js';
 
 const $ = (id) => document.getElementById(id);
@@ -469,6 +500,17 @@ $('mySalesList')?.addEventListener('click', async (ev) => {
     refreshMySales(); refreshListings();
   } catch (e) { setStatus('mySalesStatus', 'Failed: ' + e.message, 'err'); (acc || can).disabled = false; }
 });
+
+
+// ── Create-asset wiring ───────────────────────────────────────────────────
+async function sha256Hex(file){ const buf=await file.arrayBuffer(); const h=await crypto.subtle.digest('SHA-256',buf); return [...new Uint8Array(h)].map(b=>b.toString(16).padStart(2,'0')).join(''); }
+let nftContentHash="";
+$('nfFile')?.addEventListener('change', async (ev)=>{ const f=ev.target.files[0]; if(!f){nftContentHash="";return;} setStatus('nfHashOut','hashing…'); nftContentHash=await sha256Hex(f); setStatus('nfHashOut','content hash '+nftContentHash.slice(0,18)+'…','ok'); });
+$('createTabs')?.addEventListener('click',(ev)=>{ const b=ev.target.closest('.mk-tab'); if(!b)return; document.querySelectorAll('#createCard .mk-tab').forEach(t=>t.classList.toggle('is-active',t===b)); document.querySelectorAll('#createCard .mk-pane').forEach(p=>p.hidden=p.dataset.pane!==b.dataset.tab); });
+async function pollAsset(id){ for(let i=0;i<20;i++){ try{ const r=await fetch('/api/asset/'+id); if(r.ok) return true; }catch{} await new Promise(r=>setTimeout(r,3000)); } return false; }
+if(!wallet){ ['tkSubmit','nfSubmit'].forEach(id=>{const b=$(id); if(b) b.disabled=true;}); }
+$('tokenForm')?.addEventListener('submit', async (ev)=>{ ev.preventDefault(); if(!wallet){ setStatus('createStatus','Install the Tensorium wallet to create.','err'); return; } $('tkSubmit').disabled=true; try{ setStatus('createStatus','Building + awaiting your wallet signature…'); const out=await createTokenFlow({ ticker:$('tkTicker').value.trim(), decimals:$('tkDecimals').value, supply:$('tkSupply').value, name:$('tkName').value.trim() },{wallet,api}); setStatus('createStatus','Minting on-chain… '+out.asset_id.slice(0,12)+'…'); await pollAsset(out.asset_id); setStatus('createStatus','Token created \u2713 — now in Browse (id '+out.asset_id.slice(0,16)+'…)','ok'); window.loadAssets?.(); refreshListings(); }catch(e){ setStatus('createStatus','Create failed: '+e.message,'err'); } finally{ $('tkSubmit').disabled=false; } });
+$('nftForm')?.addEventListener('submit', async (ev)=>{ ev.preventDefault(); if(!wallet){ setStatus('createStatus','Install the Tensorium wallet to create.','err'); return; } if(!nftContentHash){ setStatus('createStatus','Select a content file first — it is hashed locally to bind authenticity.','err'); return; } $('nfSubmit').disabled=true; try{ setStatus('createStatus','Building + awaiting your wallet signature…'); const out=await createNftFlow({ name:$('nfName').value.trim(), uri:$('nfUri').value.trim(), content_hash:nftContentHash, royalty_pct:$('nfRoyalty').value, royalty_addr:$('nfRoyaltyAddr').value.trim() },{wallet,api}); setStatus('createStatus','Minting NFT on-chain… '+out.asset_id.slice(0,12)+'…'); await pollAsset(out.asset_id); setStatus('createStatus','NFT minted \u2713 — now in Browse (id '+out.asset_id.slice(0,16)+'…)','ok'); window.loadAssets?.(); refreshListings(); }catch(e){ setStatus('createStatus','Mint failed: '+e.message,'err'); } finally{ $('nfSubmit').disabled=false; } });
 
 refreshListings();
 </script>

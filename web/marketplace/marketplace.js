@@ -55,3 +55,25 @@ export async function cancelListing(listing_id, { wallet, api }) {
   const { pubkey, sig } = await wallet.signMessage(cancelMessage(listing_id));
   return api("/relay/cancel", { listing_id, seller_pubkey: pubkey, sig });
 }
+
+// ── Create-asset flows (on-chain via the relay builder + wallet signAssetTx) ──
+export const royaltyPctToBps = (pct) => Math.max(0, Math.min(10000, Math.round(Number(pct) * 100)));
+
+export async function createTokenFlow(form, { wallet, api }) {
+  const creator_addr = await wallet.getAddress();
+  const { unsignedTx, summary } = await api("/relay/build-issue", {
+    ticker: form.ticker, decimals: Number(form.decimals), supply: Number(form.supply), name: form.name, creator_addr,
+  });
+  const txid = await wallet.signAssetTx(unsignedTx, { description: `Create token ${form.ticker}`, ...summary });
+  return { txid, asset_id: txid };
+}
+
+export async function createNftFlow(form, { wallet, api }) {
+  const creator_addr = await wallet.getAddress();
+  const royalty_addr = form.royalty_addr || creator_addr;
+  const { unsignedTx, summary } = await api("/relay/build-mint", {
+    royalty_bps: royaltyPctToBps(form.royalty_pct), royalty_addr, content_hash: form.content_hash, uri: form.uri, creator_addr,
+  });
+  const txid = await wallet.signAssetTx(unsignedTx, { description: `Mint NFT ${form.name || ""}`, ...summary });
+  return { txid, asset_id: txid };
+}
