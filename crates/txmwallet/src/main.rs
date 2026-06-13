@@ -88,6 +88,64 @@ struct SettlementFile {
     terms: SettlementTerms,
 }
 
+#[derive(Serialize)]
+struct InputIndices {
+    seller: Vec<usize>,
+    buyer: Vec<usize>,
+}
+
+#[derive(Serialize)]
+struct UnsignedSettlement {
+    tx: Transaction,
+    terms: SettlementTerms,
+    input_indices: InputIndices,
+}
+
+/// Keyless: build the UNSIGNED settlement tx from an order + explicit buyer
+/// inputs + royalty terms. Reuses the canonical build/verify so it can never
+/// drift from consensus. No signing, no I/O.
+fn build_unsigned_settlement(
+    order: &AssetOrder,
+    buyer_addr: &str,
+    buyer_inputs: &[(tensorium_core::block::OutPoint, u64)],
+    royalty_bps: u16,
+    royalty_addr: &str,
+) -> Result<UnsignedSettlement, String> {
+    let asset_id: [u8; 32] = hex::decode(&order.asset_id_hex)
+        .map_err(|_| "bad asset_id hex".to_owned())?
+        .as_slice()
+        .try_into()
+        .map_err(|_| "asset_id must be 32 bytes".to_owned())?;
+    let terms = SettlementTerms {
+        asset_id,
+        amount: order.amount,
+        price_atoms: order.price_atoms,
+        royalty_bps,
+        royalty_addr: royalty_addr.to_owned(),
+        seller_addr: order.seller_addr.clone(),
+        buyer_addr: buyer_addr.to_owned(),
+        miner_fee_atoms: tensorium_core::mempool::MIN_RELAY_FEE_ATOMS,
+    };
+    let seller_txid = tensorium_core::hash::Hash256(
+        hex::decode(&order.seller_txid_hex)
+            .map_err(|_| "bad seller txid hex".to_owned())?
+            .as_slice()
+            .try_into()
+            .map_err(|_| "seller txid must be 32 bytes".to_owned())?,
+    );
+    let seller_input = (
+        tensorium_core::block::OutPoint { txid: seller_txid, output_index: order.seller_vout },
+        order.seller_value,
+    );
+    let tx = build_settlement_tx(&terms, seller_input, buyer_inputs)?;
+    let mismatches = verify_settlement(&tx, &terms);
+    if !mismatches.is_empty() {
+        return Err(format!("built settlement failed verify: {mismatches:?}"));
+    }
+    let buyer = (1..tx.inputs.len()).collect();
+    Ok(UnsignedSettlement { tx, terms, input_indices: InputIndices { seller: vec![0], buyer } })
+}
+
 fn main() {
     if let Err(err) = run() {
         eprintln!("error: {err}");
@@ -389,6 +447,31 @@ fn run() -> Result<(), String> {
                 .map_err(|e| format!("write {}: {e}", path.display()))?;
             println!("order_written={}", path.display());
             println!("send asset-order.json to the buyer; they run: txmwallet asset-buy asset-order.json");
+        }
+        "asset-build-settlement" => {
+            // usage: txmwallet asset-build-settlement <order.json> <buyer_addr>   (KEYLESS)
+            let order_path = args.get(2).map(PathBuf::from).ok_or("usage: txmwallet asset-build-settlement <order.json> <buyer_addr>")?;
+            let buyer_addr = args.get(3).ok_or("missing buyer_addr")?.to_string();
+            let order: AssetOrder = serde_json::from_str(
+                &fs::read_to_string(&order_path).map_err(|e| format!("read order: {e}"))?)
+                .map_err(|e| format!("parse order: {e}"))?;
+            let rpc = env::var("TENSORIUM_RPC").unwrap_or_else(|_| DEFAULT_RPC.to_owned());
+            let indexer = env::var("TENSORIUM_INDEXER").unwrap_or_else(|_| "127.0.0.1:23340".to_owned());
+            #[derive(serde::Deserialize)]
+            struct AssetInfoResp { royalty_bps: u16, royalty_addr: String }
+            let info_body = rpc_get(&indexer, &format!("/asset/{}", order.asset_id_hex))
+                .map_err(|e| format!("indexer /asset lookup failed: {e}"))?;
+            let info: AssetInfoResp = serde_json::from_str(&info_body).map_err(|e| format!("parse asset info: {e}"))?;
+            let need = order.price_atoms + CARRIER_ATOMS + tensorium_core::mempool::MIN_RELAY_FEE_ATOMS;
+            let mut buyer_inputs = Vec::new();
+            let mut total = 0u64;
+            for (op, v) in fetch_mature_utxos(&rpc, &buyer_addr)? {
+                buyer_inputs.push((op, v)); total += v;
+                if total >= need { break; }
+            }
+            if total < need { return Err(format!("insufficient buyer funds: have {total}, need {need}")); }
+            let out = build_unsigned_settlement(&order, &buyer_addr, &buyer_inputs, info.royalty_bps, &info.royalty_addr)?;
+            println!("{}", serde_json::to_string(&out).map_err(|e| format!("serialize: {e}"))?);
         }
         "asset-buy" => {
             // usage: txmwallet asset-buy <asset-order.json>
@@ -1238,6 +1321,7 @@ fn print_help() {
     println!("  asset-mint <royalty_bps> <royalty_addr> <content_hash_hex> <uri...>  mint a standalone NFT");
     println!("  asset-transfer <asset_id_hex> <amount> <to_address>   transfer a TXM20/NFT to an address");
     println!("  asset-sell <asset_id_hex> <amount> <price_atoms>      list an asset for sale → asset-order.json");
+    println!("  asset-build-settlement <order.json> <buyer_addr>      build UNSIGNED settlement (keyless, for relay)");
     println!("  asset-buy <asset-order.json>                          build+sign the buyer side → asset-settlement.json");
     println!("  asset-accept <asset-settlement.json>                  verify+sign the seller side and broadcast");
     println!();
@@ -1319,6 +1403,34 @@ mod tests {
             "https://rpc.tensoriumlabs.com"
         );
         assert_eq!(normalize_rpc_url("http://host:8080"), "http://host:8080");
+    }
+
+    #[test]
+    fn build_unsigned_settlement_produces_verifiable_unsigned_tx() {
+        use super::{build_unsigned_settlement, AssetOrder};
+        use tensorium_core::block::OutPoint;
+        use tensorium_core::hash::Hash256;
+        use tensorium_core::settlement::verify_settlement;
+        let order = AssetOrder {
+            asset_id_hex: "11".repeat(32),
+            amount: 100,
+            price_atoms: 1_000_000,
+            seller_addr: "txm1uyy0sfm07p47f8dy0mvdtwfefya8w5y2qr0q8p".into(),
+            seller_txid_hex: "22".repeat(32),
+            seller_vout: 0,
+            seller_value: 50_000,
+        };
+        let buyer_addr = "txm1uyy0sfm07p47f8dy0mvdtwfefya8w5y2qr0q8p".to_string();
+        let buyer_utxos = vec![(
+            OutPoint { txid: Hash256([3u8; 32]), output_index: 1 },
+            2_000_000u64,
+        )];
+        let out = build_unsigned_settlement(&order, &buyer_addr, &buyer_utxos, 250, &buyer_addr)
+            .expect("build ok");
+        assert!(out.tx.inputs.iter().all(|i| i.signature_script.is_empty()));
+        assert!(verify_settlement(&out.tx, &out.terms).is_empty());
+        assert_eq!(out.input_indices.seller, vec![0]);
+        assert_eq!(out.input_indices.buyer, (1..out.tx.inputs.len()).collect::<Vec<_>>());
     }
 }
 
