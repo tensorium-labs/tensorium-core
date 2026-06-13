@@ -1447,8 +1447,13 @@ mod tests {
         use tensorium_core::block::OutPoint;
         use tensorium_core::hash::Hash256;
         let op = AssetOp::Issue(IssueData { ticker: "GOLD".into(), decimals: 8, supply: 1000, name: "Gold".into(), flags: 0 });
-        let utxos = vec![(OutPoint { txid: Hash256([5u8; 32]), output_index: 0 }, 1_000_000u64)];
+        // two UTXOs; the first already covers the fee, so only 1 input is selected
+        let utxos = vec![
+            (OutPoint { txid: Hash256([5u8; 32]), output_index: 0 }, 1_000_000u64),
+            (OutPoint { txid: Hash256([6u8; 32]), output_index: 1 }, 2_000_000u64),
+        ];
         let tx = build_unsigned_asset_tx(&op, "txm1uyy0sfm07p47f8dy0mvdtwfefya8w5y2qr0q8p", &utxos, 10_000).expect("build ok");
+        assert_eq!(tx.inputs.len(), 1, "selects only enough UTXOs to cover the fee");
         assert!(tx.inputs.iter().all(|i| i.signature_script.is_empty()), "must be unsigned");
         match extract_asset_op(&tx).expect("has asset op") {
             AssetOp::Issue(d) => { assert_eq!(d.ticker, "GOLD"); assert_eq!(d.supply, 1000); }
@@ -1614,14 +1619,20 @@ fn build_unsigned_asset_tx(
     utxos: &[(tensorium_core::block::OutPoint, u64)],
     fee_atoms: u64,
 ) -> Result<Transaction, String> {
-    let total_in: u64 = utxos.iter().map(|(_, v)| *v).sum();
+    // Select only enough UTXOs to cover the fee (the asset op itself moves no
+    // value) — never spend the creator's entire wallet into one tx.
+    let mut inputs: Vec<TxInput> = Vec::new();
+    let mut total_in = 0u64;
+    for (o, v) in utxos {
+        inputs.push(TxInput { previous_output: *o, signature_script: Vec::new() });
+        total_in = total_in.saturating_add(*v);
+        if total_in >= fee_atoms {
+            break;
+        }
+    }
     if total_in < fee_atoms {
         return Err(format!("insufficient mature balance: have {total_in}, need {fee_atoms}"));
     }
-    let inputs: Vec<TxInput> = utxos
-        .iter()
-        .map(|(o, _)| TxInput { previous_output: *o, signature_script: Vec::new() })
-        .collect();
     let outputs = build_asset_outputs(op, None, creator_addr, total_in, fee_atoms)?;
     Ok(Transaction::payment(inputs, outputs))
 }
