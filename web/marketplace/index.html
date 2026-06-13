@@ -5,8 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Tensorium Marketplace — Native On-Chain Assets (TXM20 + NFT)</title>
 <meta name="description" content="The native Tensorium asset marketplace. Issue TXM20 tokens and NFTs as an on-chain OP_RETURN overlay, browse balances and ownership reconstructed by an open indexer, and trade them trustlessly with atomic co-signed settlement.">
-<link rel="stylesheet" href="assets/core.css?v=3">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 3l11 6.4v13L16 29 5 22.4v-13z' fill='none' stroke='%234C88FF' stroke-width='1.5'/%3E%3Ccircle cx='16' cy='16' r='3' fill='%234C88FF'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="assets/core.css?v=4">
+<link rel="icon" href="assets/tensorium-mark-v2.svg" type="image/svg+xml">
 <style>
 /* ── Marketplace-specific (built on core.css design tokens) ─────────────── */
 .mk-hero { padding-top: clamp(44px,6vw,76px); padding-bottom: clamp(36px,5vw,60px); }
@@ -74,11 +74,7 @@ footer.mk .copy { font-family: var(--font-mono); font-size: .72rem; color: var(-
 <nav class="nav">
   <div class="nav-inner">
     <a class="brand" href="https://tensoriumlabs.com">
-      <svg width="30" height="30" viewBox="0 0 32 32" fill="none" aria-hidden="true">
-        <path d="M16 3l11 6.4v13L16 29 5 22.4v-13z" stroke="#4C88FF" stroke-width="1.6"/>
-        <path d="M16 3v13M16 16l11-6.6M16 16L5 9.4" stroke="rgba(76,136,255,.35)" stroke-width="1"/>
-        <circle cx="16" cy="16" r="3.2" fill="#4C88FF"/>
-      </svg>
+      <img class="brand-mark" src="assets/tensorium-mark-v2.svg" alt="Tensorium">
       <span class="brand-name">Tensorium<span class="sub">·</span></span>
     </a>
     <div class="nav-links">
@@ -229,6 +225,10 @@ txmwallet broadcast</code>
 const API = '/api';
 const $ = id => document.getElementById(id);
 const short = h => h ? h.slice(0,10) + '…' + h.slice(-6) : '';
+// Escape any indexer-provided string before it touches innerHTML. Asset ticker
+// and name are user-controlled at mint time (txmwallet asset-issue) with no
+// on-chain charset constraint, so an unescaped ticker = stored XSS on this domain.
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
 async function jget(path){
   const r = await fetch(API + path, { headers: { 'accept':'application/json' } });
@@ -259,8 +259,8 @@ async function loadAssets(){
     if(!list.length){ $('assetEmpty').hidden = false; return; }
     el.innerHTML = list.map(a => `
       <div class="card asset-card">
-        <div class="tick">${(a.ticker||'NFT')} <span class="tag">${a.kind==='nft'?'NFT':'TXM20'}</span></div>
-        <div class="id">${a.asset_id}</div>
+        <div class="tick">${esc(a.ticker||'NFT')} <span class="tag">${a.kind==='nft'?'NFT':'TXM20'}</span></div>
+        <div class="id">${esc(a.asset_id)}</div>
         <div class="row"><span>Supply</span><span>${(a.supply??0).toLocaleString()}</span></div>
         <div class="row"><span>Royalty</span><span>${((a.royalty_bps||0)/100).toFixed(2)}%</span></div>
         <div class="row"><span>Minted @</span><span>#${a.mint_height??'—'}</span></div>
