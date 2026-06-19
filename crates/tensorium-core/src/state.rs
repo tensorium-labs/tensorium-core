@@ -42,14 +42,8 @@ fn cf_options() -> Vec<ColumnFamilyDescriptor> {
 }
 
 fn open_rocksdb(path: &Path) -> DB {
-    let db = try_open_rocksdb(path)
-        .unwrap_or_else(|e| panic!("Failed to open RocksDB at {}: {e}", path.display()));
-    for cf_name in [CF_BLOCKS, CF_CANONICAL, CF_META, CF_UTXO] {
-        if let Some(cf) = db.cf_handle(cf_name) {
-            db.compact_range_cf(cf, None::<&[u8]>, None::<&[u8]>);
-        }
-    }
-    db
+    try_open_rocksdb(path)
+        .unwrap_or_else(|e| panic!("Failed to open RocksDB at {}: {e}", path.display()))
 }
 
 /// Try to open RocksDB, retrying on transient lock contention.
@@ -98,6 +92,14 @@ pub struct ChainState {
 }
 
 impl ChainState {
+    pub fn compact(&self) {
+        for cf_name in [CF_BLOCKS, CF_CANONICAL, CF_META, CF_UTXO] {
+            if let Some(cf) = self.db.cf_handle(cf_name) {
+                self.db.compact_range_cf(cf, None::<&[u8]>, None::<&[u8]>);
+            }
+        }
+    }
+
     /// Create an in-memory (tempdir) instance — for tests only.
     pub fn new() -> Self {
         let dir = TempDir::new().expect("tempdir");

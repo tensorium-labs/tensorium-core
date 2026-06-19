@@ -150,6 +150,24 @@ fn run() -> Result<(), String> {
 
             println!("tensorium mainnet daemon  rpc={rpc_bind}  p2p={p2p_bind}");
 
+            // Background compaction: periodically compact RocksDB to merge
+            // SST files created by per-request DB opens.
+            let compact_path = state_path.clone();
+            thread::spawn(move || {
+                let db_path: std::path::PathBuf =
+                    if compact_path.extension().map(|e| e == "json").unwrap_or(false) {
+                        compact_path.with_extension("db")
+                    } else {
+                        compact_path.to_path_buf()
+                    };
+                loop {
+                    thread::sleep(Duration::from_secs(60));
+                    if let Ok(state) = ChainState::try_open_db(&db_path) {
+                        state.compact();
+                    }
+                }
+            });
+
             let rpc_state = state_path.clone();
             let rpc_mempool = mempool_path.clone();
             let rpc_handle = thread::spawn(move || {
