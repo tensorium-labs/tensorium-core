@@ -1,0 +1,13 @@
+{
+  "network": "op-mainnet",
+  "chainId": 10,
+  "timestamp": "2026-06-19T13:14:03.149Z",
+  "version": "tensorhash-v1",
+  "deployer": "0x15a8A0A259417ba0fFE92488FF09D458BE6ef9EB",
+  "owner": "0x15a8A0A259417ba0fFE92488FF09D458BE6ef9EB",
+  "operator": "0x15a8A0A259417ba0fFE92488FF09D458BE6ef9EB",
+  "pauser": "0x15a8A0A259417ba0fFE92488FF09D458BE6ef9EB",
+  "maxPerTx": "1000000",
+  "WrappedTensorium": "0x4EC59b2ED22645B2c62380C43cE3a732F7827b20",
+  "TensoriumBridgeController": "0x4DaA17B88AF791b9642bB2c96EB26FbAEE13afD1"
+}

@@ -1,0 +1,547 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Tensorium Bridge — TXM ↔ wTXM</title>
+<meta name="description" content="Bridge TXM between Tensorium and Optimism (wTXM). Connect wallets, deposit and withdraw automatically.">
+<link rel="icon" href="/assets/tensorium-mark.svg" type="image/svg+xml">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#05070D;--surface:#0d1117;--card:#161b22;--border:#21262d;
+  --text:#e6edf3;--muted:#8b949e;--dim:#484f58;
+  --cyan:#22d3ee;--cyan-dim:rgba(34,211,238,.12);--cyan-glow:rgba(34,211,238,.25);
+  --green:#34d399;--green-dim:rgba(52,211,153,.12);
+  --red:#f87171;--red-dim:rgba(248,113,113,.12);
+  --orange:#fb923c;
+}
+body{font-family:Inter,system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden}
+a{color:var(--cyan);text-decoration:none}
+a:hover{text-decoration:underline}
+
+.shell{width:min(520px,calc(100% - 32px));margin:0 auto}
+
+/* Nav */
+.nav{display:flex;align-items:center;justify-content:space-between;padding:20px 0;border-bottom:1px solid var(--border)}
+.brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:15px;color:var(--text)}
+.brand img{width:28px;height:28px}
+.nav-links{display:flex;gap:16px;font-size:13px}
+.nav-links a{color:var(--muted)}
+.nav-links a:hover{color:var(--cyan)}
+
+/* Wallet bar */
+.wallet-bar{display:flex;gap:10px;margin:20px 0 16px;flex-wrap:wrap}
+.wallet-btn{flex:1;min-width:200px;display:flex;align-items:center;gap:10px;padding:12px 16px;background:var(--card);border:1px solid var(--border);border-radius:12px;cursor:pointer;color:var(--text);font-size:13px;transition:border-color .2s}
+.wallet-btn:hover{border-color:var(--cyan)}
+.wallet-btn.connected{border-color:var(--green);background:var(--green-dim)}
+.wallet-btn .dot{width:8px;height:8px;border-radius:50%;background:var(--dim);flex-shrink:0}
+.wallet-btn.connected .dot{background:var(--green)}
+.wallet-btn .label{font-weight:600;font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
+.wallet-btn .addr{font-family:'SF Mono',Consolas,monospace;font-size:12px;color:var(--text)}
+.wallet-btn .bal{font-size:11px;color:var(--muted);margin-top:2px}
+.wallet-btn .install-hint{font-size:11px;color:var(--orange)}
+
+/* Tabs */
+.tabs{display:flex;gap:4px;background:var(--surface);border-radius:10px;padding:4px;margin-bottom:16px}
+.tab{flex:1;padding:10px;text-align:center;border-radius:8px;cursor:pointer;font-size:14px;font-weight:600;color:var(--muted);transition:all .2s}
+.tab.active{background:var(--card);color:var(--cyan);box-shadow:0 2px 8px rgba(0,0,0,.3)}
+.tab:hover:not(.active){color:var(--text)}
+
+/* Card */
+.card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:24px}
+
+/* Form */
+.form-group{margin-bottom:16px}
+.form-label{display:block;font-size:12px;font-weight:600;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px}
+.input-wrap{position:relative}
+.input-wrap input{width:100%;padding:12px 14px;padding-right:70px;background:var(--surface);border:1px solid var(--border);border-radius:10px;color:var(--text);font-size:16px;font-family:inherit;outline:none;transition:border-color .2s}
+.input-wrap input:focus{border-color:var(--cyan)}
+.input-wrap input::placeholder{color:var(--dim)}
+.input-wrap .suffix{position:absolute;right:14px;top:50%;transform:translateY(-50%);font-size:13px;font-weight:600;color:var(--muted)}
+.max-btn{position:absolute;right:70px;top:50%;transform:translateY(-50%);background:var(--cyan-dim);color:var(--cyan);border:none;border-radius:6px;padding:4px 8px;font-size:11px;font-weight:700;cursor:pointer}
+
+/* Fee preview */
+.fee-row{display:flex;justify-content:space-between;padding:10px 0;font-size:13px;color:var(--muted);border-top:1px solid var(--border)}
+.fee-row:first-child{border-top:none}
+.fee-row .val{color:var(--text);font-weight:500}
+.fee-row.total{color:var(--text);font-weight:600}
+.fee-row.total .val{color:var(--cyan);font-weight:700}
+.fee-box{background:var(--surface);border-radius:10px;padding:12px 16px;margin:16px 0}
+
+/* Button */
+.btn-primary{width:100%;padding:14px;background:linear-gradient(135deg,#22d3ee,#06b6d4);color:#05070D;font-size:15px;font-weight:700;border:none;border-radius:12px;cursor:pointer;transition:opacity .2s,transform .1s}
+.btn-primary:hover{opacity:.9}
+.btn-primary:active{transform:scale(.98)}
+.btn-primary:disabled{opacity:.4;cursor:not-allowed;transform:none}
+
+/* Status */
+.status-box{margin-top:16px;padding:14px 16px;border-radius:10px;font-size:13px;display:none}
+.status-box.info{background:var(--cyan-dim);color:var(--cyan);display:block;border:1px solid rgba(34,211,238,.2)}
+.status-box.success{background:var(--green-dim);color:var(--green);display:block;border:1px solid rgba(52,211,153,.2)}
+.status-box.error{background:var(--red-dim);color:var(--red);display:block;border:1px solid rgba(248,113,113,.2)}
+.status-box a{color:inherit;text-decoration:underline}
+.spinner{display:inline-block;width:14px;height:14px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:spin .6s linear infinite;vertical-align:middle;margin-right:6px}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* Info section */
+.info-section{margin-top:20px}
+.info-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:12px}
+.info-card h3{font-size:13px;color:var(--cyan);margin-bottom:8px;font-weight:600}
+.info-card p,.info-card li{font-size:12px;color:var(--muted);line-height:1.6}
+.info-card ul{padding-left:18px}
+.info-card .mono{font-family:'SF Mono',Consolas,monospace;font-size:11px;color:var(--text);background:var(--card);padding:6px 10px;border-radius:6px;display:block;margin:6px 0;word-break:break-all;cursor:pointer;transition:background .2s}
+.info-card .mono:hover{background:var(--cyan-dim)}
+
+/* Footer */
+footer{margin-top:40px;padding:20px 0;border-top:1px solid var(--border);text-align:center}
+footer a{color:var(--muted);font-size:12px;margin:0 10px}
+footer a:hover{color:var(--cyan)}
+.footer-note{font-size:11px;color:var(--dim);margin-top:10px}
+
+/* Hidden */
+.hidden{display:none!important}
+
+/* Direction arrow */
+.direction{text-align:center;margin:12px 0;font-size:20px;color:var(--cyan)}
+</style>
+</head>
+<body>
+
+<div class="shell">
+  <nav class="nav">
+    <div class="brand">
+      <img src="/assets/tensorium-mark.svg" alt="TXM">
+      <span>Tensorium Bridge</span>
+    </div>
+    <div class="nav-links">
+      <a href="https://tensoriumlabs.com">Home</a>
+      <a href="https://explorer.tensoriumlabs.com">Explorer</a>
+      <a href="https://docs.tensoriumlabs.com">Docs</a>
+    </div>
+  </nav>
+
+  <!-- Wallet Connection -->
+  <div class="wallet-bar">
+    <div class="wallet-btn" id="txmWalletBtn" onclick="connectTxmWallet()">
+      <div class="dot"></div>
+      <div>
+        <div class="label">Tensorium Wallet</div>
+        <div class="addr" id="txmAddr">Not connected</div>
+        <div class="bal hidden" id="txmBal"></div>
+        <div class="install-hint hidden" id="txmInstallHint">Extension not detected — <a href="https://github.com/tensorium-labs/tensorium-wallet-extension/releases" target="_blank">Install</a></div>
+      </div>
+    </div>
+    <div class="wallet-btn" id="evmWalletBtn" onclick="connectEvmWallet()">
+      <div class="dot"></div>
+      <div>
+        <div class="label">EVM Wallet</div>
+        <div class="addr" id="evmAddr">Not connected</div>
+        <div class="bal hidden" id="evmBal"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tabs -->
+  <div class="tabs">
+    <div class="tab active" id="tabDeposit" onclick="switchTab('deposit')">Deposit (TXM → wTXM)</div>
+    <div class="tab" id="tabWithdraw" onclick="switchTab('withdraw')">Withdraw (wTXM → TXM)</div>
+  </div>
+
+  <!-- Deposit Panel -->
+  <div class="card" id="panelDeposit">
+    <div class="form-group">
+      <div class="form-label">You Send</div>
+      <div class="input-wrap">
+        <input type="number" id="depositAmt" placeholder="0.00" min="0" step="any" oninput="updateDepositPreview()">
+        <button class="max-btn" onclick="setMaxDeposit()">MAX</button>
+        <span class="suffix">TXM</span>
+      </div>
+    </div>
+
+    <div class="direction">↓</div>
+
+    <div class="form-group">
+      <div class="form-label">You Receive (on Optimism)</div>
+      <div class="input-wrap">
+        <input type="text" id="depositReceive" placeholder="0.00" readonly disabled>
+        <span class="suffix">wTXM</span>
+      </div>
+    </div>
+
+    <div class="fee-box" id="depositFeeBox">
+      <div class="fee-row"><span>Bridge Fee</span><span class="val" id="depositFeePercent">2.5%</span></div>
+      <div class="fee-row"><span>Fee Amount</span><span class="val" id="depositFeeAmt">0 TXM</span></div>
+      <div class="fee-row"><span>Confirmations Required</span><span class="val">12 blocks (~12 min)</span></div>
+      <div class="fee-row total"><span>You Receive</span><span class="val" id="depositNetAmt">0 wTXM</span></div>
+    </div>
+
+    <button class="btn-primary" id="depositBtn" onclick="doDeposit()" disabled>Connect Both Wallets to Deposit</button>
+    <div id="depositStatus" class="status-box"></div>
+  </div>
+
+  <!-- Withdraw Panel -->
+  <div class="card hidden" id="panelWithdraw">
+    <div class="form-group">
+      <div class="form-label">You Burn (on Optimism)</div>
+      <div class="input-wrap">
+        <input type="number" id="withdrawAmt" placeholder="0.00" min="0" step="any" oninput="updateWithdrawPreview()">
+        <button class="max-btn" onclick="setMaxWithdraw()">MAX</button>
+        <span class="suffix">wTXM</span>
+      </div>
+    </div>
+
+    <div class="direction">↓</div>
+
+    <div class="form-group">
+      <div class="form-label">You Receive (on Tensorium)</div>
+      <div class="input-wrap">
+        <input type="text" id="withdrawReceive" placeholder="0.00" readonly disabled>
+        <span class="suffix">TXM</span>
+      </div>
+    </div>
+
+    <div class="fee-box" id="withdrawFeeBox">
+      <div class="fee-row"><span>Bridge Fee</span><span class="val" id="withdrawFeePercent">2.5%</span></div>
+      <div class="fee-row"><span>Fee Amount</span><span class="val" id="withdrawFeeAmt">0 wTXM</span></div>
+      <div class="fee-row"><span>Estimated Time</span><span class="val">~15 min</span></div>
+      <div class="fee-row total"><span>You Receive</span><span class="val" id="withdrawNetAmt">0 TXM</span></div>
+    </div>
+
+    <button class="btn-primary" id="withdrawBtn" onclick="doWithdraw()" disabled>Connect Both Wallets to Withdraw</button>
+    <div id="withdrawStatus" class="status-box"></div>
+  </div>
+
+  <!-- Info -->
+  <div class="info-section">
+    <div class="info-card">
+      <h3>Contracts (Optimism Mainnet)</h3>
+      <p>wTXM Token (ERC-20)</p>
+      <span class="mono" onclick="copyText(this)" title="Click to copy">0x4EC59b2ED22645B2c62380C43cE3a732F7827b20</span>
+      <p>Bridge Controller</p>
+      <span class="mono" onclick="copyText(this)" title="Click to copy">0x4DaA17B88AF791b9642bB2c96EB26FbAEE13afD1</span>
+      <p>Custody Address (Tensorium)</p>
+      <span class="mono" onclick="copyText(this)" title="Click to copy">txm1rskxhs84t84z8hs7cq9judq3urqclmrmat0935</span>
+    </div>
+    <div class="info-card">
+      <h3>Risk Disclosure</h3>
+      <ul>
+        <li>TXM is held in custody during transit. Loss of custody keys = loss of funds.</li>
+        <li>2.5% bridge fee applied on both deposit and withdrawal.</li>
+        <li>wTXM is not listed on any exchange. No guaranteed liquidity.</li>
+        <li>Use conservative amounts. Verify addresses before every transfer.</li>
+      </ul>
+    </div>
+  </div>
+
+  <footer>
+    <div>
+      <a href="https://tensoriumlabs.com">Home</a>
+      <a href="https://explorer.tensoriumlabs.com">Explorer</a>
+      <a href="https://marketplace.tensoriumlabs.com">Marketplace</a>
+      <a href="https://pooltxm.tensoriumlabs.com">Pool</a>
+      <a href="https://github.com/tensorium-labs/tensorium-core" target="_blank">GitHub</a>
+    </div>
+    <p class="footer-note">Tensorium Bridge is live on Optimism mainnet. Bridge at your own risk. Not financial advice.</p>
+  </footer>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/ethers@6.13.4/dist/ethers.umd.min.js"></script>
+<script>
+const { BrowserProvider, Contract, parseEther, formatEther } = ethers;
+
+const CUSTODY = "txm1rskxhs84t84z8hs7cq9judq3urqclmrmat0935";
+const BRIDGE_API = "https://bridge-api.tensoriumlabs.com";
+const NODE_RPC = "https://rpc.tensoriumlabs.com";
+const CONTROLLER_ADDR = "0x4DaA17B88AF791b9642bB2c96EB26FbAEE13afD1";
+const TOKEN_ADDR = "0x4EC59b2ED22645B2c62380C43cE3a732F7827b20";
+const OP_CHAIN_ID = 10;
+const ATOMS_PER_TXM = 1e8;
+
+const CONTROLLER_ABI = [
+  "function requestWithdrawalToTensorium(string tensoriumAddress, uint256 amount) external",
+];
+const TOKEN_ABI = [
+  "function balanceOf(address) view returns (uint256)",
+];
+
+let state = {
+  txmAddr: null,
+  txmBalanceAtoms: 0,
+  evmAddr: null,
+  evmProvider: null,
+  evmSigner: null,
+  wTxmBalance: 0n,
+  feeBps: 250,
+};
+
+// Fetch fee from API
+async function fetchFee() {
+  try {
+    const r = await fetch(`${BRIDGE_API}/fee`);
+    const d = await r.json();
+    state.feeBps = d.feeBps || 250;
+    const pct = (state.feeBps / 100).toFixed(1) + "%";
+    document.getElementById("depositFeePercent").textContent = pct;
+    document.getElementById("withdrawFeePercent").textContent = pct;
+  } catch {}
+}
+fetchFee();
+
+// Wallet: Tensorium Extension
+window.connectTxmWallet = async function() {
+  if (!window.tensorium?.isInstalled) {
+    document.getElementById("txmInstallHint").classList.remove("hidden");
+    return;
+  }
+  try {
+    const addr = await window.tensorium.requestAccounts();
+    state.txmAddr = typeof addr === "string" ? addr : addr[0];
+    document.getElementById("txmAddr").textContent = truncate(state.txmAddr);
+    document.getElementById("txmWalletBtn").classList.add("connected");
+    await refreshTxmBalance();
+    updateButtons();
+  } catch (e) {
+    showStatus("depositStatus", "error", "Failed to connect TXM wallet: " + e.message);
+  }
+};
+
+async function refreshTxmBalance() {
+  if (!state.txmAddr) return;
+  try {
+    const r = await fetch(`${NODE_RPC}/getutxos/${state.txmAddr}`);
+    const d = await r.json();
+    const mature = (d.utxos || []).filter(u => u.mature);
+    state.txmBalanceAtoms = mature.reduce((s, u) => s + u.value_atoms, 0);
+    const bal = (state.txmBalanceAtoms / ATOMS_PER_TXM).toFixed(4);
+    document.getElementById("txmBal").textContent = bal + " TXM";
+    document.getElementById("txmBal").classList.remove("hidden");
+  } catch {}
+}
+
+// Wallet: EVM (MetaMask / OKX / etc)
+window.connectEvmWallet = async function() {
+  const ethereum = window.ethereum;
+  if (!ethereum) {
+    showStatus("depositStatus", "error", "No EVM wallet detected. Install MetaMask or OKX Wallet.");
+    return;
+  }
+  try {
+    const provider = new BrowserProvider(ethereum);
+    const accounts = await provider.send("eth_requestAccounts", []);
+    state.evmAddr = accounts[0];
+    state.evmProvider = provider;
+    state.evmSigner = await provider.getSigner();
+
+    // Switch to Optimism if needed
+    try {
+      await ethereum.request({ method: "wallet_switchEthereumChain", params: [{ chainId: "0xa" }] });
+    } catch (switchErr) {
+      if (switchErr.code === 4902) {
+        await ethereum.request({
+          method: "wallet_addEthereumChain",
+          params: [{
+            chainId: "0xa", chainName: "OP Mainnet",
+            rpcUrls: ["https://mainnet.optimism.io"],
+            nativeCurrency: { name: "ETH", symbol: "ETH", decimals: 18 },
+            blockExplorerUrls: ["https://optimistic.etherscan.io"],
+          }],
+        });
+      }
+    }
+
+    document.getElementById("evmAddr").textContent = truncate(state.evmAddr);
+    document.getElementById("evmWalletBtn").classList.add("connected");
+    await refreshWtxmBalance();
+    updateButtons();
+  } catch (e) {
+    showStatus("depositStatus", "error", "Failed to connect EVM wallet: " + e.message);
+  }
+};
+
+async function refreshWtxmBalance() {
+  if (!state.evmAddr || !state.evmProvider) return;
+  try {
+    const token = new Contract(TOKEN_ADDR, TOKEN_ABI, state.evmProvider);
+    state.wTxmBalance = await token.balanceOf(state.evmAddr);
+    const bal = formatEther(state.wTxmBalance);
+    document.getElementById("evmBal").textContent = parseFloat(bal).toFixed(4) + " wTXM";
+    document.getElementById("evmBal").classList.remove("hidden");
+  } catch {}
+}
+
+// Tab switching
+window.switchTab = function(tab) {
+  document.getElementById("tabDeposit").classList.toggle("active", tab === "deposit");
+  document.getElementById("tabWithdraw").classList.toggle("active", tab === "withdraw");
+  document.getElementById("panelDeposit").classList.toggle("hidden", tab !== "deposit");
+  document.getElementById("panelWithdraw").classList.toggle("hidden", tab !== "withdraw");
+};
+
+// Fee calculation
+function calcFee(amount) {
+  const fee = amount * state.feeBps / 10000;
+  return { fee, net: amount - fee };
+}
+
+// Deposit preview
+window.updateDepositPreview = function() {
+  const amt = parseFloat(document.getElementById("depositAmt").value) || 0;
+  const { fee, net } = calcFee(amt);
+  document.getElementById("depositReceive").value = net > 0 ? net.toFixed(4) : "";
+  document.getElementById("depositFeeAmt").textContent = fee.toFixed(4) + " TXM";
+  document.getElementById("depositNetAmt").textContent = net.toFixed(4) + " wTXM";
+};
+
+window.setMaxDeposit = function() {
+  if (state.txmBalanceAtoms > 0) {
+    const maxTxm = state.txmBalanceAtoms / ATOMS_PER_TXM;
+    document.getElementById("depositAmt").value = maxTxm.toFixed(4);
+    updateDepositPreview();
+  }
+};
+
+// Withdraw preview
+window.updateWithdrawPreview = function() {
+  const amt = parseFloat(document.getElementById("withdrawAmt").value) || 0;
+  const { fee, net } = calcFee(amt);
+  document.getElementById("withdrawReceive").value = net > 0 ? net.toFixed(4) : "";
+  document.getElementById("withdrawFeeAmt").textContent = fee.toFixed(4) + " wTXM";
+  document.getElementById("withdrawNetAmt").textContent = net.toFixed(4) + " TXM";
+};
+
+window.setMaxWithdraw = function() {
+  if (state.wTxmBalance > 0n) {
+    const max = parseFloat(formatEther(state.wTxmBalance));
+    document.getElementById("withdrawAmt").value = max.toFixed(4);
+    updateWithdrawPreview();
+  }
+};
+
+// Deposit action
+window.doDeposit = async function() {
+  if (!state.txmAddr || !state.evmAddr) return;
+  const amt = parseFloat(document.getElementById("depositAmt").value);
+  if (!amt || amt <= 0) { showStatus("depositStatus", "error", "Enter a valid amount"); return; }
+  const atoms = Math.floor(amt * ATOMS_PER_TXM);
+  if (atoms > state.txmBalanceAtoms) { showStatus("depositStatus", "error", "Insufficient TXM balance"); return; }
+
+  const btn = document.getElementById("depositBtn");
+  btn.disabled = true;
+  btn.textContent = "Confirm in TXM Wallet...";
+  showStatus("depositStatus", "info", '<span class="spinner"></span> Waiting for TXM Wallet confirmation...');
+
+  try {
+    // Send TXM to custody via extension
+    const result = await window.tensorium.sendTransaction(CUSTODY, atoms);
+    const txid = typeof result === "string" ? result : (result?.txid || result?.hash || JSON.stringify(result));
+
+    showStatus("depositStatus", "info",
+      '<span class="spinner"></span> TXM sent! txid: ' + txid.slice(0, 16) + '... Registering deposit intent...');
+
+    // Register deposit intent with bridge API
+    try {
+      await fetch(`${BRIDGE_API}/deposit-intent`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          txid: txid.replace(/^0x/, ""),
+          amount_atoms: atoms,
+          recipient: state.evmAddr,
+        }),
+      });
+    } catch {}
+
+    showStatus("depositStatus", "success",
+      'Deposit submitted! TXM txid: <a href="https://explorer.tensoriumlabs.com/tx/' + txid + '" target="_blank">' + txid.slice(0, 20) + '...</a><br>' +
+      'wTXM will be minted to your Optimism address after 12 confirmations (~12 min).');
+
+    await refreshTxmBalance();
+  } catch (e) {
+    showStatus("depositStatus", "error", "Deposit failed: " + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Deposit TXM → wTXM";
+  }
+};
+
+// Withdraw action
+window.doWithdraw = async function() {
+  if (!state.txmAddr || !state.evmAddr || !state.evmSigner) return;
+  const amt = parseFloat(document.getElementById("withdrawAmt").value);
+  if (!amt || amt <= 0) { showStatus("withdrawStatus", "error", "Enter a valid amount"); return; }
+  const amtWei = parseEther(amt.toString());
+  if (amtWei > state.wTxmBalance) { showStatus("withdrawStatus", "error", "Insufficient wTXM balance"); return; }
+
+  const btn = document.getElementById("withdrawBtn");
+  btn.disabled = true;
+
+  try {
+    // bridgeBurnFrom bypasses ERC20 allowance — no approve needed
+    btn.textContent = "Confirm withdrawal...";
+    showStatus("withdrawStatus", "info", '<span class="spinner"></span> Confirm withdrawal in your EVM wallet...');
+
+    const controller = new Contract(CONTROLLER_ADDR, CONTROLLER_ABI, state.evmSigner);
+    const tx = await controller.requestWithdrawalToTensorium(state.txmAddr, amtWei);
+
+    showStatus("withdrawStatus", "info",
+      '<span class="spinner"></span> Withdrawal tx submitted! <a href="https://optimistic.etherscan.io/tx/' + tx.hash + '" target="_blank">View on Etherscan</a>. Waiting for confirmation...');
+
+    await tx.wait();
+
+    showStatus("withdrawStatus", "success",
+      'Withdrawal confirmed! <a href="https://optimistic.etherscan.io/tx/' + tx.hash + '" target="_blank">View on Etherscan</a><br>' +
+      'The relayer will release TXM to ' + truncate(state.txmAddr) + ' within ~15 minutes.');
+
+    await refreshWtxmBalance();
+  } catch (e) {
+    const msg = e.reason || e.message || String(e);
+    showStatus("withdrawStatus", "error", "Withdrawal failed: " + msg);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Withdraw wTXM → TXM";
+  }
+};
+
+// Helpers
+function updateButtons() {
+  const both = state.txmAddr && state.evmAddr;
+  const depBtn = document.getElementById("depositBtn");
+  const witBtn = document.getElementById("withdrawBtn");
+  depBtn.disabled = !both;
+  witBtn.disabled = !both;
+  if (both) {
+    depBtn.textContent = "Deposit TXM → wTXM";
+    witBtn.textContent = "Withdraw wTXM → TXM";
+  }
+}
+
+function truncate(addr) {
+  if (!addr) return "";
+  if (addr.length <= 16) return addr;
+  return addr.slice(0, 10) + "..." + addr.slice(-6);
+}
+
+function showStatus(id, type, html) {
+  const el = document.getElementById(id);
+  el.className = "status-box " + type;
+  el.innerHTML = html;
+}
+
+window.copyText = function(el) {
+  navigator.clipboard.writeText(el.textContent.trim()).then(() => {
+    const orig = el.style.borderColor;
+    el.style.background = "var(--cyan-dim)";
+    setTimeout(() => el.style.background = "", 800);
+  });
+};
+
+// Auto-connect on account change
+if (window.ethereum) {
+  window.ethereum.on?.("accountsChanged", () => { location.reload(); });
+  window.ethereum.on?.("chainChanged", () => { location.reload(); });
+}
+</script>
+
+</body>
+</html>

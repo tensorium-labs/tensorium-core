@@ -20,18 +20,36 @@ use crate::{
     validation::{validate_block, ValidationError},
 };
 
+fn tuned_cf_options() -> Options {
+    let mut opts = Options::default();
+    opts.set_write_buffer_size(4 * 1024 * 1024);
+    opts.set_max_write_buffer_number(2);
+    opts.set_level_zero_file_num_compaction_trigger(2);
+    opts.set_level_zero_slowdown_writes_trigger(8);
+    opts.set_level_zero_stop_writes_trigger(12);
+    opts.set_target_file_size_base(16 * 1024 * 1024);
+    opts.set_max_bytes_for_level_base(64 * 1024 * 1024);
+    opts
+}
+
 fn cf_options() -> Vec<ColumnFamilyDescriptor> {
     vec![
-        ColumnFamilyDescriptor::new(CF_BLOCKS,    Options::default()),
-        ColumnFamilyDescriptor::new(CF_CANONICAL, Options::default()),
-        ColumnFamilyDescriptor::new(CF_META,      Options::default()),
-        ColumnFamilyDescriptor::new(CF_UTXO,      Options::default()),
+        ColumnFamilyDescriptor::new(CF_BLOCKS,    tuned_cf_options()),
+        ColumnFamilyDescriptor::new(CF_CANONICAL, tuned_cf_options()),
+        ColumnFamilyDescriptor::new(CF_META,      tuned_cf_options()),
+        ColumnFamilyDescriptor::new(CF_UTXO,      tuned_cf_options()),
     ]
 }
 
 fn open_rocksdb(path: &Path) -> DB {
-    try_open_rocksdb(path)
-        .unwrap_or_else(|e| panic!("Failed to open RocksDB at {}: {e}", path.display()))
+    let db = try_open_rocksdb(path)
+        .unwrap_or_else(|e| panic!("Failed to open RocksDB at {}: {e}", path.display()));
+    for cf_name in [CF_BLOCKS, CF_CANONICAL, CF_META, CF_UTXO] {
+        if let Some(cf) = db.cf_handle(cf_name) {
+            db.compact_range_cf(cf, None::<&[u8]>, None::<&[u8]>);
+        }
+    }
+    db
 }
 
 /// Try to open RocksDB, retrying on transient lock contention.
@@ -42,6 +60,11 @@ pub fn try_open_rocksdb(path: &Path) -> Result<DB, String> {
     let mut opts = Options::default();
     opts.create_if_missing(true);
     opts.create_missing_column_families(true);
+    opts.set_write_buffer_size(4 * 1024 * 1024);
+    opts.set_max_write_buffer_number(2);
+    opts.set_level_zero_file_num_compaction_trigger(2);
+    opts.set_level_zero_slowdown_writes_trigger(8);
+    opts.set_level_zero_stop_writes_trigger(12);
     let mut wait_ms = 10u64;
     for _ in 0..30 {
         match DB::open_cf_descriptors(&opts, path, cf_options()) {
